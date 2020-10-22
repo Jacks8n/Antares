@@ -1,11 +1,20 @@
 ﻿using UnityEngine;
 using UnityEngine.Rendering;
 
-[CreateAssetMenu(menuName = "Rendering/ARenderPipelineAsset")]
-public class ARenderPipelineAsset : RenderPipelineAsset
+namespace Antares.Graphics
 {
-    protected override RenderPipeline CreatePipeline()
+    [CreateAssetMenu(menuName = "Rendering/ARenderPipelineAsset")]
+    public class ARenderPipelineAsset : RenderPipelineAsset
     {
-        return new ARenderPipeline();
+        [SerializeField, InspectorName("Ray Marching")]
+        private Material _rayMarchingMat;
+
+        protected override RenderPipeline CreatePipeline()
+        {
+            Debug.Assert(_rayMarchingMat);
+
+            Resolution resolution = Screen.currentResolution;
+            return new ARenderPipeline(resolution.width, resolution.height, _rayMarchingMat);
+        }
     }
 }
