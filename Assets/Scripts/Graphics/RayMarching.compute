@@ -1,0 +1,50 @@
+﻿#pragma kernel RayMarching
+
+struct SDFRayMarchingParameters
+{
+    float4 SceneBound0;
+    float2 SceneBound1;
+    float4 CameraU;
+    float4 CameraV;
+    float4 CameraPos;
+};
+
+SamplerState SDFSampler_Linear_Clamp
+{
+};
+StructuredBuffer<SDFRayMarchingParameters> RMParams;
+Texture3D<float> SceneVolume;
+
+RWTexture2D<float4> SceneRM0;
+
+float4 sample_sdf(float3 o, float3 d)
+{
+    float t = 0;
+    
+    for (int i = 0; i < 32; i++)
+    {
+        float sdf = SceneVolume.SampleLevel(SDFSampler_Linear_Clamp, d * t + o, 0);
+       
+        t += sdf;
+        if (t < 0.001)
+            break;
+    }
+    
+    return float4(d * t + o, t);
+}
+
+[numthreads(8, 8, 1)]
+void RayMarching(uint3 id : SV_DispatchThreadID)
+{
+    SDFRayMarchingParameters rmp = RMParams[0];
+    
+    float3 o = float3(rmp.CameraU.w, rmp.CameraV.w, rmp.CameraPos.w);
+    o += rmp.CameraU.xyz * id.x;
+    o += rmp.CameraV.xyz * id.y;
+    
+    float3 d = normalize(o - rmp.CameraPos.xyz);
+    
+    float4 hit = sample_sdf(o, d);
+
+    SceneRM0[id.xy] = hit.wxyz;
+}

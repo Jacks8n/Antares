@@ -1,4 +1,5 @@
-﻿using UnityEngine;
+﻿using Sirenix.OdinInspector;
+using UnityEngine;
 using UnityEngine.Rendering;
 
 namespace Antares.Graphics
@@ -6,15 +7,15 @@ namespace Antares.Graphics
     [CreateAssetMenu(menuName = "Rendering/ARenderPipelineAsset")]
     public class ARenderPipelineAsset : RenderPipelineAsset
     {
-        [SerializeField, InspectorName("Ray Marching")]
-        private Material _rayMarchingMat;
+        [SerializeField, InspectorName("Ray Marching"), Required]
+        private ComputeShader _rayMarchingCS;
+
+        [SerializeField, InspectorName("Shading"), Required]
+        private Shader _shadingShader;
 
         protected override RenderPipeline CreatePipeline()
         {
-            Debug.Assert(_rayMarchingMat);
-
-            Resolution resolution = Screen.currentResolution;
-            return new ARenderPipeline(resolution.width, resolution.height, _rayMarchingMat);
+            return new ARenderPipeline(_rayMarchingCS, _rayMarchingCS.FindKernel("RayMarching"), new Material(_shadingShader));
         }
     }
 }
