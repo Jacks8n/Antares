@@ -80,7 +80,7 @@ namespace Antares.Graphics
             _cameraToWorldMatrix[2] = new Vector4(cameraRight.z, cameraUp.z, cameraPos.z);
             cmd.SetComputeVectorArrayParam(rayMarchingCS, rayMarchingKernel, _cameraToWorldMatrix);
 
-            cmd.SetComputeTextureParam(rayMarchingCS, rayMarchingKernel, _sceneVolumeID, scene.SDF);
+            cmd.SetComputeTextureParam(rayMarchingCS, rayMarchingKernel, _sceneVolumeID, scene.Scene);
             cmd.SetComputeTextureParam(rayMarchingCS, rayMarchingKernel, _gbufferID, new RenderTargetIdentifier(_gbufferID));
             cmd.DispatchCompute(rayMarchingCS, rayMarchingKernel, _width / _rayMarchingKernelWidth, _height / _rayMarchingKernelHeight, 1);
 

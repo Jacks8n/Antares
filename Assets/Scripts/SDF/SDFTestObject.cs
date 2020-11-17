@@ -1,13 +1,8 @@
-﻿using UnityEditor;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System.IO;
 using Sirenix.OdinInspector;
 using Sirenix.OdinInspector.Editor;
+using UnityEditor;
 using UnityEngine;
-using System.IO;
 
 namespace Antares.SDF
 {
@@ -45,15 +40,14 @@ namespace Antares.SDF
                     Debug.LogError($"not supported type: {Type}");
                     break;
             }
-
             Debug.Assert(sdf);
 
-            string path = Path.Combine(SaveTo, nameof(SDFTestObject));
-            string indexedPath = path;
+            string path = SaveTo + Path.DirectorySeparatorChar + nameof(SDFTestObject);
+            string indexedPath = path + ".asset";
             for (int i = 0; File.Exists(indexedPath); i++)
-                indexedPath = path + i;
+                indexedPath = path + i + ".asset";
 
-            AssetDatabase.CreateAsset(sdf, SaveTo);
+            AssetDatabase.CreateAsset(sdf, indexedPath);
             EditorUtility.SetDirty(sdf);
         }
     }

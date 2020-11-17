@@ -6,7 +6,7 @@ namespace Antares.Graphics
     {
         private ARenderLayouts() { }
 
-        public enum Attachments { Depth, GBuffer0, SceneRM0, Max };
+        public enum Attachments { Depth, GBuffer0, SceneRM0, Shading, Max };
 
         public const int AttachmentCount = (int)Attachments.Max;
 
@@ -16,13 +16,15 @@ namespace Antares.Graphics
 
         public const int AttachmentIndex_SceneRM0 = (int)Attachments.SceneRM0;
 
+        public const int AttachmentIndex_Shading = (int)Attachments.Shading;
+
         public const string Binding_SceneSDF = "SceneVolume";
 
-        public const string Binding_Depth = "DepthTexture";
+        public const string Binding_Depth = "Depth";
 
         public const string Binding_GBuffer0 = "GBuffer0";
 
-        public const string Binding_Shading = "ShadingTexture";
+        public const string Binding_Shading = "Shading";
 
         public const string Binding_SceneRM0 = "SceneRM0";
 
@@ -33,6 +35,8 @@ namespace Antares.Graphics
         public static readonly int ID_Depth;
 
         public static readonly int ID_GBuffer0;
+
+        public static readonly int ID_Shading;
 
         public static readonly int ID_SceneRM0;
 
@@ -51,6 +55,7 @@ namespace Antares.Graphics
             ID_SceneSDF = Shader.PropertyToID(Binding_SceneSDF);
             ID_Depth = Shader.PropertyToID(Binding_Depth);
             ID_GBuffer0 = Shader.PropertyToID(Binding_GBuffer0);
+            ID_Shading = Shader.PropertyToID(Binding_Shading);
             ID_SceneRM0 = Shader.PropertyToID(Binding_SceneRM0);
             ID_RMParams = Shader.PropertyToID(Binding_RMParams);
 
@@ -68,8 +73,8 @@ namespace Antares.Graphics
             uint threadX = kernelX * RayMarchingGroupX;
             uint threadY = kernelY * RayMarchingGroupY;
 
-            Debug.Assert(width % threadX != 0);
-            Debug.Assert(height % threadY != 0);
+            if (width % threadX != 0 || height % threadY != 0)
+                Debug.LogWarning("dispath won't cover full screen");
 
             return new Vector3Int(
                 (int)(width / threadX),

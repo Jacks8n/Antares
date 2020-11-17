@@ -1,7 +1,9 @@
 ﻿using System.Runtime.InteropServices;
 using Antares.SDF;
 using Unity.Collections;
+using UnityEditor;
 using UnityEngine;
+using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
 
 using static Antares.Graphics.ARenderLayouts;
@@ -81,35 +83,18 @@ namespace Antares.Graphics
 
         protected override void Render(ScriptableRenderContext context, Camera[] cameras)
         {
-            int GetAttachmentCount() => AttachmentCount + cameras.Length;
-            int GetRenderTargetIndex(int index) => AttachmentCount + index;
-
             CommandBuffer cmd = CommandBufferPool.Get();
+            CommandBuffer cmdCompute = CommandBufferPool.Get();
+            cmdCompute.SetExecutionFlags(CommandBufferExecutionFlags.AsyncCompute);
 
-            int width, height;
-            {
-                Resolution resolution = Screen.currentResolution;
-                width = resolution.width;
-                height = resolution.height;
-
-                cmd.GetTemporaryRT(ID_SceneRM0, new RenderTextureDescriptor(width, height, RenderTextureFormat.ARGB32, 24, 0) { enableRandomWrite = true });
-
-                var attachments = new NativeArray<AttachmentDescriptor>(GetAttachmentCount(), Allocator.Temp);
-                attachments[AttachmentIndex_Depth] = new AttachmentDescriptor(RenderTextureFormat.Depth);
-                attachments[AttachmentIndex_GBuffer0] = new AttachmentDescriptor(RenderTextureFormat.ARGB32);
-                attachments[AttachmentIndex_SceneRM0] = new AttachmentDescriptor(RenderTextureFormat.ARGB32, new RenderTargetIdentifier(ID_SceneRM0));
-                for (int i = 0; i < cameras.Length; i++)
-                {
-                    AttachmentDescriptor attachment = new AttachmentDescriptor();
-                    attachment.ConfigureTarget(cameras[i].targetTexture, loadExistingContents: false, storeResults: true);
-                    attachments[GetRenderTargetIndex(i)] = attachment;
-                }
-                context.BeginRenderPass(width, height, samples: 1, attachments, AttachmentIndex_Depth);
-                attachments.Dispose();
-            }
+            var attachments = new NativeArray<AttachmentDescriptor>(AttachmentCount, Allocator.Temp);
+            attachments[AttachmentIndex_Depth] = new AttachmentDescriptor(RenderTextureFormat.Depth, new RenderTargetIdentifier(ID_Depth));
+            attachments[AttachmentIndex_GBuffer0] = new AttachmentDescriptor(RenderTextureFormat.ARGB32, new RenderTargetIdentifier(ID_GBuffer0));
+            attachments[AttachmentIndex_SceneRM0] = new AttachmentDescriptor(RenderTextureFormat.ARGB32, new RenderTargetIdentifier(ID_SceneRM0));
 
             SDFScene scene = SDFScene.Instance;
             Debug.Assert(scene);
+
             for (int i = 0; i < cameras.Length; i++)
             {
                 Camera camera = cameras[i];
@@ -117,66 +102,25 @@ namespace Antares.Graphics
                 if (!camera.TryGetCullingParameters(out ScriptableCullingParameters cullingParameters))
                     continue;
 
+                int width = camera.pixelWidth, height = camera.pixelHeight;
+
 #if UNITY_EDITOR
                 if (camera.cameraType == CameraType.SceneView)
+                {
                     ScriptableRenderContext.EmitWorldGeometryForSceneView(camera);
+                    width = (int)SceneView.currentDrawingSceneView.position.width;
+                    height = (int)SceneView.currentDrawingSceneView.position.height;
+                }
 #endif
 
                 context.SetupCameraProperties(camera);
 
-                // clear
-                {
-                    CameraClearFlags clearFlags = camera.clearFlags;
-                    if (clearFlags == CameraClearFlags.Skybox)
-                        context.DrawSkybox(camera);
-                    else if (clearFlags != CameraClearFlags.Nothing)
-                        cmd.ClearRenderTarget(
-                            clearDepth: clearFlags == CameraClearFlags.Depth,
-                            clearColor: clearFlags == CameraClearFlags.SolidColor,
-                            camera.backgroundColor);
-                }
-
-                // cull
-                CullingResults cullingResults = context.Cull(ref cullingParameters);
-                SortingSettings sortingSettings = new SortingSettings(camera) {
-                    criteria = SortingCriteria.CommonOpaque
-                };
-                FilteringSettings filteringSettings = new FilteringSettings(RenderQueueRange.opaque);
-
-                // draw opaque mesh depth
-                {
-                    {
-                        var colors = new NativeArray<int>(new int[] { AttachmentIndex_Depth }, Allocator.Temp);
-                        context.BeginSubPass(colors, isDepthReadOnly: false);
-                        colors.Dispose();
-                    }
-
-                    DrawingSettings drawingSettings = new DrawingSettings(new ShaderTagId("Depth"), sortingSettings);
-                    context.DrawRenderers(cullingResults, ref drawingSettings, ref filteringSettings);
-
-                    context.EndRenderPass();
-                }
-
-                // draw opaque mesh
-                {
-                    {
-                        var colors = new NativeArray<int>(new int[] { AttachmentIndex_GBuffer0 }, Allocator.Temp);
-                        var inputs = new NativeArray<int>(new int[] { AttachmentIndex_Depth }, Allocator.Temp);
-                        context.BeginSubPass(colors, isDepthReadOnly: true);
-                        colors.Dispose();
-                        inputs.Dispose();
-                    }
-
-                    DrawingSettings drawingSettings = new DrawingSettings(new ShaderTagId("ForwardBase"), sortingSettings);
-                    context.DrawRenderers(cullingResults, ref drawingSettings, ref filteringSettings);
-
-                    context.EndSubPass();
-                }
-
                 // dispatch ray marching
                 GraphicsFence rmFence;
                 {
-                    cmd.SetComputeTextureParam(_rayMarchingCS, _rayMarchingKernel, ID_SceneRM0, new RenderTargetIdentifier(ID_SceneRM0));
+                    cmdCompute.GetTemporaryRT(ID_SceneRM0, new RenderTextureDescriptor(width, height, RenderTextureFormat.ARGB32, depthBufferBits: 0, mipCount: 0) { enableRandomWrite = true });
+                    cmdCompute.SetComputeTextureParam(_rayMarchingCS, _rayMarchingKernel, ID_SceneRM0, new RenderTargetIdentifier(ID_SceneRM0));
+                    cmdCompute.SetComputeTextureParam(_rayMarchingCS, _rayMarchingKernel, ID_SceneSDF, scene.Scene);
 
                     {
                         SDFRayMarchingParameters rmParams = new SDFRayMarchingParameters();
@@ -186,38 +130,108 @@ namespace Antares.Graphics
                         _rayMarchingParamBuffer.SetData(rmParamData);
                         rmParamData.Dispose();
                     }
-                    cmd.SetComputeBufferParam(_rayMarchingCS, _rayMarchingKernel, ID_RMParams, _rayMarchingParamBuffer);
+                    cmdCompute.SetComputeBufferParam(_rayMarchingCS, _rayMarchingKernel, ID_RMParams, _rayMarchingParamBuffer);
 
                     Vector3Int dispatchGroups = GetRMDispatchGroups(width, height, _rayMarchingKernelX, _rayMarchingKernelY, _rayMarchingKernelZ);
-                    cmd.DispatchCompute(_rayMarchingCS, _rayMarchingKernel, dispatchGroups.x, dispatchGroups.y, dispatchGroups.z);
-                    rmFence = cmd.CreateGraphicsFence(GraphicsFenceType.AsyncQueueSynchronisation, SynchronisationStageFlags.PixelProcessing);
+                    cmdCompute.DispatchCompute(_rayMarchingCS, _rayMarchingKernel, dispatchGroups.x, dispatchGroups.y, dispatchGroups.z);
+                    rmFence = cmdCompute.CreateGraphicsFence(GraphicsFenceType.AsyncQueueSynchronisation, SynchronisationStageFlags.PixelProcessing);
 
-                    context.ExecuteCommandBufferAsync(cmd, ComputeQueueType.Default);
+                    context.ExecuteCommandBufferAsync(cmdCompute, ComputeQueueType.Default);
+                    cmdCompute.Clear();
+                }
+
+                // get render textures and configure attachments
+                {
+                    cmd.GetTemporaryRT(ID_Depth, new RenderTextureDescriptor(width, height, RenderTextureFormat.Depth, depthBufferBits: 32, mipCount: 0));
+                    cmd.GetTemporaryRT(ID_GBuffer0, new RenderTextureDescriptor(width, height, RenderTextureFormat.ARGB32, depthBufferBits: 0, mipCount: 0));
+                    cmd.GetTemporaryRT(ID_Shading, new RenderTextureDescriptor(width, height, RenderTextureFormat.ARGB32, depthBufferBits: 0, mipCount: 0));
+                    context.ExecuteCommandBuffer(cmd);
+                    cmd.Clear();
+
+                    var shadingAttachment = new AttachmentDescriptor(RenderTextureFormat.ARGB32, new RenderTargetIdentifier(ID_Shading));
+                    shadingAttachment.ConfigureTarget(new RenderTargetIdentifier(ID_Shading), loadExistingContents: false, storeResults: true);
+                    shadingAttachment.ConfigureClear(camera.backgroundColor);
+                    attachments[AttachmentIndex_Shading] = shadingAttachment;
+                }
+
+                context.BeginRenderPass(width, height, samples: 1, attachments, AttachmentIndex_Depth);
+
+                // clear
+                {
+                    CameraClearFlags clearFlags = camera.clearFlags;
+                    if (clearFlags == CameraClearFlags.Skybox)
+                    {
+                        {
+                            var colors = new NativeArray<int>(new int[] { AttachmentIndex_Shading }, Allocator.Temp);
+                            context.BeginSubPass(colors, isDepthReadOnly: true);
+                            colors.Dispose();
+                        }
+                        context.DrawSkybox(camera);
+                        context.EndSubPass();
+                    }
+                }
+
+                // cull
+                CullingResults cullingResults = context.Cull(ref cullingParameters);
+                SortingSettings sortingSettings = new SortingSettings(camera) {
+                    criteria = SortingCriteria.CommonOpaque
+                };
+                FilteringSettings filteringSettings = new FilteringSettings(RenderQueueRange.opaque);
+
+                // draw opaque mesh
+                {
+                    {
+                        var colors = new NativeArray<int>(new int[] { AttachmentIndex_GBuffer0 }, Allocator.Temp);
+                        context.BeginSubPass(colors, isDepthReadOnly: false);
+                        colors.Dispose();
+                    }
+
+                    DrawingSettings drawingSettings = new DrawingSettings(new ShaderTagId("ForwardBase"), sortingSettings);
+                    context.DrawRenderers(cullingResults, ref drawingSettings, ref filteringSettings);
+
+                    context.EndSubPass();
                 }
 
                 // combine rasterization and ray marching
                 {
-                    var colors = new NativeArray<int>(new int[] { GetRenderTargetIndex(i) }, Allocator.Temp);
-                    var inputs = new NativeArray<int>(new int[] { AttachmentIndex_GBuffer0, AttachmentIndex_SceneRM0 }, Allocator.Temp);
-                    context.BeginSubPass(colors, inputs, isDepthReadOnly: true);
-                    colors.Dispose();
-                    inputs.Dispose();
+                    {
+                        var colors = new NativeArray<int>(new int[] { AttachmentIndex_Shading }, Allocator.Temp);
+                        var inputs = new NativeArray<int>(new int[] { AttachmentIndex_SceneRM0, AttachmentIndex_GBuffer0 }, Allocator.Temp);
+                        context.BeginSubPass(colors, inputs, isDepthReadOnly: true);
+                        colors.Dispose();
+                        inputs.Dispose();
+                    }
 
                     cmd.WaitOnAsyncGraphicsFence(rmFence, SynchronisationStage.PixelProcessing);
                     cmd.DrawMesh(FullScreenMesh, Matrix4x4.identity, _shadingMat);
                     context.ExecuteCommandBuffer(cmd);
+                    cmd.Clear();
 
                     context.EndSubPass();
                 }
+
+                context.EndRenderPass();
+
+                RenderBuffer rtPresent = camera.targetTexture
+                    ? camera.targetTexture.colorBuffer
+                    : Display.displays[camera.targetDisplay].colorBuffer;
+                cmd.Blit(new RenderTargetIdentifier(ID_Shading), rtPresent);
+
+                cmd.ReleaseTemporaryRT(ID_SceneRM0);
+                cmd.ReleaseTemporaryRT(ID_Shading);
+                cmd.ReleaseTemporaryRT(ID_Depth);
+                cmd.ReleaseTemporaryRT(ID_GBuffer0);
+
+                context.ExecuteCommandBuffer(cmd);
+                cmd.Clear();
             }
 
-            context.EndRenderPass();
-
-            cmd.ReleaseTemporaryRT(ID_SceneRM0);
-            context.ExecuteCommandBuffer(cmd);
             context.Submit();
 
+            attachments.Dispose();
+
             CommandBufferPool.Release(cmd);
+            CommandBufferPool.Release(cmdCompute);
         }
     }
 }
