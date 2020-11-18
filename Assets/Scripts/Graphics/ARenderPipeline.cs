@@ -88,9 +88,12 @@ namespace Antares.Graphics
             cmdCompute.SetExecutionFlags(CommandBufferExecutionFlags.AsyncCompute);
 
             var attachments = new NativeArray<AttachmentDescriptor>(AttachmentCount, Allocator.Temp);
-            attachments[AttachmentIndex_Depth] = new AttachmentDescriptor(RenderTextureFormat.Depth, new RenderTargetIdentifier(ID_Depth));
-            attachments[AttachmentIndex_GBuffer0] = new AttachmentDescriptor(RenderTextureFormat.ARGB32, new RenderTargetIdentifier(ID_GBuffer0));
-            attachments[AttachmentIndex_SceneRM0] = new AttachmentDescriptor(RenderTextureFormat.ARGB32, new RenderTargetIdentifier(ID_SceneRM0));
+            attachments[AttachmentIndex_Depth] = new AttachmentDescriptor(RenderTextureFormat.Depth);
+            attachments[AttachmentIndex_GBuffer0] = new AttachmentDescriptor(RenderTextureFormat.ARGBHalf);
+            attachments[AttachmentIndex_Shading] = new AttachmentDescriptor(RenderTextureFormat.ARGBHalf) {
+                loadStoreTarget = new RenderTargetIdentifier(ID_Shading),
+                storeAction = RenderBufferStoreAction.Store
+            };
 
             SDFScene scene = SDFScene.Instance;
             Debug.Assert(scene);
@@ -140,19 +143,9 @@ namespace Antares.Graphics
                     cmdCompute.Clear();
                 }
 
-                // get render textures and configure attachments
-                {
-                    cmd.GetTemporaryRT(ID_Depth, new RenderTextureDescriptor(width, height, RenderTextureFormat.Depth, depthBufferBits: 32, mipCount: 0));
-                    cmd.GetTemporaryRT(ID_GBuffer0, new RenderTextureDescriptor(width, height, RenderTextureFormat.ARGB32, depthBufferBits: 0, mipCount: 0));
-                    cmd.GetTemporaryRT(ID_Shading, new RenderTextureDescriptor(width, height, RenderTextureFormat.ARGB32, depthBufferBits: 0, mipCount: 0));
-                    context.ExecuteCommandBuffer(cmd);
-                    cmd.Clear();
-
-                    var shadingAttachment = new AttachmentDescriptor(RenderTextureFormat.ARGB32, new RenderTargetIdentifier(ID_Shading));
-                    shadingAttachment.ConfigureTarget(new RenderTargetIdentifier(ID_Shading), loadExistingContents: false, storeResults: true);
-                    shadingAttachment.ConfigureClear(camera.backgroundColor);
-                    attachments[AttachmentIndex_Shading] = shadingAttachment;
-                }
+                cmd.GetTemporaryRT(ID_Shading, new RenderTextureDescriptor(width, height, RenderTextureFormat.ARGBHalf, 0, 0));
+                context.ExecuteCommandBuffer(cmd);
+                cmd.Clear();
 
                 context.BeginRenderPass(width, height, samples: 1, attachments, AttachmentIndex_Depth);
 
@@ -163,7 +156,7 @@ namespace Antares.Graphics
                     {
                         {
                             var colors = new NativeArray<int>(new int[] { AttachmentIndex_Shading }, Allocator.Temp);
-                            context.BeginSubPass(colors, isDepthReadOnly: true);
+                            context.BeginSubPass(colors, isDepthReadOnly: false);
                             colors.Dispose();
                         }
                         context.DrawSkybox(camera);
@@ -173,10 +166,6 @@ namespace Antares.Graphics
 
                 // cull
                 CullingResults cullingResults = context.Cull(ref cullingParameters);
-                SortingSettings sortingSettings = new SortingSettings(camera) {
-                    criteria = SortingCriteria.CommonOpaque
-                };
-                FilteringSettings filteringSettings = new FilteringSettings(RenderQueueRange.opaque);
 
                 // draw opaque mesh
                 {
@@ -186,7 +175,12 @@ namespace Antares.Graphics
                         colors.Dispose();
                     }
 
+                    SortingSettings sortingSettings = new SortingSettings(camera) {
+                        criteria = SortingCriteria.CommonOpaque
+                    };
+                    FilteringSettings filteringSettings = new FilteringSettings(RenderQueueRange.opaque);
                     DrawingSettings drawingSettings = new DrawingSettings(new ShaderTagId("ForwardBase"), sortingSettings);
+
                     context.DrawRenderers(cullingResults, ref drawingSettings, ref filteringSettings);
 
                     context.EndSubPass();
@@ -196,7 +190,7 @@ namespace Antares.Graphics
                 {
                     {
                         var colors = new NativeArray<int>(new int[] { AttachmentIndex_Shading }, Allocator.Temp);
-                        var inputs = new NativeArray<int>(new int[] { AttachmentIndex_SceneRM0, AttachmentIndex_GBuffer0 }, Allocator.Temp);
+                        var inputs = new NativeArray<int>(new int[] { AttachmentIndex_GBuffer0, AttachmentIndex_Depth }, Allocator.Temp);
                         context.BeginSubPass(colors, inputs, isDepthReadOnly: true);
                         colors.Dispose();
                         inputs.Dispose();
@@ -217,11 +211,8 @@ namespace Antares.Graphics
                     : Display.displays[camera.targetDisplay].colorBuffer;
                 cmd.Blit(new RenderTargetIdentifier(ID_Shading), rtPresent);
 
-                cmd.ReleaseTemporaryRT(ID_SceneRM0);
                 cmd.ReleaseTemporaryRT(ID_Shading);
-                cmd.ReleaseTemporaryRT(ID_Depth);
-                cmd.ReleaseTemporaryRT(ID_GBuffer0);
-
+                cmd.ReleaseTemporaryRT(ID_SceneRM0);
                 context.ExecuteCommandBuffer(cmd);
                 cmd.Clear();
             }
