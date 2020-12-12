@@ -11,11 +11,11 @@ namespace Antares.Graphics
         private ComputeShader _rayMarchingCS;
 
         [SerializeField, InspectorName("Shading"), Required]
-        private Shader _shadingShader;
+        private Material _shadingMat;
 
         protected override RenderPipeline CreatePipeline()
         {
-            return new ARenderPipeline(_rayMarchingCS, _rayMarchingCS.FindKernel("RayMarching"), new Material(_shadingShader));
+            return new ARenderPipeline(_rayMarchingCS, _rayMarchingCS.FindKernel("RayMarching"), _shadingMat);
         }
     }
 }

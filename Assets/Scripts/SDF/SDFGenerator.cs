@@ -15,7 +15,7 @@ namespace Antares.SDF
 
         public static Texture3D CreateSDFTexture3D(int sizeX, int sizeY, int sizeZ, Func<Vector3, float> sdf)
         {
-            Texture3D result = new Texture3D(sizeX, sizeY, sizeZ, GraphicsFormat.R8_UNorm, TextureCreationFlags.None, mipCount: 0);
+            Texture3D result = new Texture3D(sizeX, sizeY, sizeZ, GraphicsFormat.R8_SNorm, TextureCreationFlags.None, mipCount: 0);
             NativeArray<byte> values = new NativeArray<byte>(sizeX * sizeY * sizeZ, Allocator.Temp);
             for (int i = 0, index = 0; i < sizeX; i++)
                 for (int j = 0; j < sizeY; j++)

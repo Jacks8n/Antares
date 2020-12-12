@@ -1,50 +1,69 @@
 ﻿#pragma kernel RayMarching
 
-struct SDFRayMarchingParameters
+struct RayMarchingParameters
 {
-    float4 SceneBound0;
-    float2 SceneBound1;
-    float4 CameraU;
-    float4 CameraV;
-    float4 CameraPos;
+    // column 0, 1: dudx, dvdy
+    // column 2: left-bottom-near corner
+    // column 3: position of camera
+    float3x4 UVToScene;
+    
+    // x: 1 / width, y: 1 / height, z: 1 / depth, w: scale
+    float4 SceneTexel;
+    
+    // fourth column is unused
+    float3x4 WorldToSceneT;
 };
 
-SamplerState SDFSampler_Linear_Clamp
-{
-};
-StructuredBuffer<SDFRayMarchingParameters> RMParams;
+SamplerState SDFSampler_Linear_Clamp;
 Texture3D<float> SceneVolume;
-
 RWTexture2D<float4> SceneRM0;
 
-float4 sample_sdf(float3 o, float3 d)
+StructuredBuffer<RayMarchingParameters> RMParams;
+
+inline float sample_sdf(float3 p)
 {
-    float t = 0;
-    
+    return SceneVolume.SampleLevel(SDFSampler_Linear_Clamp, p, 0);
+}
+
+inline float4 sample_pos(float3 o, float3 d, inout float t)
+{
+    float sdf;
+    float3 e;
     for (int i = 0; i < 32; i++)
     {
-        float sdf = SceneVolume.SampleLevel(SDFSampler_Linear_Clamp, d * t + o, 0);
+        e = d * t + o;
+        sdf = sample_sdf(e) * RMParams[0].SceneTexel.w * RMParams[0].SceneTexel.x;
        
         t += sdf;
-        if (t < 0.001)
+        if (t < 0.01)
             break;
     }
     
-    return float4(d * t + o, t);
+    return float4(e, sdf);
 }
 
 [numthreads(8, 8, 1)]
 void RayMarching(uint3 id : SV_DispatchThreadID)
 {
-    SDFRayMarchingParameters rmp = RMParams[0];
+    RayMarchingParameters rmp = RMParams[0];
     
-    float3 o = float3(rmp.CameraU.w, rmp.CameraV.w, rmp.CameraPos.w);
-    o += rmp.CameraU.xyz * id.x;
-    o += rmp.CameraV.xyz * id.y;
+    float3 o = mul(rmp.UVToScene, float4(id.xy, 1.0, 0.0));
+    float3 v = float3(rmp.UVToScene[0][3], rmp.UVToScene[1][3], rmp.UVToScene[2][3]);
+    float3 d = normalize(o - v);
+   
+    float3 invd = 1.0 / d;
+    float3 t0 = -o * invd;
+    float3 t1 = (float3(1.0, 1.0, 1.0) - o) * invd;
+    t0 = min(t0, t1);
     
-    float3 d = normalize(o - rmp.CameraPos.xyz);
+    float t = max(max(t0.x, t0.y), max(t0.z, 0.0));
     
-    float4 hit = sample_sdf(o, d);
-
-    SceneRM0[id.xy] = hit.wxyz;
+    float4 hit = sample_pos(o, d, t);
+    float3 normal;
+    normal.x = sample_sdf(hit.xyz + float3(rmp.SceneTexel.x, 0.0, 0.0));
+    normal.y = sample_sdf(hit.xyz + float3(0.0, rmp.SceneTexel.y, 0.0));
+    normal.z = sample_sdf(hit.xyz + float3(0.0, 0.0, rmp.SceneTexel.z));
+    normal = normalize(mul(rmp.WorldToSceneT, float4(normal - hit.www, 0.0)));
+    
+    SceneRM0[id.xy] = float4(abs(hit.xxx), 1);
 }

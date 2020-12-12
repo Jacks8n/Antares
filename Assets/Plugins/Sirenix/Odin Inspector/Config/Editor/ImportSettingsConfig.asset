@@ -9,8 +9,7 @@ MonoBehaviour:
   m_GameObject: {fileID: 0}
   m_Enabled: 1
   m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: e062296443f1d014383bf1f01def3bd9, type: 3}
-  m_Name: ARenderPipelineAsset
+  m_Script: {fileID: 188390376, guid: a4865f1ab4504ed8a368670db22f409c, type: 3}
+  m_Name: ImportSettingsConfig
   m_EditorClassIdentifier: 
-  _rayMarchingCS: {fileID: 7200000, guid: 3d8ed33ea02b6f54f86149b0ab306ff7, type: 3}
-  _shadingMat: {fileID: 2100000, guid: 7eedcf4b565fb594bb7c70e05883af23, type: 2}
+  automateBeforeBuild: 1
