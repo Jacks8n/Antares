@@ -16,30 +16,93 @@ struct RayMarchingParameters
 
 SamplerState SDFSampler_Linear_Clamp;
 Texture3D<float> SceneVolume;
-RWTexture2D<float4> SceneRM0;
-
 StructuredBuffer<RayMarchingParameters> RMParams;
+RWTexture2D<float4> SceneRM0;
+RWTexture2D<float4> SceneRM1;
+float4 _SinTime;
+float4 _CosTime;
+
+inline bool is_hit(float sdf)
+{
+    return abs(sdf) < 0.001;
+}
+
+inline float smin(float a, float b, float k)
+{
+    float h = max(k - abs(a - b), 0.0) / k;
+    return min(a, b) - h * h * k * (1.0 / 4.0);
+}
+
+inline float sdf_twisted_cuboid(float3 p)
+{
+    p -= float(0.2).xxx;
+    p.xz *= 2.0;
+    
+    float sz, cz;
+    sincos(p.y * 10, sz, cz);
+    p.xz = mul(float2x2(cz, sz, -sz, cz), p.xz);
+    
+    float3 d = abs(p);
+    float sdf = max(max(d.x, d.y), d.z) - 0.15;
+    return sdf * 0.5;
+}
+
+inline float sdf_torus(float3 p, float r0, float r1)
+{
+    p -= float3(0.4, 0.2, 0.2);
+    return length(float2(r0 - length(p.xz), p.y)) - r1;
+}
+
+inline float sdf_sphere(float3 p, float r)
+{
+    p -= float3(0.4 + _CosTime.w * 0.2, 0.2, 0.2 + _SinTime.w * 0.2);
+    return length(p) - r;
+}
 
 inline float sample_sdf(float3 p)
 {
-    return SceneVolume.SampleLevel(SDFSampler_Linear_Clamp, p, 0);
+    float sdf0 = sdf_twisted_cuboid(p);
+    float sdf1 = sdf_torus(p, 0.2, 0.025);
+    float sdf2 = sdf_sphere(p, 0.2);
+    float sdf3 = max(sdf1, -sdf2);
+    float sdf4 = sdf_torus(p, 0.2, 0.04);
+    float sdf5 = sdf_sphere(p, 0.15);
+    float sdf6 = max(sdf4, -sdf5);
+    float sdf7 = max(sdf0, -sdf6);
+    
+    return min(sdf3, sdf7);
+    //return SceneVolume.SampleLevel(SDFSampler_Linear_Clamp, p, 0);
 }
 
-inline float4 sample_pos(float3 o, float3 d, inout float t)
+inline float3 sample_color(float3 p)
 {
-    float sdf;
-    float3 e;
-    for (int i = 0; i < 32; i++)
+    return abs(normalize(sin(p)));
+}
+
+inline void sample_pos(float3 o, float3 d, inout float t, out float3 hit, out float err)
+{
+    float curr, prev = sample_sdf(d * t + o), s;
+    int i;
+    for (i = 0; i < 32; i++)
     {
-        e = d * t + o;
-        sdf = sample_sdf(e) * RMParams[0].SceneTexel.w * RMParams[0].SceneTexel.x;
+        s = prev * 2.0;
+        curr = sample_sdf(d * (t + s) + o);
+        if (curr + prev > abs(s))
+            t += s;
+        else
+        {
+            t += prev;
+            curr = sample_sdf(d * t + o);
+        }
        
-        t += sdf;
-        if (t < 0.01)
+        if (is_hit(curr))
             break;
+        
+        prev = curr;
     }
     
-    return float4(e, sdf);
+    hit = d * t + o;
+    err = curr;
 }
 
 [numthreads(8, 8, 1)]
@@ -58,12 +121,23 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
     
     float t = max(max(t0.x, t0.y), max(t0.z, 0.0));
     
-    float4 hit = sample_pos(o, d, t);
+    float3 hit;
+    float sdf;
+    sample_pos(o, d, t, hit, sdf);
+    if (!is_hit(sdf))
+    {
+        SceneRM0[id.xy] = float(0.0).xxxx;
+        return;
+    }
+    
     float3 normal;
     normal.x = sample_sdf(hit.xyz + float3(rmp.SceneTexel.x, 0.0, 0.0));
     normal.y = sample_sdf(hit.xyz + float3(0.0, rmp.SceneTexel.y, 0.0));
     normal.z = sample_sdf(hit.xyz + float3(0.0, 0.0, rmp.SceneTexel.z));
-    normal = normalize(mul(rmp.WorldToSceneT, float4(normal - hit.www, 0.0)));
+    normal = normalize(mul(rmp.WorldToSceneT, float4(normal - sdf, 0.0)));
     
-    SceneRM0[id.xy] = float4(abs(hit.xxx), 1);
+    float3 color = sample_color(hit);
+    
+    SceneRM0[id.xy] = float4(color, 1.0);
+    SceneRM1[id.xy] = float4(normal, 1.0);
 }
