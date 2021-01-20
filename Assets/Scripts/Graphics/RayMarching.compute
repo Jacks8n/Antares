@@ -1,4 +1,5 @@
-﻿#pragma kernel RayMarching
+﻿#pragma kernel TiledMarching
+#pragma kernel RayMarching
 
 struct RayMarchingParameters
 {
@@ -7,71 +8,36 @@ struct RayMarchingParameters
     // column 3: position of camera
     float3x4 UVToScene;
     
-    // x: 1 / width, y: 1 / height, z: 1 / depth, w: scale
+    // x: 1 / width, y: 1 / height, z: 1 / depth, w: max step
     float4 SceneTexel;
+    
+    // x: width, y: height, z: depth, w: unused
+    float4 SceneSize;
     
     // fourth column is unused
     float3x4 WorldToSceneT;
 };
+
+RWTexture2D<float> TiledRM;
 
 SamplerState SDFSampler_Linear_Clamp;
 Texture3D<float> SceneVolume;
 StructuredBuffer<RayMarchingParameters> RMParams;
 RWTexture2D<float4> SceneRM0;
 RWTexture2D<float4> SceneRM1;
-float4 _SinTime;
-float4 _CosTime;
 
 inline bool is_hit(float sdf)
 {
     return abs(sdf) < 0.001;
 }
 
-inline float smin(float a, float b, float k)
+inline float sample_sdf(float3 pos)
 {
-    float h = max(k - abs(a - b), 0.0) / k;
-    return min(a, b) - h * h * k * (1.0 / 4.0);
-}
-
-inline float sdf_twisted_cuboid(float3 p)
-{
-    p -= float(0.2).xxx;
-    p.xz *= 2.0;
+    float4 texel = RMParams[0].SceneTexel;
+    float3 uvw = pos * texel.xyz;
     
-    float sz, cz;
-    sincos(p.y * 10, sz, cz);
-    p.xz = mul(float2x2(cz, sz, -sz, cz), p.xz);
-    
-    float3 d = abs(p);
-    float sdf = max(max(d.x, d.y), d.z) - 0.15;
-    return sdf * 0.5;
-}
-
-inline float sdf_torus(float3 p, float r0, float r1)
-{
-    p -= float3(0.4, 0.2, 0.2);
-    return length(float2(r0 - length(p.xz), p.y)) - r1;
-}
-
-inline float sdf_sphere(float3 p, float r)
-{
-    p -= float3(0.4 + _CosTime.w * 0.2, 0.2, 0.2 + _SinTime.w * 0.2);
-    return length(p) - r;
-}
-
-inline float sample_sdf(float3 p)
-{
-    float sdf0 = sdf_twisted_cuboid(p);
-    float sdf1 = sdf_torus(p, 0.2, 0.025);
-    float sdf2 = sdf_sphere(p, 0.2);
-    float sdf3 = max(sdf1, -sdf2);
-    float sdf4 = sdf_torus(p, 0.2, 0.04);
-    float sdf5 = sdf_sphere(p, 0.15);
-    float sdf6 = max(sdf4, -sdf5);
-    float sdf7 = max(sdf0, -sdf6);
-    
-    return min(sdf3, sdf7);
-    //return SceneVolume.SampleLevel(SDFSampler_Linear_Clamp, p, 0);
+    return length(pos) - 0.5;
+    //return SceneVolume.SampleLevel(SDFSampler_Linear_Clamp, uvw, 0) * texel.w;
 }
 
 inline float3 sample_color(float3 p)
@@ -79,13 +45,13 @@ inline float3 sample_color(float3 p)
     return abs(normalize(sin(p)));
 }
 
-inline void sample_pos(float3 o, float3 d, inout float t, out float3 hit, out float err)
+inline void ray_march(float3 o, float3 d, inout float t, out float3 hit, out float err)
 {
     float curr, prev = sample_sdf(d * t + o), s;
     int i;
     for (i = 0; i < 32; i++)
     {
-        s = prev * 2.0;
+        s = prev * 1.0;
         curr = sample_sdf(d * (t + s) + o);
         if (curr + prev > abs(s))
             t += s;
@@ -105,25 +71,77 @@ inline void sample_pos(float3 o, float3 d, inout float t, out float3 hit, out fl
     err = curr;
 }
 
+inline float3 get_camera_pos()
+{
+    return RMParams[0].UVToScene._14_24_34;
+}
+
+inline float3 calc_ray_dir(float2 uv)
+{
+    return normalize(mul(RMParams[0].UVToScene, float4(uv, 1.0, -1.0)).xyz);
+}
+
+inline float clamp_ray(float3 o, float3 d)
+{
+    float3 invd = 1.0 / d;
+    float3 t0 = -o * invd;
+    float3 t1 = (RMParams[0].SceneSize.xyz - o) * invd;
+    t0 = min(t0, t1);
+    
+    return max(max(t0.x, t0.y), max(t0.z, 0.0));
+}
+
+[numthreads(1, 1, 1)]
+void TiledMarching(uint3 id : SV_DispatchThreadID)
+{
+    const float2 MarchingTileSize = float2(8.0, 8.0);
+
+    float2 lb = float2(id.xy) * MarchingTileSize;
+    float2 rt = float2(id.xy + uint2(1, 1)) * MarchingTileSize;
+    
+    float3 d_lb = calc_ray_dir(lb);
+    float3 d_rt = calc_ray_dir(rt);
+    
+    float3 d = normalize((d_rt + d_lb) * 0.5);
+    float3 o = get_camera_pos();
+    float t = clamp_ray(o, d);
+
+    const float thres = distance(d_lb, d);
+    const float a = 0.5 / dot(d_lb, d_lb);
+    
+    float3 e, dt;
+    float sdf, next;
+    for (int i = 0; i < 16; i++)
+    {
+        dt = d * t;
+        e = dt + o;
+        sdf = sample_sdf(e);
+        if (sdf < thres * t)
+            break;
+        
+        next = 2.0 * dot(dt, d_lb) * a;
+        next = t + sqrt(max(0.0, next * next - (dot(dt, dt) - sdf * sdf)));
+        if (next - t < 0.1)
+            break;
+        
+        t = next;
+    }
+    
+    TiledRM[id.xy] = t;
+}
+
 [numthreads(8, 8, 1)]
 void RayMarching(uint3 id : SV_DispatchThreadID)
 {
-    RayMarchingParameters rmp = RMParams[0];
-    
-    float3 o = mul(rmp.UVToScene, float4(id.xy, 1.0, 0.0));
-    float3 v = float3(rmp.UVToScene[0][3], rmp.UVToScene[1][3], rmp.UVToScene[2][3]);
-    float3 d = normalize(o - v);
-   
-    float3 invd = 1.0 / d;
-    float3 t0 = -o * invd;
-    float3 t1 = (float3(1.0, 1.0, 1.0) - o) * invd;
-    t0 = min(t0, t1);
-    
-    float t = max(max(t0.x, t0.y), max(t0.z, 0.0));
+    RayMarchingParameters rm = RMParams[0];
+
+    float3 o = get_camera_pos();
+    float3 d = calc_ray_dir(float2(id.xy));
+    float t = TiledRM[id.xy / 8];
     
     float3 hit;
     float sdf;
-    sample_pos(o, d, t, hit, sdf);
+    ray_march(o, d, t, hit, sdf);
     if (!is_hit(sdf))
     {
         SceneRM0[id.xy] = float(0.0).xxxx;
@@ -131,10 +149,10 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
     }
     
     float3 normal;
-    normal.x = sample_sdf(hit.xyz + float3(rmp.SceneTexel.x, 0.0, 0.0));
-    normal.y = sample_sdf(hit.xyz + float3(0.0, rmp.SceneTexel.y, 0.0));
-    normal.z = sample_sdf(hit.xyz + float3(0.0, 0.0, rmp.SceneTexel.z));
-    normal = normalize(mul(rmp.WorldToSceneT, float4(normal - sdf, 0.0)));
+    normal.x = sample_sdf(hit.xyz + float3(rm.SceneTexel.x, 0.0, 0.0));
+    normal.y = sample_sdf(hit.xyz + float3(0.0, rm.SceneTexel.y, 0.0));
+    normal.z = sample_sdf(hit.xyz + float3(0.0, 0.0, rm.SceneTexel.z));
+    normal = normalize(mul(rm.WorldToSceneT, float4(normal - sdf, 0.0)));
     
     float3 color = sample_color(hit);
     

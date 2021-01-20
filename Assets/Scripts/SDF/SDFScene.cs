@@ -26,20 +26,6 @@ namespace Antares.SDF
 
         public Texture3D Scene => _scene;
 
-        public float Scale {
-            get {
-#if UNITY_EDITOR
-                Vector3 scale = transform.localScale;
-                if (scale.x != scale.y || scale.y != scale.z || scale.z != scale.x)
-                {
-                    Debug.LogWarning("scale of sdf scene should be uniform");
-                    transform.localScale = new Vector3(scale.x, scale.x, scale.x);
-                }
-#endif
-                return transform.localScale.x;
-            }
-        }
-
         public Vector3Int Size { get; private set; }
 
         public Vector3 SizeInv { get; private set; }
@@ -47,16 +33,9 @@ namespace Antares.SDF
         [SerializeField]
         private Texture3D _scene;
 
-        public void GetBound(out Vector3 min, out Vector3 max)
-        {
-            Vector3 halfSize = (Vector3)Size * .5f;
-            min = transform.position - halfSize;
-            max = transform.position + halfSize;
-        }
+        public Vector3 WorldToSceneVector(Vector3 vec) => transform.worldToLocalMatrix.MultiplyVector(vec);
 
-        public Vector3 WorldToSceneVector(Vector3 vec) => transform.worldToLocalMatrix.MultiplyVector(Vector3.Scale(vec, SizeInv));
-
-        public Vector3 WorldToScenePoint(Vector3 pos) => transform.worldToLocalMatrix.MultiplyPoint(Vector3.Scale(pos, SizeInv));
+        public Vector3 WorldToScenePoint(Vector3 pos) => transform.worldToLocalMatrix.MultiplyPoint(pos);
 
         private void OnEnable()
         {
@@ -71,6 +50,18 @@ namespace Antares.SDF
             }
 
             Debug.Log($"scene size: {Size}");
+        }
+
+        private void Update()
+        {
+#if UNITY_EDITOR
+            Vector3 scale = transform.localScale;
+            if (scale.x != scale.y || scale.y != scale.z || scale.z != scale.x)
+            {
+                Debug.LogWarning("Only the affine transfrom is permitted");
+                transform.localScale = new Vector3(scale.x, scale.x, scale.x);
+            }
+#endif
         }
     }
 }

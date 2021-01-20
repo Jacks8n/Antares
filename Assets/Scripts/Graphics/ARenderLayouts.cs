@@ -7,28 +7,37 @@ namespace Antares.Graphics
     [ExecuteAlways]
     static class ARenderLayouts
     {
-        public static bool IsUVFlipped =
+        public static readonly bool IsUVFlipped =
             SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D11
             || SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D12;
 
-        public static Vector2 ScreenBlitScale = new Vector2(1f, IsUVFlipped ? -1f : 1f);
-        public static Vector2 ScreenBlitOffset = new Vector2(0f, IsUVFlipped ? 1f : 0f);
+        public static readonly Vector2 ScreenBlitScale = new Vector2(1f, IsUVFlipped ? -1f : 1f);
+        public static readonly Vector2 ScreenBlitOffset = new Vector2(0f, IsUVFlipped ? 1f : 0f);
 
-        public const string Binding_SceneSDF = "SceneVolume";
+        public const string Binding_SceneVolume = "SceneVolume";
         public const string Binding_SceneTexel = "SceneTexel";
+        public const string Binding_TiledRM = "TiledRM";
         public const string Binding_Depth = "Depth";
         public const string Binding_Shading = "Shading";
         public const string Binding_SceneRM0 = "SceneRM0";
         public const string Binding_SceneRM1 = "SceneRM1";
         public const string Binding_RMParams = "RMParams";
 
-        public static readonly int ID_SceneSDF = Shader.PropertyToID(Binding_SceneSDF);
+        public static readonly int ID_SceneVolume = Shader.PropertyToID(Binding_SceneVolume);
         public static readonly int ID_SceneTexel = Shader.PropertyToID(Binding_SceneTexel);
+        public static readonly int ID_TiledRM = Shader.PropertyToID(Binding_TiledRM);
         public static readonly int ID_Depth = Shader.PropertyToID(Binding_Depth);
         public static readonly int ID_Shading = Shader.PropertyToID(Binding_Shading);
         public static readonly int ID_SceneRM0 = Shader.PropertyToID(Binding_SceneRM0);
         public static readonly int ID_SceneRM1 = Shader.PropertyToID(Binding_SceneRM1);
         public static readonly int ID_RMParams = Shader.PropertyToID(Binding_RMParams);
+
+        public static readonly int[] ID_NonAttachmentRTs = new int[] {
+            ID_TiledRM,
+            ID_Shading,
+            ID_SceneRM0,
+            ID_SceneRM1
+        };
 
         public enum Attachments { Depth, GBuffer0, Shading, Max };
 

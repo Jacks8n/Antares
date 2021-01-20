@@ -11,10 +11,6 @@ namespace Antares.Graphics
     [StructLayout(LayoutKind.Sequential)]
     struct SDFRayMarchingParameters
     {
-        // public Vector3 UVToSceneRow0;
-        // public Vector3 UVToSceneRow1;
-        // public Vector3 UVToSceneRow2;
-
         public Vector3 UVToSceneColumn0;
         public Vector3 UVToSceneColumn1;
         public Vector3 UVToSceneColumn2;
@@ -22,9 +18,7 @@ namespace Antares.Graphics
 
         public Vector4 SceneTexel;
 
-        // public Vector4 WorldToSceneTRow0;
-        // public Vector4 WorldToSceneTRow1;
-        // public Vector4 WorldToSceneTRow2;
+        public Vector4 SceneSize;
 
         public Vector3 WorldToSceneTColumn0;
         public Vector3 WorldToSceneTColumn1;
@@ -39,63 +33,67 @@ namespace Antares.Graphics
 
             Transform cameraTrans = camera.transform;
             Vector3 right = cameraTrans.localToWorldMatrix.GetColumn(0) * (2f * invW * dxduHalf);
+            UVToSceneColumn0 = scene.WorldToSceneVector(right);
+
             Vector3 up = cameraTrans.localToWorldMatrix.GetColumn(1) * (2f * invH * dydvHalf);
-            right = scene.WorldToSceneVector(right);
-            up = scene.WorldToSceneVector(up);
+            UVToSceneColumn1 = scene.WorldToSceneVector(up);
 
             Vector3 lbn = cameraTrans.localToWorldMatrix.MultiplyPoint(new Vector3(-dxduHalf, -dydvHalf, near));
-            Vector3 camPos = cameraTrans.position;
-            lbn = scene.WorldToScenePoint(lbn);
-            camPos = scene.WorldToScenePoint(camPos);
+            UVToSceneColumn2 = scene.WorldToScenePoint(lbn);
 
-            // UVToSceneRow0 = new Vector4(right.x, up.x, lbn.x, camPos.x);
-            // UVToSceneRow1 = new Vector4(right.y, up.y, lbn.y, camPos.y);
-            // UVToSceneRow2 = new Vector4(right.z, up.z, lbn.z, camPos.z);
-            UVToSceneColumn0 = right;
-            UVToSceneColumn1 = up;
-            UVToSceneColumn2 = lbn;
-            UVToSceneColumn3 = camPos;
+            Vector3 camPos = cameraTrans.position;
+            UVToSceneColumn3 = scene.WorldToScenePoint(camPos);
+
+            Vector3 texel = scene.SizeInv;
+            SceneTexel = new Vector4(texel.x, texel.y, texel.z, SDFGenerator.MaxDistance);
+
+            Vector3 size = scene.Size;
+            SceneSize = new Vector4(size.x, size.y, size.z, 0f);
 
             Transform sceneTrans = scene.transform;
             Matrix4x4 worldToScene = sceneTrans.worldToLocalMatrix;
-            // WorldToSceneTRow0 = new Vector4(worldToScene.m11, worldToScene.m21, worldToScene.m31);
-            // WorldToSceneTRow1 = new Vector4(worldToScene.m12, worldToScene.m22, worldToScene.m32);
-            // WorldToSceneTRow2 = new Vector4(worldToScene.m13, worldToScene.m23, worldToScene.m33);
             WorldToSceneTColumn0 = worldToScene.GetColumn(0);
             WorldToSceneTColumn1 = worldToScene.GetColumn(1);
             WorldToSceneTColumn2 = worldToScene.GetColumn(2);
             WorldToSceneTColumn3 = worldToScene.GetColumn(3);
-
-            Vector3 texel = scene.SizeInv;
-            SceneTexel = new Vector4(texel.x, texel.y, texel.z, SDFGenerator.MaxDistance);
         }
     }
 
     public class ARenderPipeline : RenderPipeline
     {
-        private const int RayMarchingKernelX = 8;
-        private const int RayMarchingKernelY = 8;
-        private const int RayMarchingKernelZ = 1;
-
         private readonly ComputeShader _rayMarchingCS;
 
+        private readonly int _tiledRayMarchingKernel;
+
         private readonly int _rayMarchingKernel;
+
+        private const int _tiledMarchingGroupSizeX = 1;
+        private const int _tiledMarchingGroupSizeY = 1;
+        private const int _tiledMarchingGroupSizeZ = 1;
+
+        private const int _rayMarchingGroupSizeX = 8;
+        private const int _rayMarchingGroupSizeY = 8;
+        private const int _rayMarchingGroupSizeZ = 1;
 
         private readonly Material _shadingMat;
 
         private readonly ComputeBuffer _rayMarchingParamBuffer;
 
-        public unsafe ARenderPipeline(ComputeShader rayMarchingCS, int rayMarchingKernel, Material shadingMat)
+        public unsafe ARenderPipeline(ComputeShader rayMarchingCS, Material shadingMat)
         {
             Debug.Assert(rayMarchingCS);
             Debug.Assert(shadingMat);
 
             _rayMarchingCS = rayMarchingCS;
-            _rayMarchingKernel = rayMarchingKernel;
+            _tiledRayMarchingKernel = _rayMarchingCS.FindKernel("TiledMarching");
+            _rayMarchingKernel = _rayMarchingCS.FindKernel("RayMarching");
 
 #if UNITY_EDITOR
-            rayMarchingCS.GetKernelThreadGroupSizes(rayMarchingKernel, out uint kernelX, out uint kernelY, out uint kernelZ);
-            Debug.Assert(kernelX == RayMarchingKernelX && kernelY == RayMarchingKernelY && kernelZ == RayMarchingKernelZ);
+            _rayMarchingCS.GetKernelThreadGroupSizes(_tiledRayMarchingKernel, out uint kernelX, out uint kernelY, out uint kernelZ);
+            Debug.Assert(kernelX == _tiledMarchingGroupSizeX && kernelY == _tiledMarchingGroupSizeY && kernelZ == _tiledMarchingGroupSizeZ);
+
+            _rayMarchingCS.GetKernelThreadGroupSizes(_rayMarchingKernel, out kernelX, out kernelY, out kernelZ);
+            Debug.Assert(kernelX == _rayMarchingGroupSizeX && kernelY == _rayMarchingGroupSizeY && kernelZ == _rayMarchingGroupSizeZ);
 #endif
 
             _shadingMat = shadingMat;
@@ -142,24 +140,36 @@ namespace Antares.Graphics
                 // dispatch ray marching
                 GraphicsFence rmFence = default;
                 {
-                    RenderTextureDescriptor rmRTDesc = new RenderTextureDescriptor(width, height, RenderTextureFormat.ARGBHalf, depthBufferBits: 0, mipCount: 0) { enableRandomWrite = true };
-                    cmdCompute.GetTemporaryRT(ID_SceneRM0, rmRTDesc);
-                    cmdCompute.GetTemporaryRT(ID_SceneRM1, rmRTDesc);
-                    cmdCompute.SetComputeTextureParam(_rayMarchingCS, _rayMarchingKernel, ID_SceneRM0, new RenderTargetIdentifier(ID_SceneRM0));
-                    cmdCompute.SetComputeTextureParam(_rayMarchingCS, _rayMarchingKernel, ID_SceneRM1, new RenderTargetIdentifier(ID_SceneRM1));
-                    cmdCompute.SetComputeTextureParam(_rayMarchingCS, _rayMarchingKernel, ID_SceneSDF, scene.Scene);
-
                     {
-                        SDFRayMarchingParameters rmParams = new SDFRayMarchingParameters(camera, scene, invWidth, invHeight);
-
                         var rmParamData = new NativeArray<SDFRayMarchingParameters>(1, Allocator.Temp);
-                        rmParamData[0] = rmParams;
+                        rmParamData[0] = new SDFRayMarchingParameters(camera, scene, invWidth, invHeight);
                         _rayMarchingParamBuffer.SetData(rmParamData);
                         rmParamData.Dispose();
                     }
-                    cmdCompute.SetComputeBufferParam(_rayMarchingCS, _rayMarchingKernel, ID_RMParams, _rayMarchingParamBuffer);
 
-                    cmdCompute.DispatchCompute(_rayMarchingCS, _rayMarchingKernel, width / RayMarchingKernelX, height / RayMarchingKernelY, 1);
+                    {
+                        int tiledCountX = width / _tiledMarchingGroupSizeX, tiledCountY = height / _tiledMarchingGroupSizeY;
+                        cmdCompute.GetTemporaryRT(ID_TiledRM, new RenderTextureDescriptor(tiledCountX, tiledCountY, RenderTextureFormat.RFloat, depthBufferBits: 0) { enableRandomWrite = true });
+                        cmdCompute.SetComputeTextureParam(_rayMarchingCS, _tiledRayMarchingKernel, ID_SceneVolume, scene.Scene);
+                        cmdCompute.SetComputeTextureParam(_rayMarchingCS, _tiledRayMarchingKernel, ID_TiledRM, new RenderTargetIdentifier(ID_TiledRM));
+                        cmdCompute.SetComputeBufferParam(_rayMarchingCS, _tiledRayMarchingKernel, ID_RMParams, _rayMarchingParamBuffer);
+
+                        cmdCompute.DispatchCompute(_rayMarchingCS, _tiledRayMarchingKernel, tiledCountX, tiledCountY, _tiledMarchingGroupSizeZ);
+                    }
+
+                    {
+                        RenderTextureDescriptor rmRTDesc = new RenderTextureDescriptor(width, height, RenderTextureFormat.ARGBHalf, depthBufferBits: 0, mipCount: 0) { enableRandomWrite = true };
+                        cmdCompute.SetComputeTextureParam(_rayMarchingCS, _rayMarchingKernel, ID_SceneVolume, scene.Scene);
+                        cmdCompute.GetTemporaryRT(ID_SceneRM0, rmRTDesc);
+                        cmdCompute.GetTemporaryRT(ID_SceneRM1, rmRTDesc);
+                        cmdCompute.SetComputeTextureParam(_rayMarchingCS, _rayMarchingKernel, ID_TiledRM, new RenderTargetIdentifier(ID_TiledRM));
+                        cmdCompute.SetComputeTextureParam(_rayMarchingCS, _rayMarchingKernel, ID_SceneRM0, new RenderTargetIdentifier(ID_SceneRM0));
+                        cmdCompute.SetComputeTextureParam(_rayMarchingCS, _rayMarchingKernel, ID_SceneRM1, new RenderTargetIdentifier(ID_SceneRM1));
+                        cmdCompute.SetComputeBufferParam(_rayMarchingCS, _rayMarchingKernel, ID_RMParams, _rayMarchingParamBuffer);
+
+                        cmdCompute.DispatchCompute(_rayMarchingCS, _rayMarchingKernel, width / _rayMarchingGroupSizeX, height / _rayMarchingGroupSizeY, 1);
+                    }
+
                     rmFence = cmdCompute.CreateGraphicsFence(GraphicsFenceType.AsyncQueueSynchronisation, SynchronisationStageFlags.PixelProcessing);
 
                     context.ExecuteCommandBufferAsync(cmdCompute, ComputeQueueType.Default);
@@ -173,20 +183,14 @@ namespace Antares.Graphics
                     cmd.Clear();
                 }
 
-                {
-                    NativeArray<AttachmentDescriptor> attachments = GetAttachments(camera.backgroundColor);
+                using (var attachments = GetAttachments(camera.backgroundColor))
                     context.BeginRenderPass(width, height, samples: 1, attachments, AttachmentIndex_Depth);
-                    attachments.Dispose();
-                }
 
                 // draw skybox
                 if (camera.clearFlags.HasFlag(CameraClearFlags.Skybox))
                 {
-                    {
-                        var colors = new NativeArray<int>(new int[] { AttachmentIndex_Shading }, Allocator.Temp);
+                    using (var colors = new NativeArray<int>(new int[] { AttachmentIndex_Shading }, Allocator.Temp))
                         context.BeginSubPass(colors, isDepthReadOnly: false);
-                        colors.Dispose();
-                    }
 
                     context.DrawSkybox(camera);
 
@@ -203,11 +207,8 @@ namespace Antares.Graphics
 
                 // draw opaque mesh
                 {
-                    {
-                        var colors = new NativeArray<int>(new int[] { AttachmentIndex_GBuffer0 }, Allocator.Temp);
+                    using (var colors = new NativeArray<int>(new int[] { AttachmentIndex_GBuffer0 }, Allocator.Temp))
                         context.BeginSubPass(colors, isDepthReadOnly: false);
-                        colors.Dispose();
-                    }
 
                     DrawingSettings drawingSettings = new DrawingSettings(new ShaderTagId("Deferred"), sortingSettings);
 
@@ -256,9 +257,8 @@ namespace Antares.Graphics
                         cmd.Blit(new RenderTargetIdentifier(ID_Shading), target, ScreenBlitScale, ScreenBlitOffset);
                 }
 
-                cmd.ReleaseTemporaryRT(ID_Shading);
-                cmd.ReleaseTemporaryRT(ID_SceneRM0);
-                cmd.ReleaseTemporaryRT(ID_SceneRM1);
+                for (int j = 0; j < ID_NonAttachmentRTs.Length; j++)
+                    cmd.ReleaseTemporaryRT(ID_NonAttachmentRTs[j]);
                 context.ExecuteCommandBuffer(cmd);
                 cmd.Clear();
             }

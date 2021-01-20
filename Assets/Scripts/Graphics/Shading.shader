@@ -52,8 +52,8 @@
 
             float4 frag(v2f i) : SV_TARGET0
             {
-                float4 col = FRAMEBUFFER_INPUT(0).Sample(Sampler_Clamp_Point, i.uv);
-                float depth = FRAMEBUFFER_INPUT(1).Sample(Sampler_Clamp_Point, i.uv);
+                float4 color_rast = UNITY_READ_FRAMEBUFFER_INPUT(0, i.uv);
+                float depth_rast = UNITY_READ_FRAMEBUFFER_INPUT(1, i.uv);
 
                 float4 rm0 = SceneRM0.Sample(Sampler_Clamp_Point, i.uv);
                 float4 rm1 = SceneRM1.Sample(Sampler_Clamp_Point, i.uv);
@@ -64,7 +64,8 @@
 
                 float3 lum = vn * -dot(refl, view) * rm0.rgb;
 
-                return float4(lum, rm0.w);
+                return rm1;
+                //return float4(lum, rm0.w);
             }
             ENDCG
         }

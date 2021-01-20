@@ -15,7 +15,7 @@ namespace Antares.Graphics
 
         protected override RenderPipeline CreatePipeline()
         {
-            return new ARenderPipeline(_rayMarchingCS, _rayMarchingCS.FindKernel("RayMarching"), _shadingMat);
+            return new ARenderPipeline(_rayMarchingCS, _shadingMat);
         }
     }
 }
