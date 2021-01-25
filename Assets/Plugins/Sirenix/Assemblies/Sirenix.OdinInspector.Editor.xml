@@ -2728,6 +2728,11 @@
             Adds the right click area.
             </summary>
         </member>
+        <member name="M:Sirenix.OdinInspector.Editor.Drawers.PropertyContextMenuDrawer.AddRightClickArea(Sirenix.OdinInspector.Editor.InspectorProperty,UnityEngine.Rect,System.Int32)">
+            <summary>
+            Adds the right click area.
+            </summary>
+        </member>
         <member name="T:Sirenix.OdinInspector.Editor.Drawers.PropertyContextMenuDrawer`1">
             <summary>
             Opens a context menu for any given property on right click. The context menu is populated by all relevant drawers that implements <see cref="T:Sirenix.OdinInspector.Editor.IDefinesGenericMenuItems"/>.
@@ -3087,6 +3092,11 @@
         <member name="F:Sirenix.OdinInspector.Editor.Examples.AttributeExampleInfo.Code">
             <summary>
             Raw code of the example.
+            </summary>
+        </member>
+        <member name="F:Sirenix.OdinInspector.Editor.Examples.AttributeExampleInfo.CodeAsComponent">
+            <summary>
+            The example declared as a Unity component.
             </summary>
         </member>
         <member name="F:Sirenix.OdinInspector.Editor.Examples.AttributeExampleInfo.Order">
@@ -7272,13 +7282,8 @@
              </para>
             
              <para>
-             Remember to provide your custom drawer with an <see cref="T:Sirenix.OdinInspector.Editor.OdinDrawerAttribute"/>
-             in order for it to be located by the <see cref="T:Sirenix.OdinInspector.Editor.DrawerLocator"/>.
-             </para>
-            
-             <para>
              Odin supports the use of GUILayout and takes care of undo for you. It also takes care of multi-selection
-             in many simple cases. Checkout the manual for more information on handling multi-selection.
+             in many simple cases. Check the manual for more information on handling multi-selection.
              </para>
             
              <para>
@@ -7312,9 +7317,9 @@
             
              public sealed class CustomRangeAttributeDrawer : OdinAttributeDrawer&lt;CustomRangeAttribute, float&gt;
              {
-                 protected override void DrawPropertyLayout(IPropertyValueEntry&lt;float&gt; entry, CustomRangeAttribute attribute, GUIContent label)
+                 protected override void DrawPropertyLayout(GUIContent label)
                  {
-                     entry.SmartValue = EditorGUILayout.Slider(label, entry.SmartValue, attribute.Min, attribute.Max);
+                     this.ValueEntry.SmartValue = EditorGUILayout.Slider(label, this.ValueEntry.SmartValue, this.Attribute.Min, this.Attribute.Max);
                  }
              }
             
@@ -7345,10 +7350,10 @@
             
              public sealed class GUITintColorAttributeDrawer : OdinAttributeDrawer&lt;GUITintColorAttribute&gt;
              {
-                 protected override void DrawPropertyLayout(InspectorProperty property, GUITintColorAttribute attribute, GUIContent label)
+                 protected override void DrawPropertyLayout(GUIContent label)
                  {
                     Color prevColor = GUI.color;
-                    GUI.color *= attribute.Color;
+                    GUI.color *= this.Attribute.Color;
                     this.CallNextDrawer(label);
                     GUI.color = prevColor;
                  }
@@ -7379,7 +7384,7 @@
              </para>
             
              <para>
-             Note that Odin's <see cref="T:Sirenix.OdinInspector.Editor.DefaultDrawerChainResolver" /> have full support for generic class constraints,
+             Note that Odin's <see cref="T:Sirenix.OdinInspector.Editor.DefaultDrawerChainResolver" /> has full support for generic class constraints,
              and if that is not enough, you can also add additional type constraints by overriding CanDrawTypeFilter
              </para>
             
@@ -7455,18 +7460,12 @@
              </para>
             
              <para>
-             Remember to provide your custom drawer with an <see cref="T:Sirenix.OdinInspector.Editor.OdinDrawerAttribute"/>
-             in order for it to be located by the <see cref="T:Sirenix.OdinInspector.Editor.DrawerLocator"/>.
-             </para>
-            
-             <para>
              Odin supports the use of GUILayout and takes care of undo for you. It also takes care of multi-selection
              in many simple cases. Checkout the manual for more information on handling multi-selection.
              </para>
             
              <para>
              Also note that Odin does not require that your custom attribute inherits from Unity's PropertyAttribute.
-             Furthermore <see cref="T:Sirenix.OdinInspector.Editor.DrawerLocator" /> have full support for generic class constraints.
              </para>
              </summary>
              
@@ -7497,9 +7496,9 @@
             
              public sealed class CustomRangeAttributeDrawer : OdinAttributeDrawer&lt;CustomRangeAttribute, float&gt;
              {
-                 protected override void DrawPropertyLayout(IPropertyValueEntry&lt;float&gt; entry, CustomRangeAttribute attribute, GUIContent label)
+                 protected override void DrawPropertyLayout(GUIContent label)
                  {
-                     entry.SmartValue = EditorGUILayout.Slider(label, entry.SmartValue, attribute.Min, attribute.Max);
+                     this.ValueEntry.SmartValue = EditorGUILayout.Slider(label, this.ValueEntry.SmartValue, this.Attribute.Min, this.Attribute.Max);
                  }
              }
             
@@ -7530,10 +7529,10 @@
             
              public sealed class GUITintColorAttributeDrawer : OdinAttributeDrawer&lt;GUITintColorAttribute&gt;
              {
-                 protected override void DrawPropertyLayout(InspectorProperty property, GUITintColorAttribute attribute, GUIContent label)
+                 protected override void DrawPropertyLayout(GUIContent label)
                  {
                     Color prevColor = GUI.color;
-                    GUI.color *= attribute.Color;
+                    GUI.color *= this.Attribute.Color;
                     this.CallNextDrawer(label);
                     GUI.color = prevColor;
                  }
@@ -7559,12 +7558,12 @@
              </para>
             
              <para>
-             This means that there is no guarantee that your drawer will be called, sins other drawers
+             This means that there is no guarantee that your drawer will be called, since other drawers
              could have a higher priority than yours and choose not to call CallNextDrawer().
              </para>
             
              <para>
-             Note that Odin's <see cref="T:Sirenix.OdinInspector.Editor.DefaultDrawerChainResolver" /> have full support for generic class constraints,
+             Note that Odin's <see cref="T:Sirenix.OdinInspector.Editor.DefaultDrawerChainResolver" /> has full support for generic class constraints,
              and if that is not enough, you can also add additional type constraints by overriding CanDrawTypeFilter
              </para>
             
@@ -7582,7 +7581,7 @@
                      return type != typeof(string);
                  }
             
-                 protected override void DrawPropertyLayout(IPropertyValueEntry&lt;T&gt; entry, MyCustomAttribute attribute, GUIContent label)
+                 protected override void DrawPropertyLayout(GUIContent label)
                  {
                      // Draw property here.
                  }

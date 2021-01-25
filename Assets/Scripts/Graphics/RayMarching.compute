@@ -45,7 +45,7 @@ inline float3 sample_color(float3 p)
     return abs(normalize(sin(p)));
 }
 
-inline void ray_march(float3 o, float3 d, inout float t, out float3 hit, out float err)
+void ray_march(float3 o, float3 d, inout float t, out float3 hit, out float err)
 {
     float curr, prev = sample_sdf(d * t + o), s;
     int i;

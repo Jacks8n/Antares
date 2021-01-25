@@ -16,7 +16,7 @@ namespace Antares.SDF
 
         public Vector3Int Size;
 
-        [ShowIf("@Type==SDFTestObjectType.Sphere")]
+        [ShowIf("Type", Value = SDFTestObjectType.Sphere)]
         public float Radius;
 
         [FolderPath]
