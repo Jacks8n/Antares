@@ -6,10 +6,16 @@ using UnityEngine.Rendering;
 using static Antares.Graphics.ARenderLayouts;
 using static Antares.Graphics.AShaderSpecs;
 
+using UGraphics = UnityEngine.Graphics;
+
 namespace Antares.Graphics
 {
     public class ARenderPipeline : RenderPipeline
     {
+        private readonly ComputeShader _sdfGenerationCS;
+
+        private readonly int _calculateMipMapKernel;
+
         private readonly ComputeShader _rayMarchingCS;
 
         private readonly int _tiledRayMarchingKernel;
@@ -22,31 +28,105 @@ namespace Antares.Graphics
 
         private SDFScene _loadedScene;
 
-        public unsafe ARenderPipeline(ComputeShader rayMarchingCS, Material shadingMat)
+        private RenderTexture _sceneVolume;
+
+        public unsafe ARenderPipeline(ComputeShader sdfGenerationCS, ComputeShader rayMarchingCS, Material shadingMat)
         {
+            Debug.Assert(sdfGenerationCS);
             Debug.Assert(rayMarchingCS);
             Debug.Assert(shadingMat);
+
+            _sdfGenerationCS = sdfGenerationCS;
+            _calculateMipMapKernel = _sdfGenerationCS.FindKernel("CalculateMipMap");
 
             _rayMarchingCS = rayMarchingCS;
             _tiledRayMarchingKernel = _rayMarchingCS.FindKernel("TiledMarching");
             _rayMarchingKernel = _rayMarchingCS.FindKernel("RayMarching");
 
 #if UNITY_EDITOR
-            _rayMarchingCS.GetKernelThreadGroupSizes(_tiledRayMarchingKernel, out uint kernelX, out uint kernelY, out uint kernelZ);
-            Debug.Assert(kernelX == TiledMarchingGroupSizeX && kernelY == TiledMarchingGroupSizeY && kernelZ == TiledMarchingGroupSizeZ);
+            {
+                uint kernelX, kernelY, kernelZ;
 
-            _rayMarchingCS.GetKernelThreadGroupSizes(_rayMarchingKernel, out kernelX, out kernelY, out kernelZ);
-            Debug.Assert(kernelX == RayMarchingGroupSizeX && kernelY == RayMarchingGroupSizeY && kernelZ == RayMarchingGroupSizeZ);
+                _sdfGenerationCS.GetKernelThreadGroupSizes(_calculateMipMapKernel, out kernelX, out kernelY, out kernelZ);
+                Debug.Assert(kernelX == CalculateMipGroupSizeX && kernelY == CalculateMipGroupSizeY && kernelZ == CalculateMipGroupSizeZ);
+
+                _rayMarchingCS.GetKernelThreadGroupSizes(_tiledRayMarchingKernel, out kernelX, out kernelY, out kernelZ);
+                Debug.Assert(kernelX == TiledMarchingGroupSizeX && kernelY == TiledMarchingGroupSizeY && kernelZ == TiledMarchingGroupSizeZ);
+
+                _rayMarchingCS.GetKernelThreadGroupSizes(_rayMarchingKernel, out kernelX, out kernelY, out kernelZ);
+                Debug.Assert(kernelX == RayMarchingGroupSizeX && kernelY == RayMarchingGroupSizeY && kernelZ == RayMarchingGroupSizeZ);
+            }
 #endif
 
             _shadingMat = shadingMat;
 
             _rayMarchingParamBuffer = new ComputeBuffer(1, sizeof(SDFRayMarchingParameters));
+
+            _loadedScene = null;
+            _sceneVolume = null;
         }
 
         public void LoadScene(SDFScene scene)
         {
             _loadedScene = scene;
+
+            if (_loadedScene == null)
+            {
+                if (_sceneVolume != null)
+                    _sceneVolume.Release();
+                return;
+            }
+
+            // create texture
+            Vector3Int sceneSize = scene.Size;
+            if (_sceneVolume == null || _sceneVolume.width != sceneSize.x || _sceneVolume.height != sceneSize.z || _sceneVolume.volumeDepth != sceneSize.y)
+            {
+                if (_sceneVolume)
+                    _sceneVolume.Release();
+                RenderTextureDescriptor volumeDesc = new RenderTextureDescriptor() {
+                    dimension = TextureDimension.Tex3D,
+                    width = sceneSize.x,
+                    height = sceneSize.z,
+                    volumeDepth = sceneSize.y,
+                    colorFormat = RenderTextureFormat.R8,
+                    msaaSamples = 1,
+                    useMipMap = true,
+                    mipCount = SceneMipCount,
+                    autoGenerateMips = false,
+                    enableRandomWrite = true
+                };
+                _sceneVolume = new RenderTexture(volumeDesc);
+                _sceneVolume.Create();
+            }
+
+            // TODO: apply brushes
+            {
+                var brushes = _loadedScene.Brushes.AnalyticalBrushes;
+                for (int i = 0; i < brushes.Count; i++)
+                {
+
+                }
+            }
+
+            // generate mipmaps
+            {
+                CommandBuffer cmd = CommandBufferPool.Get();
+
+                Vector3Int mipSize = sceneSize;
+                mipSize.x /= CalculateMipGroupSizeX;
+                mipSize.y /= CalculateMipGroupSizeY;
+                mipSize.z /= CalculateMipGroupSizeZ;
+                for (int i = 1; i < SceneMipCount; i++)
+                {
+                    mipSize /= 2;
+                    cmd.SetComputeTextureParam(_sdfGenerationCS, _calculateMipMapKernel, ID_SceneVolume, _sceneVolume, i - 1);
+                    cmd.SetComputeTextureParam(_sdfGenerationCS, _calculateMipMapKernel, ID_SceneVolumeMip, _sceneVolume, i);
+                    cmd.DispatchCompute(_sdfGenerationCS, _calculateMipMapKernel, mipSize.x, mipSize.y, mipSize.z);
+                }
+
+                UGraphics.ExecuteCommandBuffer(cmd);
+                CommandBufferPool.Release(cmd);
+            }
         }
 
         protected override void Dispose(bool disposing)
@@ -98,7 +178,7 @@ namespace Antares.Graphics
                     {
                         int tiledCountX = width / TiledMarchingGroupSizeX, tiledCountY = height / TiledMarchingGroupSizeY;
                         cmdCompute.GetTemporaryRT(ID_TiledRM, new RenderTextureDescriptor(tiledCountX, tiledCountY, RenderTextureFormat.RFloat, depthBufferBits: 0) { enableRandomWrite = true });
-                        cmdCompute.SetComputeTextureParam(_rayMarchingCS, _tiledRayMarchingKernel, ID_SceneVolume, _loadedScene.Volume);
+                        cmdCompute.SetComputeTextureParam(_rayMarchingCS, _tiledRayMarchingKernel, ID_SceneVolume, _sceneVolume);
                         cmdCompute.SetComputeTextureParam(_rayMarchingCS, _tiledRayMarchingKernel, ID_TiledRM, new RenderTargetIdentifier(ID_TiledRM));
                         cmdCompute.SetComputeBufferParam(_rayMarchingCS, _tiledRayMarchingKernel, ID_RMParams, _rayMarchingParamBuffer);
 
@@ -107,7 +187,7 @@ namespace Antares.Graphics
 
                     {
                         RenderTextureDescriptor rmRTDesc = new RenderTextureDescriptor(width, height, RenderTextureFormat.ARGBHalf, depthBufferBits: 0, mipCount: 0) { enableRandomWrite = true };
-                        cmdCompute.SetComputeTextureParam(_rayMarchingCS, _rayMarchingKernel, ID_SceneVolume, _loadedScene.Volume);
+                        cmdCompute.SetComputeTextureParam(_rayMarchingCS, _rayMarchingKernel, ID_SceneVolume, _sceneVolume);
                         cmdCompute.GetTemporaryRT(ID_SceneRM0, rmRTDesc);
                         cmdCompute.GetTemporaryRT(ID_SceneRM1, rmRTDesc);
                         cmdCompute.SetComputeTextureParam(_rayMarchingCS, _rayMarchingKernel, ID_TiledRM, new RenderTargetIdentifier(ID_TiledRM));

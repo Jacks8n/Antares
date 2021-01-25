@@ -15,6 +15,7 @@ namespace Antares.Graphics
         public static readonly Vector2 ScreenBlitOffset = new Vector2(0f, IsUVFlipped ? 1f : 0f);
 
         public const string Binding_SceneVolume = "SceneVolume";
+        public const string Binding_SceneVolumeMip = "SceneVolumeMip";
         public const string Binding_SceneTexel = "SceneTexel";
         public const string Binding_TiledRM = "TiledRM";
         public const string Binding_Depth = "Depth";
@@ -24,6 +25,7 @@ namespace Antares.Graphics
         public const string Binding_RMParams = "RMParams";
 
         public static readonly int ID_SceneVolume = Shader.PropertyToID(Binding_SceneVolume);
+        public static readonly int ID_SceneVolumeMip = Shader.PropertyToID(Binding_SceneVolumeMip);
         public static readonly int ID_SceneTexel = Shader.PropertyToID(Binding_SceneTexel);
         public static readonly int ID_TiledRM = Shader.PropertyToID(Binding_TiledRM);
         public static readonly int ID_Depth = Shader.PropertyToID(Binding_Depth);

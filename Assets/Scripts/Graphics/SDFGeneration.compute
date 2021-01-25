@@ -1,0 +1,48 @@
+﻿#pragma kernel CalculateMipMap
+
+SamplerState SDFSampler_Linear_Clamp;
+Texture3D<float> SceneVolume;
+RWTexture3D<float> SceneVolumeMip;
+
+float eikonal1d(float x, float y, float texel)
+{
+    return min(x, y) + texel;
+}
+
+float eikonal2d(float x, float y, float texel)
+{
+    float xy = x - y;
+    float d = 2.0 * texel * texel - xy * xy;
+    return d >= 0.0 ? 0.5 * (xy + sqrt(d))
+                    : eikonal1d(x, y, texel);
+}
+
+float eikonal3d(float x, float y, float z, float texel)
+{
+    const float third = 1.0 / 3.0;
+    
+    float sum = x + y + z;
+    float3 xyz = float3(x, y, z);
+    float sqsum = dot(xyz, xyz);
+    float d = sqsum - 3.0 * (sqsum - texel * texel);
+    return d >= 0.0 ? third * (sum + sqrt(d))
+                    : min(min(eikonal2d(x, y, texel), eikonal2d(x, z, texel)), eikonal2d(y, z, texel));
+}
+
+float min_neighbor(float3 id, float3 dir)
+{
+    float a = SceneVolume.SampleLevel(SDFSampler_Linear_Clamp, id + dir, 0.0);
+    float b = SceneVolume.SampleLevel(SDFSampler_Linear_Clamp, id - dir, 0.0);
+    return min(a, b);
+}
+
+[numthreads(4, 4, 4)]
+void CalculateMipMap(uint3 id : SV_DispatchThreadID)
+{
+    float3 center = id * 2.0;
+    float2 dir = float2(0.0, 1.0);
+    float x = min_neighbor(center, dir.yxx);
+    float y = min_neighbor(center, dir.xyx);
+    float z = min_neighbor(center, dir.xxy);
+    SceneVolumeMip[id] = eikonal3d(x, y, z, 1.0);
+}

@@ -14,34 +14,52 @@ namespace Antares.SDF
 
         private static LinkedList<SDFBrushHelper> _enabledSDFBrushes = new LinkedList<SDFBrushHelper>();
 
-        public SDFBrush Brush {
-            get {
-                SDFPresentation presentation;
+        private LinkedListNode<SDFBrushHelper> _listNode;
+
+        [SerializeField]
+        private bool _useAnalytic;
+
+        [SerializeField, ShowIf(nameof(_useAnalytic))]
+        private SDFBrushAnalyticalType _type;
+
+        [SerializeField, HideIf(nameof(_useAnalytic))]
+        private Texture3D _bakedTexture;
+
+        [SerializeField, ShowIf("@_useAnalytic && _type == SDFBrushAnalyticalType.Sphere")]
+        private float _radius;
+
+        [SerializeField, ShowIf("@_useAnalytic && _type == SDFBrushAnalyticalType.Cube")]
+        private Vector3 _cubeSize;
+
+        public bool GetBrush(out SDFBrushNumerical brushNumerical, out SDFBrushAnalytical brushAnalytical)
+        {
+            if (_useAnalytic)
+            {
+                brushNumerical = default;
+
+                Vector4 parameters;
                 switch (_type)
                 {
-                    case SDFPresentationType.Numerical:
-                        presentation = new SDFPresentation(_bakedTexture);
+                    case SDFBrushAnalyticalType.Sphere:
+                        parameters = new Vector4(_radius, 0f);
                         break;
-                    case SDFPresentationType.Sphere:
-                        presentation = new SDFPresentation(_type, new Vector4(_radius, 0f));
+                    case SDFBrushAnalyticalType.Cube:
+                        parameters = _cubeSize;
                         break;
                     default:
                         throw new NotImplementedException();
                 }
-                return new SDFBrush(transform, presentation);
+                brushAnalytical = new SDFBrushAnalytical(transform, _type, parameters);
+
+                return false;
+            }
+            else
+            {
+                brushNumerical = new SDFBrushNumerical(transform, _bakedTexture);
+                brushAnalytical = default;
+                return true;
             }
         }
-
-        private LinkedListNode<SDFBrushHelper> _listNode;
-
-        [SerializeField, OnValueChanged("UpdatePreview")]
-        private SDFPresentationType _type;
-
-        [SerializeField, ShowIf("_type", SDFPresentationType.Numerical)]
-        private Texture3D _bakedTexture;
-
-        [SerializeField, ShowIf("_type", SDFPresentationType.Sphere)]
-        private float _radius;
 
         private static void UpdatePreview()
         {
@@ -50,7 +68,7 @@ namespace Antares.SDF
         private void Awake()
         {
             const string editorOnly = "EditorOnly";
-            if (CompareTag(editorOnly))
+            if (!CompareTag(editorOnly))
             {
                 tag = editorOnly;
                 EditorUtility.SetDirty(gameObject);

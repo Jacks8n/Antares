@@ -1,0 +1,46 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<ClassDiagram MajorVersion="1" MinorVersion="1" MembersFormat="NameAndType">
+  <Class Name="Antares.Graphics.ARenderLayouts">
+    <Position X="1.25" Y="1.25" Width="1.5" />
+    <NestedTypes>
+      <Enum Name="Antares.Graphics.ARenderLayouts.Attachments" Collapsed="true">
+        <TypeIdentifier>
+          <NewMemberFileName>Assets\Scripts\Graphics\ARenderLayouts.cs</NewMemberFileName>
+        </TypeIdentifier>
+      </Enum>
+    </NestedTypes>
+    <TypeIdentifier>
+      <HashCode>AQSAkCIIAAAAAFAAAA0EIAkAFwIBNgAAACAAACEgAYA=</HashCode>
+      <FileName>Assets\Scripts\Graphics\ARenderLayouts.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Antares.Graphics.ARenderPipeline" Collapsed="true">
+    <Position X="3" Y="1.25" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAEgAACAAAAAAAAAACACAQQAQAAAABBAgAAAAAAI=</HashCode>
+      <FileName>Assets\Scripts\Graphics\ARenderPipeline.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Antares.Graphics.ARenderPipelineAsset" Collapsed="true">
+    <Position X="4.75" Y="1.25" Width="1.5" />
+    <TypeIdentifier>
+      <HashCode>AAAAAAAAAAAAAAAAAAAgAACAAAAAAAAAAAAgAAAAAAI=</HashCode>
+      <FileName>Assets\Scripts\Graphics\ARenderPipelineAsset.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Class Name="Antares.Graphics.AShaderSpecs">
+    <Position X="1.25" Y="2.25" Width="1.5" />
+    <NestedTypes>
+      <Struct Name="Antares.Graphics.AShaderSpecs.SDFRayMarchingParameters" Collapsed="true">
+        <TypeIdentifier>
+          <NewMemberFileName>Assets\Scripts\Graphics\AShaderSpecs.cs</NewMemberFileName>
+        </TypeIdentifier>
+      </Struct>
+    </NestedTypes>
+    <TypeIdentifier>
+      <HashCode>AAAAAABAAAAAAAAAAAAAAAAACAAIAAAAAAEWAAAAAAE=</HashCode>
+      <FileName>Assets\Scripts\Graphics\AShaderSpecs.cs</FileName>
+    </TypeIdentifier>
+  </Class>
+  <Font Name="Microsoft YaHei UI" Size="9" />
+</ClassDiagram>

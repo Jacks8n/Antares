@@ -1,6 +1,6 @@
 ﻿using System.Runtime.InteropServices;
-using UnityEngine;
 using Antares.SDF;
+using UnityEngine;
 
 namespace Antares.Graphics
 {
@@ -64,5 +64,11 @@ namespace Antares.Graphics
         public const int RayMarchingGroupSizeX = 8;
         public const int RayMarchingGroupSizeY = 8;
         public const int RayMarchingGroupSizeZ = 1;
+
+        public const int SceneMipCount = 4;
+
+        public const int CalculateMipGroupSizeX = 4;
+        public const int CalculateMipGroupSizeY = 4;
+        public const int CalculateMipGroupSizeZ = 4;
     }
 }

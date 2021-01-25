@@ -7,6 +7,9 @@ namespace Antares.Graphics
     [CreateAssetMenu(menuName = "Rendering/ARenderPipelineAsset")]
     public class ARenderPipelineAsset : RenderPipelineAsset
     {
+        [SerializeField, InspectorName("SDF Generation"), Required]
+        private ComputeShader _sdfGenerationCS;
+
         [SerializeField, InspectorName("Ray Marching"), Required]
         private ComputeShader _rayMarchingCS;
 
@@ -15,7 +18,7 @@ namespace Antares.Graphics
 
         protected override RenderPipeline CreatePipeline()
         {
-            return new ARenderPipeline(_rayMarchingCS, _shadingMat);
+            return new ARenderPipeline(_sdfGenerationCS, _rayMarchingCS, _shadingMat);
         }
     }
 }

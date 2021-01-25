@@ -1,16 +1,13 @@
-﻿using Sirenix.OdinInspector;
-using Antares.Graphics;
+﻿using Antares.Graphics;
+using Sirenix.OdinInspector;
 using UnityEngine;
 using UnityEngine.Rendering;
-using Sirenix.OdinInspector.Editor;
 
 namespace Antares.SDF
 {
     [ExecuteAlways]
     public class SDFScene : MonoBehaviour
     {
-        public const int SceneMipCount = 5;
-
         public static SDFScene Instance { get; private set; }
 
         [field: SerializeField, LabelText("Scene Resolution")]
@@ -18,12 +15,8 @@ namespace Antares.SDF
 
         public Vector3 SizeInv { get; private set; }
 
-        [field: SerializeField, Required]
+        [field: SerializeField, Required, LabelText(nameof(Brushes))]
         public SDFBrushCollection Brushes { get; }
-
-        public RenderTargetIdentifier Volume => _volume;
-
-        private RenderTexture _volume;
 
         public Vector3 WorldToSceneVector(Vector3 vec) => transform.worldToLocalMatrix.MultiplyVector(vec);
 
@@ -31,18 +24,6 @@ namespace Antares.SDF
 
         private void Awake()
         {
-            RenderTextureDescriptor volumeDesc = new RenderTextureDescriptor() {
-                dimension = TextureDimension.Tex3D,
-                width = Size.x,
-                height = Size.z,
-                volumeDepth = Size.y,
-                colorFormat = RenderTextureFormat.R8,
-                msaaSamples = 1,
-                mipCount = SceneMipCount,
-                autoGenerateMips = false,
-                enableRandomWrite = true
-            };
-            _volume = new RenderTexture(volumeDesc);
             SizeInv = new Vector3(1f / Size.x, 1f / Size.y, 1f / Size.z);
         }
 
@@ -52,14 +33,12 @@ namespace Antares.SDF
                 Instance.enabled = false;
             Instance = this;
 
-            _volume.Create();
-
-            TryGetRenderPipeline()?.LoadScene(this);
+            TryRenderPipelineLoad(this);
         }
 
         private void OnDisable()
         {
-            Instance._volume.Release();
+            TryRenderPipelineLoad(null);
         }
 
         private void Update()
@@ -74,12 +53,11 @@ namespace Antares.SDF
 #endif
         }
 
-        private static ARenderPipeline TryGetRenderPipeline()
+        private static void TryRenderPipelineLoad(SDFScene scene)
         {
             RenderPipeline pipeline = RenderPipelineManager.currentPipeline;
             if (pipeline is ARenderPipeline)
-                return pipeline as ARenderPipeline;
-            return null;
+                (pipeline as ARenderPipeline).LoadScene(scene);
         }
     }
 }
