@@ -1,11 +1,11 @@
 ﻿using Unity.Collections;
+using UnityEngine.Experimental.Rendering;
 using UnityEngine;
 using UnityEngine.Rendering;
 
 namespace Antares.Graphics
 {
-    [ExecuteAlways]
-    static class ARenderLayouts
+    public static class ARenderLayouts
     {
         public static readonly bool IsUVFlipped =
             SystemInfo.graphicsDeviceType == GraphicsDeviceType.Direct3D11
@@ -14,6 +14,7 @@ namespace Antares.Graphics
         public static readonly Vector2 ScreenBlitScale = new Vector2(1f, IsUVFlipped ? -1f : 1f);
         public static readonly Vector2 ScreenBlitOffset = new Vector2(0f, IsUVFlipped ? 1f : 0f);
 
+        public const string Binding_MaterialVolume = "MaterialVolume";
         public const string Binding_SceneVolume = "SceneVolume";
         public const string Binding_SceneVolumeMip = "SceneVolumeMip";
         public const string Binding_SceneTexel = "SceneTexel";
@@ -24,6 +25,7 @@ namespace Antares.Graphics
         public const string Binding_SceneRM1 = "SceneRM1";
         public const string Binding_RMParams = "RMParams";
 
+        public static readonly int ID_MaterialVolume = Shader.PropertyToID(Binding_MaterialVolume);
         public static readonly int ID_SceneVolume = Shader.PropertyToID(Binding_SceneVolume);
         public static readonly int ID_SceneVolumeMip = Shader.PropertyToID(Binding_SceneVolumeMip);
         public static readonly int ID_SceneTexel = Shader.PropertyToID(Binding_SceneTexel);
@@ -105,5 +107,26 @@ namespace Antares.Graphics
             return _fullScreenSceneViewMesh;
         }
 #endif
+
+        public static RenderTexture CreateRWVolumeRT(GraphicsFormat format, Vector3Int size, int mipCount)
+        {
+            Debug.Assert(mipCount > 0);
+
+            RenderTextureDescriptor volumeDesc = new RenderTextureDescriptor() {
+                dimension = TextureDimension.Tex3D,
+                width = size.x,
+                height = size.z,
+                volumeDepth = size.y,
+                graphicsFormat = format,
+                msaaSamples = 1,
+                useMipMap = mipCount > 1,
+                mipCount = mipCount,
+                autoGenerateMips = false,
+                enableRandomWrite = true
+            };
+            RenderTexture texture = new RenderTexture(volumeDesc);
+            texture.Create();
+            return texture;
+        }
     }
 }

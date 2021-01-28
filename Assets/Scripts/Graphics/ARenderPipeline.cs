@@ -1,6 +1,7 @@
 ﻿using Antares.SDF;
 using Unity.Collections;
 using UnityEngine;
+using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
 
 using static Antares.Graphics.ARenderLayouts;
@@ -29,6 +30,10 @@ namespace Antares.Graphics
         private SDFScene _loadedScene;
 
         private RenderTexture _sceneVolume;
+
+        private RenderTexture _materialVolume;
+
+        private ComputeBuffer _sdfGenerationBuffer;
 
         public unsafe ARenderPipeline(ComputeShader sdfGenerationCS, ComputeShader rayMarchingCS, Material shadingMat)
         {
@@ -64,48 +69,43 @@ namespace Antares.Graphics
 
             _loadedScene = null;
             _sceneVolume = null;
+            _materialVolume = null;
+            _sdfGenerationBuffer = null;
         }
 
         public void LoadScene(SDFScene scene)
         {
-            _loadedScene = scene;
-
-            if (_loadedScene == null)
-            {
-                if (_sceneVolume != null)
-                    _sceneVolume.Release();
-                return;
-            }
-
-            // create texture
-            Vector3Int sceneSize = scene.Size;
-            if (_sceneVolume == null || _sceneVolume.width != sceneSize.x || _sceneVolume.height != sceneSize.z || _sceneVolume.volumeDepth != sceneSize.y)
+            void ReleaseVolumes()
             {
                 if (_sceneVolume)
                     _sceneVolume.Release();
-                RenderTextureDescriptor volumeDesc = new RenderTextureDescriptor() {
-                    dimension = TextureDimension.Tex3D,
-                    width = sceneSize.x,
-                    height = sceneSize.z,
-                    volumeDepth = sceneSize.y,
-                    colorFormat = RenderTextureFormat.R8,
-                    msaaSamples = 1,
-                    useMipMap = true,
-                    mipCount = SceneMipCount,
-                    autoGenerateMips = false,
-                    enableRandomWrite = true
-                };
-                _sceneVolume = new RenderTexture(volumeDesc);
-                _sceneVolume.Create();
+                if (_materialVolume)
+                    _materialVolume.Release();
+            }
+
+            _loadedScene = scene;
+
+            if (scene == null)
+            {
+                ReleaseVolumes();
+                return;
+            }
+
+            // resize textures
+            Vector3Int sceneSize = scene.Size;
+            if (_sceneVolume == null || _sceneVolume.width != sceneSize.x || _sceneVolume.height != sceneSize.z || _sceneVolume.volumeDepth != sceneSize.y)
+            {
+                ReleaseVolumes();
+
+                _sceneVolume = CreateRWVolumeRT(GraphicsFormat.R8_SNorm, sceneSize, SceneMipCount);
+                _materialVolume = CreateRWVolumeRT(GraphicsFormat.R16_UInt, sceneSize / MaterialVolumeScale, 1);
             }
 
             // TODO: apply brushes
             {
-                var brushes = _loadedScene.Brushes.AnalyticalBrushes;
-                for (int i = 0; i < brushes.Count; i++)
-                {
+                var analyticalBrushes = _loadedScene.Brushes.AnalyticalBrushes;
+                var numericalBrushes = _loadedScene.Brushes.NumericalBrushes;
 
-                }
             }
 
             // generate mipmaps

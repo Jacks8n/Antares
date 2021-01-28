@@ -65,10 +65,17 @@ namespace Antares.Graphics
         public const int RayMarchingGroupSizeY = 8;
         public const int RayMarchingGroupSizeZ = 1;
 
-        public const int SceneMipCount = 4;
+        public const int SceneMipCount = 5;
 
         public const int CalculateMipGroupSizeX = 4;
         public const int CalculateMipGroupSizeY = 4;
         public const int CalculateMipGroupSizeZ = 4;
+
+        public const int MaterialVolumeScale = 4;
+
+        /// <summary>
+        /// Any dimension of scene volume should be multiple of this number.
+        /// </summary>
+        public const int SceneSizeAlignment = (1 << (SceneMipCount - 1)) * MaterialVolumeScale;
     }
 }

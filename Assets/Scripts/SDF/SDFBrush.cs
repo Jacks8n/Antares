@@ -10,17 +10,17 @@ namespace Antares.SDF
         [field: SerializeField, LabelText(nameof(Position))]
         public Vector3 Position { get; }
 
+        [field: SerializeField, LabelText(nameof(Scale))]
+        public float Scale { get; }
+
         [field: SerializeField, LabelText(nameof(Rotation))]
         public Quaternion Rotation { get; }
-
-        [field: SerializeField, LabelText(nameof(Scale))]
-        public Vector3 Scale { get; }
 
         public SDFBrushTransform(Transform transform)
         {
             Position = transform.position;
+            Scale = transform.localScale.x;
             Rotation = transform.rotation;
-            Scale = transform.localScale;
         }
     }
 
@@ -30,15 +30,34 @@ namespace Antares.SDF
         [field: SerializeField, LabelText(nameof(Transform))]
         public SDFBrushTransform Transform { get; }
 
-        [field: SerializeField, LabelText(nameof(Volume))]
+        [field: SerializeField, LabelText(nameof(AtlasOffset))]
+        public Vector3Int AtlasOffset { get; }
+
+        [field: SerializeField, LabelText(nameof(Size))]
+        public Vector3Int Size { get; }
+
+        public SDFBrushNumerical(Transform transform, Vector3Int atlasOffset, Vector3Int size)
+        {
+            Transform = new SDFBrushTransform(transform);
+            AtlasOffset = atlasOffset;
+            Size = size;
+        }
+    }
+
+#if UNITY_EDITOR
+    public struct SDFBrushNumericalWrapper
+    {
+        public SDFBrushTransform Transform { get; }
+
         public Texture3D Volume { get; }
 
-        public SDFBrushNumerical(Transform transform, Texture3D volume)
+        public SDFBrushNumericalWrapper(Transform transform, Texture3D volume)
         {
             Transform = new SDFBrushTransform(transform);
             Volume = volume;
         }
     }
+#endif
 
     public enum SDFBrushAnalyticalType { Sphere, Cube }
 

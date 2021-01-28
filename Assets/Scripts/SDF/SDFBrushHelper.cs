@@ -1,4 +1,6 @@
-﻿using System;
+﻿#if UNITY_EDITOR
+
+using System;
 using System.Collections.Generic;
 using Sirenix.OdinInspector;
 using UnityEditor;
@@ -6,7 +8,6 @@ using UnityEngine;
 
 namespace Antares.SDF
 {
-#if UNITY_EDITOR
     [ExecuteAlways, RequireComponent(typeof(MeshRenderer), typeof(MeshFilter))]
     public class SDFBrushHelper : MonoBehaviour
     {
@@ -31,7 +32,7 @@ namespace Antares.SDF
         [SerializeField, ShowIf("@_useAnalytic && _type == SDFBrushAnalyticalType.Cube")]
         private Vector3 _cubeSize;
 
-        public bool GetBrush(out SDFBrushNumerical brushNumerical, out SDFBrushAnalytical brushAnalytical)
+        public bool GetBrush(out SDFBrushNumericalWrapper brushNumerical, out SDFBrushAnalytical brushAnalytical)
         {
             if (_useAnalytic)
             {
@@ -55,7 +56,7 @@ namespace Antares.SDF
             }
             else
             {
-                brushNumerical = new SDFBrushNumerical(transform, _bakedTexture);
+                brushNumerical = new SDFBrushNumericalWrapper(transform, _bakedTexture);
                 brushAnalytical = default;
                 return true;
             }
@@ -63,6 +64,8 @@ namespace Antares.SDF
 
         private static void UpdatePreview()
         {
+            // TODO
+            Debug.LogWarning("todo");
         }
 
         private void Awake()
@@ -85,5 +88,6 @@ namespace Antares.SDF
             _enabledSDFBrushes.Remove(_listNode);
         }
     }
-#endif
 }
+
+#endif
