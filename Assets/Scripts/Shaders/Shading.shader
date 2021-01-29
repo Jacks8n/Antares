@@ -15,8 +15,8 @@
             Cull Off
 
             CGPROGRAM
-// Upgrade NOTE: excluded shader from OpenGL ES 2.0 because it uses non-square matrices
-#pragma exclude_renderers gles
+            // Upgrade NOTE: excluded shader from OpenGL ES 2.0 because it uses non-square matrices
+            #pragma exclude_renderers gles
             #pragma vertex vert
             #pragma fragment frag
 

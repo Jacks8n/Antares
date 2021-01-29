@@ -24,6 +24,9 @@ namespace Antares.Graphics
         public const string Binding_SceneRM0 = "SceneRM0";
         public const string Binding_SceneRM1 = "SceneRM1";
         public const string Binding_RMParams = "RMParams";
+        public const string Binding_BlitSource = "BlitSrc";
+        public const string Binding_BlitDestination = "BlitDst";
+        public const string Binding_BlitOffset = "BlitOffset";
 
         public static readonly int ID_MaterialVolume = Shader.PropertyToID(Binding_MaterialVolume);
         public static readonly int ID_SceneVolume = Shader.PropertyToID(Binding_SceneVolume);
@@ -35,6 +38,9 @@ namespace Antares.Graphics
         public static readonly int ID_SceneRM0 = Shader.PropertyToID(Binding_SceneRM0);
         public static readonly int ID_SceneRM1 = Shader.PropertyToID(Binding_SceneRM1);
         public static readonly int ID_RMParams = Shader.PropertyToID(Binding_RMParams);
+        public static readonly int ID_BlitSource = Shader.PropertyToID(Binding_BlitSource);
+        public static readonly int ID_BlitDestination = Shader.PropertyToID(Binding_BlitDestination);
+        public static readonly int ID_BlitOffset = Shader.PropertyToID(Binding_BlitOffset);
 
         public static readonly int[] ID_NonAttachmentRTs = new int[] {
             ID_TiledRM,
@@ -108,7 +114,7 @@ namespace Antares.Graphics
         }
 #endif
 
-        public static RenderTexture CreateRWVolumeRT(GraphicsFormat format, Vector3Int size, int mipCount)
+        public static RenderTexture CreateRWVolumeRT(GraphicsFormat format, Vector3Int size, int mipCount = 1)
         {
             Debug.Assert(mipCount > 0);
 

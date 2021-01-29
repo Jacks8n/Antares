@@ -1,10 +1,11 @@
 ﻿using System;
+using System.Runtime.InteropServices;
 using Sirenix.OdinInspector;
 using UnityEngine;
 
 namespace Antares.SDF
 {
-    [Serializable]
+    [Serializable, StructLayout(LayoutKind.Sequential, Pack = 1)]
     public struct SDFBrushTransform
     {
         [field: SerializeField, LabelText(nameof(Position))]
@@ -24,7 +25,7 @@ namespace Antares.SDF
         }
     }
 
-    [Serializable]
+    [Serializable, StructLayout(LayoutKind.Sequential, Pack = 1)]
     public struct SDFBrushNumerical
     {
         [field: SerializeField, LabelText(nameof(Transform))]
@@ -61,7 +62,7 @@ namespace Antares.SDF
 
     public enum SDFBrushAnalyticalType { Sphere, Cube }
 
-    [Serializable]
+    [Serializable, StructLayout(LayoutKind.Sequential, Pack = 1)]
     public struct SDFBrushAnalytical
     {
         [field: SerializeField, LabelText(nameof(Transform))]
