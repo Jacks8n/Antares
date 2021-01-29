@@ -5,6 +5,8 @@ using UnityEngine;
 
 namespace Antares.SDF
 {
+    public enum SDFBrushType { Numerical, Sphere, Cube }
+
     [Serializable, StructLayout(LayoutKind.Sequential, Pack = 1)]
     public struct SDFBrushTransform
     {
@@ -60,8 +62,6 @@ namespace Antares.SDF
     }
 #endif
 
-    public enum SDFBrushAnalyticalType { Sphere, Cube }
-
     [Serializable, StructLayout(LayoutKind.Sequential, Pack = 1)]
     public struct SDFBrushAnalytical
     {
@@ -69,12 +69,12 @@ namespace Antares.SDF
         public SDFBrushTransform Transform { get; }
 
         [field: SerializeField, LabelText(nameof(Type))]
-        public SDFBrushAnalyticalType Type { get; }
+        public SDFBrushType Type { get; }
 
         [field: SerializeField, LabelText(nameof(Parameters))]
         public Vector4 Parameters { get; }
 
-        public SDFBrushAnalytical(Transform transform, SDFBrushAnalyticalType type, Vector4 parameters)
+        public SDFBrushAnalytical(Transform transform, SDFBrushType type, Vector4 parameters)
         {
             Transform = new SDFBrushTransform(transform);
             Type = type;

@@ -62,7 +62,7 @@ namespace Antares.Graphics
                 ReleaseVolumes();
 
                 _sceneVolume = CreateRWVolumeRT(GraphicsFormat.R8_SNorm, sceneSize, SceneMipCount);
-                _materialVolume = CreateRWVolumeRT(GraphicsFormat.R16_UInt, sceneSize / MaterialVolumeScale, 1);
+                _materialVolume = CreateRWVolumeRT(GraphicsFormat.R16G16_UInt, sceneSize / MaterialVolumeScale, 1);
             }
 
             CommandBuffer cmd = CommandBufferPool.Get();
@@ -85,7 +85,7 @@ namespace Antares.Graphics
                 brushBuffer.Release();
             }
 
-            // generate mipmaps
+            // TODO: generate mipmaps
             {
                 Vector3Int mipSize = sceneSize;
 

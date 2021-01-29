@@ -14,7 +14,7 @@ struct RayMarchingParameters
     // x: width, y: height, z: depth, w: unused
     float4 SceneSize;
     
-    // fourth column is unused
+    // fourth row is unused
     float3x4 WorldToSceneT;
 };
 

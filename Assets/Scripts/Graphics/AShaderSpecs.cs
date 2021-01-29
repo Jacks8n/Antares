@@ -36,7 +36,7 @@ namespace Antares.Graphics
 
             public int CalculateMipMapKernel { get; private set; }
 
-            public void OnAfterDeserialize() => CalculateMipMapKernel = Shader.FindKernel("CalculateMipMap");
+            public void OnAfterDeserialize() => CalculateMipMapKernel = Shader.FindKernel("GenerateMipMap");
         }
 
         [Serializable]

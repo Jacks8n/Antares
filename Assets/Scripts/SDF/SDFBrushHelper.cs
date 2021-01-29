@@ -21,7 +21,7 @@ namespace Antares.SDF
         private bool _useAnalytic;
 
         [SerializeField, ShowIf(nameof(_useAnalytic))]
-        private SDFBrushAnalyticalType _type;
+        private SDFBrushType _type;
 
         [SerializeField, HideIf(nameof(_useAnalytic))]
         private Texture3D _bakedTexture;
@@ -41,10 +41,10 @@ namespace Antares.SDF
                 Vector4 parameters;
                 switch (_type)
                 {
-                    case SDFBrushAnalyticalType.Sphere:
+                    case SDFBrushType.Sphere:
                         parameters = new Vector4(_radius, 0f);
                         break;
-                    case SDFBrushAnalyticalType.Cube:
+                    case SDFBrushType.Cube:
                         parameters = _cubeSize;
                         break;
                     default:

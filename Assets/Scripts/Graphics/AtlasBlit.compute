@@ -1,4 +1,4 @@
-﻿#pragma kernel CSMain
+﻿#pragma kernel Blit
 
 Texture3D<float> BlitSrc;
 RWTexture3D<float> BlitDst;
