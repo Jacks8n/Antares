@@ -24,6 +24,11 @@ struct SDFBrush
     {
         return 0.0;
     }
+    
+    uint GetMaterialID()
+    {
+        return 0;
+    }
 };
 
 extern float4x4 SceneToWorld;
@@ -32,13 +37,13 @@ extern float3 BrushCullRadius;
 
 extern RWTexture3D<float> SceneVolume;
 // x: offset y: count
-extern RWTexture3D<uint2> MaterialVolume;
+extern RWTexture3D<uint> MaterialVolume;
 extern RWBuffer<uint> MaterialIndices;
 extern RWBuffer<uint> DispatchCoords;
 
 #define MAX_GSM_BRUSH_COUNT 64
 
-groupshared SDFBrush GSMBrushes[MAX_GSM_BRUSH_COUNT];
+groupshared SDFBrush GSM_Brushes[MAX_GSM_BRUSH_COUNT];
 
 /// end definations used by multiple kernels
 
@@ -47,20 +52,22 @@ groupshared SDFBrush GSMBrushes[MAX_GSM_BRUSH_COUNT];
 #define MAX_GRID_BRUSH_COUNT 16
 
 extern StructuredBuffer<SDFBrush> SDFBrushes;
+extern uint SDFBrushCount;
 
-shared uint MaterialIndexCount = 0;
-
-groupshared uint GSMBrushIndices[MAX_GSM_BRUSH_COUNT];
-groupshared uint GSMBrushCount = 0;
+groupshared uint GSM_BrushIndices[MAX_GSM_BRUSH_COUNT];
+groupshared uint GSM_BrushCount = 0;
+groupshared uint GSM_DispatchCount = 0;
+groupshared uint GSM_DispatchCoords[4 * 4 * 4];
+groupshared uint GSM_DispatchOffset = 0;
 
 uint PackGridCoord(uint3 id)
 {
-    return (id.x << 21) | (id.y << 11) | id.z;
+    return (id.x << 21) | (id.y << 10) | id.z;
 }
 
 uint3 UnpackGridCoord(uint id)
 {
-    return uint3(id >> 21, (id >> 11) & 1023, id & 2047);
+    return uint3(id >> 21, (id >> 10) & 2047, id & 1023);
 }
 
 [numthreads(4, 4, 4)]
@@ -72,17 +79,18 @@ void GenerateMatVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID, uin
     // cull brushes that are guaranteed to be apart from 4x4x4 tile
     const float tileRadius = BrushCullRadius.x;
     const float3 tileCenter = mul(SceneToWorld, float4(gid * 16 + uint3(4, 4, 4), 1.0)).xyz;
-    for (index = dot(tid, uint3(1, 4, 16)); index < totalBrushCount && GSMBrushCount < MAX_GSM_BRUSH_COUNT; index += 64)
+    const uint threadIndex = dot(tid, uint3(1, 4, 16));
+    for (index = threadIndex; index < totalBrushCount && GSM_BrushCount < MAX_GSM_BRUSH_COUNT; index += 64)
     {
         const SDFBrush brush = SDFBrushes[index];
         if (brush.Cull(tileCenter, tileRadius))
         {
-            InterlockedAdd(GSMBrushCount, 1u, gsmIndex);
+            InterlockedAdd(GSM_BrushCount, 1u, gsmIndex);
             
             if (gsmIndex < MAX_GSM_BRUSH_COUNT)
             {
-                GSMBrushes[gsmIndex] = brush;
-                GSMBrushIndices[gsmIndex] = index;
+                GSM_Brushes[gsmIndex] = brush;
+                GSM_BrushIndices[gsmIndex] = index;
             }
         }
     }
@@ -90,33 +98,117 @@ void GenerateMatVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID, uin
     GroupMemoryBarrierWithGroupSync();
     
     // traversal brushes that coincide with 4x4x4 tile
-    totalBrushCount = min(GSMBrushCount, MAX_GRID_BRUSH_COUNT);
+    totalBrushCount = min(GSM_BrushCount, MAX_GRID_BRUSH_COUNT);
     
     const float gridRadius = BrushCullRadius.y;
     const float3 gridPos = mul(SceneToWorld, float4(id * 4, 1.0)).xyz;
     uint brushIndices[MAX_GRID_BRUSH_COUNT], brushCount = 0;
     for (index = 0; index < totalBrushCount; index++)
-        if (GSMBrushes[index].Cull(gridPos, gridRadius))
-            brushIndices[brushCount++] = GSMBrushIndices[index];
+        if (GSM_Brushes[index].Cull(gridPos, gridRadius))
+            brushIndices[brushCount++] = GSM_BrushIndices[index];
     
-    // atomic store linearly
+    // atomic store dispatch coordinate linearly
     if (brushCount != 0)
     {
-        InterlockedAdd(MaterialIndexCount, brushCount, index);
+        // brush count | brush0 | brush1 | ...
         
-        MaterialVolume[id] = uint2(index, brushCount);
-
-        const uint hi = index + brushCount;
-        for (; index < hi; index++)
-            MaterialIndices[index] = GSMBrushIndices[index - brushCount];
+        InterlockedAdd(MaterialIndices[0], brushCount + 1, index);
+        // skip total count
+        ++index;
+        
+        MaterialVolume[id] = index;
+        MaterialIndices[index] = brushCount;
+        
+        for (uint i = 0; i < brushCount; i++)
+            MaterialIndices[index + i] = brushIndices[i];
     
-        InterlockedAdd(DispatchCoords[0], 1, index);
-        // skip 3 indirect arguments
-        DispatchCoords[index + 3] = PackGridCoord(id);
+        // store dispatch coordinate
+        InterlockedAdd(GSM_DispatchCount, 1, index);
+        GSM_DispatchCoords[index] = PackGridCoord(id);
+    }
+    else
+        MaterialVolume[id] = ~0u;
+    
+    GroupMemoryBarrierWithGroupSync();
+
+    if (!threadIndex)
+        InterlockedAdd(DispatchCoords[0], GSM_DispatchCount, GSM_DispatchOffset);
+    
+    // skip 3 indirect arguments
+    if (threadIndex < GSM_DispatchCount)
+        DispatchCoords[GSM_DispatchOffset + threadIndex + 3] = GSM_DispatchCoords[threadIndex];
+    
+    AllMemoryBarrier();
+    
+    if (all(gid == uint3(0, 0, 0) && tid == uint3(0, 0, 0)))
+    {
+        // D3D11_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION is 65535
+        DispatchCoords[1] = DispatchCoords[0] / 65536;
+        DispatchCoords[0] = DispatchCoords[0] % 65536;
     }
 }
 
 /// end generate material volume
+
+/// begin generate mipmap dispatch
+
+extern RWTexture3D<float> MipVolume;
+extern RWBuffer<uint> DispatchMips;
+// while generating things related to n-th mipmap, n - 1 should be set
+extern uint SceneMipLevel;
+
+groupshared uint GSM_PrevMip[6 * 6 * 6];
+groupshared uint GSM_MipDispatchCount = 0;
+
+uint3 Map4To6Cube(uint3 coord)
+{
+    if (coord.x > 2)
+        coord = uint3(coord.yz, 4);
+    else if (coord.y > 2)
+        coord = uint3(coord.xz, 5);
+    return coord * 2;
+}
+
+uint GetMipMask(uint index, uint offset)
+{
+    return GSM_PrevMip[index + offset - 1] | GSM_PrevMip[index + offset] | GSM_PrevMip[index + offset + 1];
+}
+
+[numthreads(4, 4, 4)]
+void GenerateMipDispatch(uint3 tid : SV_GroupThreadID, uint3 id : SV_DispatchThreadID)
+{
+    const uint2 one = uint2(1, 0);
+    const uint3 loadCoord = Map4To6Cube(tid);
+    const uint loadIndex = dot(tid, uint3(1, 6, 36));
+    
+    if (loadIndex < 6 * 6 * 6)
+    {
+        GSM_PrevMip[loadIndex] = MaterialVolume.Load(int4(loadCoord, SceneMipLevel));
+        GSM_PrevMip[loadIndex + 1] = MaterialVolume.Load(int4(loadCoord + one.xyy, SceneMipLevel));
+        GSM_PrevMip[loadIndex + 6] = MaterialVolume.Load(int4(loadCoord + one.yxy, SceneMipLevel));
+        GSM_PrevMip[loadIndex + 7] = MaterialVolume.Load(int4(loadCoord + one.xxy, SceneMipLevel));
+    }
+    
+    GroupMemoryBarrier();
+    
+    const uint maskIndex = dot(tid + one.xxx, uint3(1, 4, 16));
+    uint mask = GetMipMask(maskIndex, 0) | GetMipMask(maskIndex, 6) | GetMipMask(maskIndex, -6);
+    mask |= GetMipMask(maskIndex, -30) | GetMipMask(maskIndex, -36) | GetMipMask(maskIndex, -42);
+    mask |= GetMipMask(maskIndex, 30) | GetMipMask(maskIndex, 36) | GetMipMask(maskIndex, 42);
+
+    GroupMemoryBarrier();
+    
+    MipVolume[id] = mask;
+    
+    // skip 3 indirect arguments
+    if (mask)
+    {
+        InterlockedAdd(GSM_MipDispatchCount, 1, )
+
+    }
+}
+
+/// end generate mipmap dispatch
 
 /// begin generate scene volume
 
@@ -127,96 +219,143 @@ float SmoothMin(float a, float b)
     return invk * log2(exp2(k * a) + exp2(k * b));
 }
 
-groupshared float GSMSDFGrids[8 * 8 * 8];
+groupshared float GSM_SDFGrids[8 * 8 * 8];
 
 // 8 parallel threads per grid
 [numthreads(8, 8, 8)]
 void GenerateSceneVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID)
 {
     // skip 3 indirect arguments
-    const uint3 tileCoord = UnpackGridCoord(DispatchCoords[gid.x + 3]);
-    const uint2 range = MaterialVolume[tileCoord];
+    const uint3 tileCoord = UnpackGridCoord(DispatchCoords[3 + gid.x + gid.y * 65536]);
+    const uint brushOffset = MaterialVolume[tileCoord] + 1;
+    const uint brushCount = MaterialIndices[brushOffset - 1];
 
     // read brushes into gsm
-    const uint index = dot(tid, uint3(1, 8, 64));
-    if (index < range.y)
-        GSMBrushes[index] = SDFBrushes[MaterialIndices[index + range.x]];
+    const uint threadIndex = dot(tid, uint3(1, 8, 64));
+    if (threadIndex < brushCount)
+        GSM_Brushes[threadIndex] = SDFBrushes[MaterialIndices[threadIndex + brushOffset]];
     
     GroupMemoryBarrierWithGroupSync();
 
     // generate smooth union of sdfs
-    const uint offset = index % 8;
+    const uint threadOffset = threadIndex % 8;
     const uint3 id = tileCoord * 4 + tid / 2;
     const float gridRadius = BrushCullRadius.z;
     const float3 coord = mul(SceneToWorld, float4(id, 1.0)).xyz;
 
     float sdf = 1e7;
-    for (uint i = offset; i < range.y; i += 8)
-        if (GSMBrushes[i].Cull(coord, gridRadius))
-            sdf = SmoothMin(sdf, GSMBrushes[i].SampleSDF(coord));
+    for (uint i = threadOffset; i < brushCount; i += 8)
+        if (GSM_Brushes[i].Cull(coord, gridRadius))
+            sdf = SmoothMin(sdf, GSM_Brushes[i].SampleSDF(coord));
 
-    GSMSDFGrids[index] = sdf;
+    GSM_SDFGrids[threadIndex] = sdf;
     
     GroupMemoryBarrierWithGroupSync();
     
     // parallel sdf union
     [unroll]
-    for (uint i = 4; i; i /= 2)
+    for (i = 4; i; i /= 2)
     {
-        if (offset < i)
-            GSMSDFGrids[index] = SmoothMin(GSMSDFGrids[index], GSMSDFGrids[index + i]);
+        if (threadOffset < i)
+            GSM_SDFGrids[threadIndex] = SmoothMin(GSM_SDFGrids[threadIndex], GSM_SDFGrids[threadIndex + i]);
         GroupMemoryBarrier();
     }
 
-    if (!offset)
-        SceneVolume[id] = GSMSDFGrids[index];
+    if (!threadOffset)
+    {
+        SceneVolume[id] = GSM_SDFGrids[threadIndex];
+        MaterialVolume[id] = GSM_Brushes[0].GetMaterialID();
+    }
 }
 
 /// end generate scene volume
 
 /// begin generate mipmap
 
-float eikonal1d(float x, float y, float texel)
+float Eikonal1(float x, float y, float texel)
 {
     return min(x, y) + texel;
 }
 
-float eikonal2d(float x, float y, float texel)
+float Eikonal2(float x, float y, float texel)
 {
-    float xy = x - y;
-    float d = 2.0 * texel * texel - xy * xy;
-    return d >= 0.0 ? 0.5 * (xy + sqrt(d))
-                    : eikonal1d(x, y, texel);
+    const float xy = x - y;
+    const float d = 2.0 * texel * texel - xy * xy;
+    return 0.5 * (xy + sqrt(d));
 }
 
-float eikonal3d(float x, float y, float z, float texel)
+float Eikonal3(float x, float y, float z, float texel)
 {
+    const float3 ones = float3(1.0, 1.0, 1.0);
     const float third = 1.0 / 3.0;
     
-    float sum = x + y + z;
-    float3 xyz = float3(x, y, z);
-    float sqsum = dot(xyz, xyz);
-    float d = sqsum - 3.0 * (sqsum - texel * texel);
-    return d >= 0.0 ? third * (sum + sqrt(d))
-                    : min(min(eikonal2d(x, y, texel), eikonal2d(x, z, texel)), eikonal2d(y, z, texel));
+    const float3 xyz = float3(x, y, z);
+    const bool3 cond = abs(xyz - xyz.zxy) < ones;
+    if (all(cond))
+    {
+        const float sum = dot(xyz, ones);
+        const float sqsum = dot(xyz, xyz);
+        const float d = sum * sum - 3.0 * (sqsum - texel * texel);
+        return third * (sum + sqrt(d));
+    }
+    else
+    {
+        float res = cond.x ? Eikonal2(x, z, texel) : Eikonal1(x, z, texel);
+        res = min(res, cond.y ? Eikonal2(y, x, texel) : Eikonal1(y, x, texel));
+        res = min(res, cond.z ? Eikonal2(z, y, texel) : Eikonal1(z, y, texel));
+        return res;
+    }
 }
 
-float min_neighbor(float3 id, float3 dir)
+groupshared float GSM_SDFMips[8 * 8 * 8];
+
+float MinNeighbor(uint index, uint stride)
 {
-    float a = SceneVolume.SampleLevel(SDFSampler_Linear_Clamp, id + dir, 0.0);
-    float b = SceneVolume.SampleLevel(SDFSampler_Linear_Clamp, id - dir, 0.0);
-    return min(a, b);
+    return min(GSM_SDFMips[index + stride], GSM_SDFMips[index - stride]);
 }
 
-SamplerState SDFSampler_Linear_Clamp;
-RWTexture3D<float> SceneVolumeMip;
-
-groupshared float GSMSDFMips[12 * 12 * 12];
+float SampleAverage(uint3 coord)
+{
+    const uint2 one = uint2(1, 0);
+    float avg = SceneVolume.Load(int4(coord, SceneMipLevel));
+    avg += SceneVolume.Load(int4(coord + one.xyy, SceneMipLevel));
+    avg += SceneVolume.Load(int4(coord + one.yxy, SceneMipLevel));
+    avg += SceneVolume.Load(int4(coord + one.xxy, SceneMipLevel));
+    avg += SceneVolume.Load(int4(coord + one.yyx, SceneMipLevel));
+    avg += SceneVolume.Load(int4(coord + one.xyx, SceneMipLevel));
+    avg += SceneVolume.Load(int4(coord + one.yxx, SceneMipLevel));
+    avg += SceneVolume.Load(int4(coord + one.xxx, SceneMipLevel));
+    return avg * 0.125;
+}
 
 [numthreads(8, 8, 8)]
-void GenerateMipMap(uint3 id : SV_DispatchThreadID)
+void GenerateMipMap(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID)
 {
+    const uint3 coord = UnpackGridCoord(DispatchMips[3 + gid.x + gid.y * 65536]) + tid - uint3(2, 2, 2);
+    const uint3 prevMipCoord = coord * 2;
     
+    const uint threadIndex = dot(tid, uint3(1, 8, 64));
+    GSM_SDFMips[threadIndex] = SampleAverage(prevMipCoord);
+    
+    GroupMemoryBarrier();
+    
+    float x, y, z, sdf;
+    [unroll]
+    for (uint i = 0; i < 3; i++)
+    {
+        x = MinNeighbor(threadIndex, 1);
+        y = MinNeighbor(threadIndex, 8);
+        z = MinNeighbor(threadIndex, 64);
+        sdf = Eikonal3(x, y, z, 1.0);
+        if (i < 2)
+        {
+            GSM_SDFMips[threadIndex] = sdf;
+            GroupMemoryBarrier();
+        }
+    }
+    
+    if (all(tid - uint3(2, 2, 2) < uint3(4, 4, 4)))
+        MipVolume[coord] = sdf;
 }
 
 /// end generate mipmap
