@@ -81,7 +81,6 @@ namespace Antares.Graphics
                 ComputeBuffer brushBuffer = new ComputeBuffer(numericalBrushes.Count, brushSize);
 
 
-
                 brushBuffer.Release();
             }
 

@@ -5,9 +5,11 @@
 
 /// begin definations used by multiple kernels
 
-extern Texture3D<float> BrushAtlas;
+extern Texture3D<snorm float> BrushAtlas;
+extern SamplerState BrushAtlas_Sampler;
 
 #define SDF_MAX 1 << 15
+#define SDF_SUPREMUM 1.0    // it's limited by snorm
 #define BRUSH_TYPE_NUMERICAL 0
 #define BRUSH_TYPE_SPHERE 1
 #define BRUSH_TYPE_CUBE 2
@@ -16,59 +18,81 @@ struct SDFBrush
 {
     float3x4 WorldToLocal;
     
-    // x: brush type, yzw: atlas offset
+    // x: brush type, y: material id
     uint4 Parameter0;
-    // x: material id, yzw: numerical brush size
-    uint4 Parameter1;
+    // x: uniform scale
+    float4 Parameter1;
     float4 Parameter2;
     float4 Parameter3;
     float4 Parameter4;
+    
+    uint GetMaterialID()
+    {
+        return Parameter0.x;
+    }
+    
+    float GetUniformScale()
+    {
+        return Parameter1.x;
+    }
+    
+    float SDF_Numerical(float3 p)
+    {
+        const float3 brushSize = Parameter1.yzw;
+        const float3 nearest = clamp(p, float3(0.0, 0.0, 0.0), brushSize);
+        if (any(nearest != p))
+            return distance(nearest, p) + SDF_SUPREMUM;
+        
+        const float3 brushOffset = Parameter2.xyz;
+        return BrushAtlas.Sample(BrushAtlas_Sampler, p + brushOffset);
+    }
+    
+    float SDF_Sphere(float3 p)
+    {
+        const float radius = Parameter1.y;
+        return length(p) - radius;
+    }
+    
+    float SDF_Cube(float3 p)
+    {
+        const float3 size = Parameter1.yzw;
+        const float3 nearest = clamp(p, float3(0.0, 0.0, 0.0), size);
+        return distance(nearest, p);
+    }
     
     float Sample(float3 wpos)
     {
         const float3 p = mul(WorldToLocal, float4(wpos, 1.0));
 
+        float sdf;
         switch (Parameter0.x)
         {
-            case BRUSH_TYPE_NUMERICAL:{
-                    
-                    return 0.0;
-                }
-            
-            case BRUSH_TYPE_SPHERE:{
-                    const float radius = Parameter2.x;
-                    return length(p) - radius;
-                }
-            
-            case BRUSH_TYPE_CUBE:{
-                    const float3 halfSize = Parameter2.xyz;
-                    const float3 projection = clamp(p, -halfSize, halfSize);
-                    return distance(projection, p);
-                }
-            
+            case BRUSH_TYPE_NUMERICAL:
+                sdf = SDF_Numerical(p);
+            case BRUSH_TYPE_SPHERE:
+                sdf = SDF_Sphere(p);
+            case BRUSH_TYPE_CUBE:
+                sdf = SDF_Cube(p);
             default:
-                return SDF_MAX;
+                sdf = SDF_MAX;
         }
+
+        return sdf * GetUniformScale();
     }
     
     bool Cull(float3 wpos, float thres)
     {
         return abs(Sample(wpos)) <= thres;
     }
-    
-    uint GetMaterialID()
-    {
-        return Parameter1.x;
-    }
 };
 
 // transform mip 0 indices to world position
 extern float4x4 SceneToWorld;
-// world space metric
-// x: 16^3 tile radius + 4-grid band, y: 4^3 tile radius + 4-grid band, z: grid radius + 4-grid band
+// world space metric(applied uniform scale)
+// x: 16^3 tile radius + SDF_SUPREMUM, y: 4^3 tile radius + SDF_SUPREMUM, z: grid radius + SDF_SUPREMUM
 extern float3 BrushCullRadius;
-// world space metric
-// x: 1 / (4-grid band), y: square of grid space
+// world space metric(applied uniform scale)
+// x: 1.0 / SDF_SUPREMUM, y: square of grid space
 extern float2 SceneGridSize;
 
 extern RWTexture3D<snorm float> SceneVolume;

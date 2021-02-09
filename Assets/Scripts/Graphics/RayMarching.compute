@@ -1,160 +1,188 @@
 ﻿#pragma kernel TiledMarching
 #pragma kernel RayMarching
 
-struct RayMarchingParameters
+// column 0, 1: dudx, dvdy
+// column 2: left-bottom-near corner
+// column 3: position of camera
+extern float3x4 UVToScene;
+    
+// x: 1 / width, y: 1 / height, z: 1 / depth, w: max step
+extern float4 SceneTexel;
+    
+// fourth row is unused
+extern float3x4 WorldToSceneT;
+    
+// x: width, y: height, z: depth, w: mip level count
+extern float4 SceneSize;
+    
+// sdf supremum of different mip level
+// x: initial marching, y: hightest, z: lowest
+extern float3 SDFSupremum;
+
+extern RWTexture2D<float2> TiledRM;
+
+extern SamplerState SDFSampler_Linear_Clamp;
+extern Texture3D<float> SceneVolume;
+extern RWTexture2D<float4> SceneRM0;
+extern RWTexture2D<float4> SceneRM1;
+
+bool IsHit(float sdf, float t)
 {
-    // column 0, 1: dudx, dvdy
-    // column 2: left-bottom-near corner
-    // column 3: position of camera
-    float3x4 UVToScene;
-    
-    // x: 1 / width, y: 1 / height, z: 1 / depth, w: max step
-    float4 SceneTexel;
-    
-    // x: width, y: height, z: depth, w: unused
-    float4 SceneSize;
-    
-    // fourth row is unused
-    float3x4 WorldToSceneT;
-};
-
-RWTexture2D<float> TiledRM;
-
-SamplerState SDFSampler_Linear_Clamp;
-Texture3D<float> SceneVolume;
-StructuredBuffer<RayMarchingParameters> RMParams;
-RWTexture2D<float4> SceneRM0;
-RWTexture2D<float4> SceneRM1;
-
-inline bool is_hit(float sdf)
-{
+    // TODO: pixel-sized filter
     return abs(sdf) < 0.001;
 }
 
-inline float sample_sdf(float3 pos)
+// returns **normalized** sdf
+float SampleSDF(float3 pos, float mip)
 {
-    float4 texel = RMParams[0].SceneTexel;
-    float3 uvw = pos * texel.xyz;
-    
-    return length(pos) - 0.5;
-    //return SceneVolume.SampleLevel(SDFSampler_Linear_Clamp, uvw, 0) * texel.w;
+    const float3 texel = SceneTexel.xyz;
+    const float3 uvw = pos * texel;
+    return SceneVolume.SampleLevel(SDFSampler_Linear_Clamp, uvw, mip);
 }
 
-inline float3 sample_color(float3 p)
+float3 SampleColor(float3 p)
 {
     return abs(normalize(sin(p)));
 }
 
-void ray_march(float3 o, float3 d, inout float t, out float3 hit, out float err)
+float3 SampleNormal(float3 p, float mip)
 {
-    float curr, prev = sample_sdf(d * t + o), s;
-    int i;
-    for (i = 0; i < 32; i++)
-    {
-        s = prev * 1.0;
-        curr = sample_sdf(d * (t + s) + o);
-        if (curr + prev > abs(s))
-            t += s;
-        else
-        {
-            t += prev;
-            curr = sample_sdf(d * t + o);
-        }
-       
-        if (is_hit(curr))
-            break;
-        
-        prev = curr;
-    }
-    
-    hit = d * t + o;
-    err = curr;
+    const float2 offset = float2(1.0, -1.0);
+    const float3 texel = SceneSize.xyz;
+    return normalize(SampleSDF(p + offset.xxx, mip) +
+                     SampleSDF(p + offset.yyx, mip) +
+                     SampleSDF(p + offset.xyy, mip) +
+                     SampleSDF(p + offset.yxy, mip));
 }
 
-inline float3 get_camera_pos()
+float3 GetCameraPos()
 {
-    return RMParams[0].UVToScene._14_24_34;
+    return UVToScene._14_24_34;
 }
 
-inline float3 calc_ray_dir(float2 uv)
+float3 GetRayDirectionUnnormalized(float2 uv)
 {
-    return normalize(mul(RMParams[0].UVToScene, float4(uv, 1.0, -1.0)).xyz);
+    return mul(UVToScene, float4(uv, 1.0, -1.0)).xyz;
 }
 
-inline float clamp_ray(float3 o, float3 d)
+float3 GetRayDirection(float2 uv)
+{
+    return normalize(GetRayDirectionUnnormalized(uv));
+}
+
+float ClampRayToScene(float3 o, float3 d)
 {
     float3 invd = 1.0 / d;
     float3 t0 = -o * invd;
-    float3 t1 = (RMParams[0].SceneSize.xyz - o) * invd;
+    float3 t1 = (SceneSize.xyz - o) * invd;
     t0 = min(t0, t1);
     
     return max(max(t0.x, t0.y), max(t0.z, 0.0));
 }
 
-[numthreads(1, 1, 1)]
+/// begin tiled marching
+
+// xy: middle of render target(in pixel)
+// z: 0.5 * diagonal of tile(in world space) * near
+extern float3 TiledMarchingParams;
+
+[numthreads(8, 8, 1)]
 void TiledMarching(uint3 id : SV_DispatchThreadID)
 {
-    const float2 MarchingTileSize = float2(8.0, 8.0);
+    const float2 tile = float2(8.0, 8.0);
+    const float2 tileHalf = tile * 0.5;
 
-    float2 lb = float2(id.xy) * MarchingTileSize;
-    float2 rt = float2(id.xy + uint2(1, 1)) * MarchingTileSize;
-    
-    float3 d_lb = calc_ray_dir(lb);
-    float3 d_rt = calc_ray_dir(rt);
-    
-    float3 d = normalize((d_rt + d_lb) * 0.5);
-    float3 o = get_camera_pos();
-    float t = clamp_ray(o, d);
+    const float2 uv = float2(id.xy) * tile;
+    const float2 biased = uv - TiledMarchingParams.xy;
+    const float2 nearest = step(uv, -tileHalf) * tile + uv;
+    const float2 middle = uv + tileHalf;
 
-    const float thres = distance(d_lb, d);
-    const float a = 0.5 / dot(d_lb, d_lb);
+    const float3 no = GetRayDirectionUnnormalized(nearest);
+    const float3 co = GetRayDirectionUnnormalized(middle);
     
-    float3 e, dt;
-    float sdf, next;
-    for (int i = 0; i < 16; i++)
+    // analytical aperture:
+    // distance(center, tile corner) * near / (distance(nearest corner, origin) * distance(center, origin))
+    // numerator is a constant determined by camera and size of tile
+    // for divisor a relaxed approximation is taken:
+    // dot(nearest corner - origin, center - origin)
+    
+    const float c = dot(no, co);
+    const float k = c * rcp(c + TiledMarchingParams.z);
+
+    const float coNormInv = rcp(length(co));
+    const float3 d = co * coNormInv;
+    const float3 o = GetCameraPos();
+    
+    float t = ClampRayToScene(o, d);
+    float mip, sup, sdf, r;
+    for (uint i = 0; i < 32; i++)
     {
-        dt = d * t;
-        e = dt + o;
-        sdf = sample_sdf(e);
-        if (sdf < thres * t)
+        r = k * t;
+        sdf = SampleSDF(mad(d, t, o), mip);
+        if (sdf < r)
             break;
         
-        next = 2.0 * dot(dt, d_lb) * a;
-        next = t + sqrt(max(0.0, next * next - (dot(dt, dt) - sdf * sdf)));
-        if (next - t < 0.1)
-            break;
-        
-        t = next;
+        t = sdf * k + r;
     }
     
-    TiledRM[id.xy] = t;
+    TiledRM[id.xy] = float2(t * coNormInv, t * t - r * r);
 }
 
 [numthreads(8, 8, 1)]
 void RayMarching(uint3 id : SV_DispatchThreadID)
 {
-    RayMarchingParameters rm = RMParams[0];
+    const uint2 tile = uint2(8, 8);
+    const uint2 tileHalf = tile / 2;
+    const float2 sphere = TiledRM[id.xy / tile];
+    const float2 middle = float2((id.xy - id.xy % tile) + tileHalf);
+    
+    const float3 center = GetRayDirectionUnnormalized(middle);
+    const float3 d = GetRayDirection(float2(id.xy));
+    
+    const float od = dot(center, d) * sphere.x;
+    const float b = sqrt(od * od - sphere.y);
+    float t = sphere.y * rcp(od - b);
 
-    float3 o = get_camera_pos();
-    float3 d = calc_ray_dir(float2(id.xy));
-    float t = TiledRM[id.xy / 8];
+    const float3 o = GetCameraPos();
     
-    float3 hit;
-    float sdf;
-    ray_march(o, d, t, hit, sdf);
-    if (!is_hit(sdf))
+    const float maxMip = SceneSize.w;
+    const float supHighest = SDFSupremum.y;
+    const float supLowest = SDFSupremum.z;
+
+    float nsdf, sdf;
+    float mip = ceil(maxMip * 0.5);
+    float supremum = SDFSupremum.x;
+    for (int i = 0; i < 32; i++)
     {
-        SceneRM0[id.xy] = float(0.0).xxxx;
-        return;
+        nsdf = SampleSDF(d * t + o, mip);
+        sdf = nsdf * supremum;
+        t += sdf;
+        
+        if (IsHit(sdf, t))
+            break;
+        
+        if (nsdf == 1.0)
+        {
+            mip = min(mip + 2.0, maxMip);
+            supremum = min(supremum * 4.0, supHighest);
+        }
+        else if (nsdf < 0.25)
+        {
+            mip = max(mip - 2.0, 0.0);
+            supremum *= max(supremum * 0.25, supLowest);
+        }
     }
+
+    // remedy with linear interpolation, which requires infinite marching steps to converge
+    const float last = SampleSDF(d * t + o, 0.0) * supLowest;
+    const float bias = last * rcp(1.0 - (last - sdf));
+
+    t += bias;
+    const float3 hit = d * t + o;
+
+    const float3 normal = SampleNormal(hit, 0.0);
     
-    float3 normal;
-    normal.x = sample_sdf(hit.xyz + float3(rm.SceneTexel.x, 0.0, 0.0));
-    normal.y = sample_sdf(hit.xyz + float3(0.0, rm.SceneTexel.y, 0.0));
-    normal.z = sample_sdf(hit.xyz + float3(0.0, 0.0, rm.SceneTexel.z));
-    normal = normalize(mul(rm.WorldToSceneT, float4(normal - sdf, 0.0)));
-    
-    float3 color = sample_color(hit);
+    const float3 color = SampleColor(hit);
     
     SceneRM0[id.xy] = float4(color, 1.0);
     SceneRM1[id.xy] = float4(normal, 1.0);
