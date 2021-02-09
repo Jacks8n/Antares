@@ -39,23 +39,26 @@ struct SDFBrush
     float SDF_Numerical(float3 p)
     {
         const float3 brushSize = Parameter1.yzw;
+        const float3 brushOffset = Parameter2.xyz;
+
         const float3 nearest = clamp(p, float3(0.0, 0.0, 0.0), brushSize);
         if (any(nearest != p))
             return distance(nearest, p) + SDF_SUPREMUM;
         
-        const float3 brushOffset = Parameter2.xyz;
         return BrushAtlas.Sample(BrushAtlas_Sampler, p + brushOffset);
     }
     
     float SDF_Sphere(float3 p)
     {
         const float radius = Parameter1.y;
+        
         return length(p) - radius;
     }
     
     float SDF_Cube(float3 p)
     {
         const float3 size = Parameter1.yzw;
+        
         const float3 nearest = clamp(p, float3(0.0, 0.0, 0.0), size);
         return distance(nearest, p);
     }

@@ -22,7 +22,7 @@ extern float3 SDFSupremum;
 extern RWTexture2D<float2> TiledRM;
 
 extern SamplerState SDFSampler_Linear_Clamp;
-extern Texture3D<float> SceneVolume;
+extern Texture3D<snorm float> SceneVolume;
 extern RWTexture2D<float4> SceneRM0;
 extern RWTexture2D<float4> SceneRM1;
 
@@ -86,10 +86,13 @@ float ClampRayToScene(float3 o, float3 d)
 // z: 0.5 * diagonal of tile(in world space) * near
 extern float3 TiledMarchingParams;
 
+#define MARCHING_TILE_SIZE_X 8
+#define MARCHING_TILE_SIZE_Y 8
+
 [numthreads(8, 8, 1)]
 void TiledMarching(uint3 id : SV_DispatchThreadID)
 {
-    const float2 tile = float2(8.0, 8.0);
+    const float2 tile = float2(MARCHING_TILE_SIZE_X, MARCHING_TILE_SIZE_Y);
     const float2 tileHalf = tile * 0.5;
 
     const float2 uv = float2(id.xy) * tile;
@@ -128,10 +131,10 @@ void TiledMarching(uint3 id : SV_DispatchThreadID)
     TiledRM[id.xy] = float2(t * coNormInv, t * t - r * r);
 }
 
-[numthreads(8, 8, 1)]
+[numthreads(MARCHING_TILE_SIZE_X, MARCHING_TILE_SIZE_Y, 1)]
 void RayMarching(uint3 id : SV_DispatchThreadID)
 {
-    const uint2 tile = uint2(8, 8);
+    const uint2 tile = uint2(MARCHING_TILE_SIZE_X, MARCHING_TILE_SIZE_Y);
     const uint2 tileHalf = tile / 2;
     const float2 sphere = TiledRM[id.xy / tile];
     const float2 middle = float2((id.xy - id.xy % tile) + tileHalf);

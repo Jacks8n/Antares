@@ -34,9 +34,21 @@ namespace Antares.Graphics
             [field: SerializeField, LabelText(nameof(Shader))]
             public ComputeShader Shader { get; }
 
-            public int CalculateMipMapKernel { get; private set; }
+            public int GenerateMatVolumeKernel { get; private set; }
 
-            public void OnAfterDeserialize() => CalculateMipMapKernel = Shader.FindKernel("GenerateMipMap");
+            public int GenerateMipDispatchKernel { get; private set; }
+
+            public int GenerateSceneVolumeKernel { get; private set; }
+
+            public int GenerateMipMapKernel { get; private set; }
+
+            public void OnAfterDeserialize()
+            {
+                GenerateMatVolumeKernel = Shader.FindKernel("GenerateMatVolume");
+                GenerateMipDispatchKernel = Shader.FindKernel("GenerateMipDispatch");
+                GenerateSceneVolumeKernel = Shader.FindKernel("GenerateSceneVolume");
+                GenerateMipMapKernel = Shader.FindKernel("GenerateMipMap");
+            }
         }
 
         [Serializable]

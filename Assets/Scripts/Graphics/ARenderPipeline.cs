@@ -69,8 +69,10 @@ namespace Antares.Graphics
 
             // TODO: apply brushes
             {
-                var analyticalBrushes = _loadedScene.Brushes.AnalyticalBrushes;
-                var numericalBrushes = _loadedScene.Brushes.NumericalBrushes;
+                SDFBrushCollection brushes = _loadedScene.Brushes;
+
+                var analyticalBrushes = brushes.AnalyticalBrushes;
+                var numericalBrushes = brushes.NumericalBrushes;
 
                 int brushSize;
                 unsafe
@@ -187,7 +189,7 @@ namespace Antares.Graphics
                 if (camera.clearFlags.HasFlag(CameraClearFlags.Skybox))
                 {
                     using (var colors = new NativeArray<int>(new int[] { AttachmentIndex_Shading }, Allocator.Temp))
-                        context.BeginSubPass(colors, isDepthReadOnly: false);
+                        context.BeginSubPass(colors, isDepthStencilReadOnly: false);
 
                     context.DrawSkybox(camera);
 
@@ -205,7 +207,7 @@ namespace Antares.Graphics
                 // draw opaque mesh
                 {
                     using (var colors = new NativeArray<int>(new int[] { AttachmentIndex_GBuffer0 }, Allocator.Temp))
-                        context.BeginSubPass(colors, isDepthReadOnly: false);
+                        context.BeginSubPass(colors, isDepthStencilReadOnly: false);
 
                     DrawingSettings drawingSettings = new DrawingSettings(new ShaderTagId("Deferred"), sortingSettings);
 
@@ -219,7 +221,7 @@ namespace Antares.Graphics
                     {
                         var colors = new NativeArray<int>(new int[] { AttachmentIndex_Shading }, Allocator.Temp);
                         var inputs = new NativeArray<int>(new int[] { AttachmentIndex_GBuffer0, AttachmentIndex_Depth }, Allocator.Temp);
-                        context.BeginSubPass(colors, inputs, isDepthReadOnly: true);
+                        context.BeginSubPass(colors, inputs, isDepthStencilReadOnly: true);
                         colors.Dispose();
                         inputs.Dispose();
                     }
