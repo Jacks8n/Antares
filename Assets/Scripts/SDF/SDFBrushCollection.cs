@@ -5,6 +5,7 @@ using Antares.Utility;
 using Sirenix.OdinInspector;
 using Sirenix.Serialization;
 using Unity.Collections;
+using Unity.Jobs;
 using UnityEditor;
 using UnityEngine;
 
@@ -15,25 +16,19 @@ namespace Antares.SDF
     [CreateAssetMenu(menuName = "SDF/BrushCollection")]
     public class SDFBrushCollection : ScriptableObject, ISerializationCallbackReceiver
     {
-        public IReadOnlyList<SDFBrushNumerical> NumericalBrushes => _numericalBrushes;
-
-        public IReadOnlyList<SDFBrushAnalytical> AnalyticalBrushes => _analyticalBrushes;
-
         [field: SerializeField, LabelText(nameof(NumericalBrushAtlas))]
         public RenderTexture NumericalBrushAtlas { get; }
 
-        [SerializeField]
-        private List<SDFBrushNumerical> _numericalBrushes;
-
-        [SerializeField]
-        private List<SDFBrushAnalytical> _analyticalBrushes;
-
-        [SerializeField, FilePath]
+        [SerializeField, FilePath, Required]
         private string _serializationPath;
+
+        private NativeArray<SDFBrush> _brushes;
 
         private NativeArray<float> _parameters;
 
-        public void OnBeforeSerialize()
+        public void CopyBrushParameters(NativeArray<float> parameters) => _parameters.CopyTo(parameters);
+
+        void ISerializationCallbackReceiver.OnBeforeSerialize()
         {
             using FileStream stream = new FileStream(_serializationPath, FileMode.OpenOrCreate);
 
@@ -44,7 +39,7 @@ namespace Antares.SDF
                 SerializationUtility.SerializeValue(_parameters[i], stream, DataFormat.Binary);
         }
 
-        public void OnAfterDeserialize()
+        void ISerializationCallbackReceiver.OnAfterDeserialize()
         {
             using FileStream stream = new FileStream(_serializationPath, FileMode.Open);
 
@@ -59,14 +54,21 @@ namespace Antares.SDF
         [Button]
         private void GatherBrushes()
         {
-            _analyticalBrushes = new List<SDFBrushAnalytical>();
-            var numericalBrushes = new List<SDFBrushNumericalWrapper>();
-            foreach (var brush in SDFBrushHelper.EnabledSDFBrushes)
+            SDFBrushHelper[] brushHelpers = FindObjectsOfType<SDFBrushHelper>();
+            _brushes = new NativeArray<SDFBrush>(brushHelpers.Length, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+
+            var numericalBrushes = new List<Texture3D>();
+            var numericalBrushIndices = new List<int>();
+            SDFBrush brush = default;
+            Texture3D numericalBrush = null;
+            for (int i = 0; i < brushHelpers.Length; i++)
             {
-                if (brush.GetBrush(out SDFBrushNumericalWrapper brushNumerical, out SDFBrushAnalytical brushAnalytical))
-                    numericalBrushes.Add(brushNumerical);
-                else
-                    _analyticalBrushes.Add(brushAnalytical);
+                if (brushHelpers[i].GetBrush(ref brush, ref numericalBrush))
+                {
+                    numericalBrushes.Add(numericalBrush);
+                    numericalBrushIndices.Add(i);
+                }
+                _brushes[i] = brush;
             }
 
             if (NumericalBrushAtlas)
@@ -75,6 +77,8 @@ namespace Antares.SDF
                 Debug.Assert(!string.IsNullOrEmpty(atlasPath), "Brush atlas not found");
                 AssetDatabase.DeleteAsset(atlasPath);
             }
+
+
 
             EditorUtility.SetDirty(this);
             AssetDatabase.SaveAssets();

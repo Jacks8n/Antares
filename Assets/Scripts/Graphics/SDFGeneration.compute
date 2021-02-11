@@ -8,6 +8,8 @@
 extern Texture3D<snorm float> BrushAtlas;
 extern SamplerState BrushAtlas_Sampler;
 
+extern Buffer<float4> BrushParameters;
+
 #define SDF_MAX 1 << 15
 #define SDF_SUPREMUM 1.0    // it's limited by snorm
 #define BRUSH_TYPE_NUMERICAL 0
@@ -18,28 +20,33 @@ struct SDFBrush
 {
     float3x4 WorldToLocal;
     
-    // x: brush type, y: material id
-    uint4 Parameter0;
-    // x: uniform scale
-    float4 Parameter1;
-    float4 Parameter2;
-    float4 Parameter3;
-    float4 Parameter4;
+    uint Type;
+    
+    uint MaterialID;
+    
+    uint ParameterOffset;
+    
+    float Scale;
     
     uint GetMaterialID()
     {
-        return Parameter0.x;
+        return MaterialID;
     }
     
     float GetUniformScale()
     {
-        return Parameter1.x;
+        return Scale;
+    }
+    
+    float4 GetParameters(uint offset)
+    {
+        return BrushParameters[ParameterOffset + offset];
     }
     
     float SDF_Numerical(float3 p)
     {
-        const float3 brushSize = Parameter1.yzw;
-        const float3 brushOffset = Parameter2.xyz;
+        const float3 brushSize = GetParameters(0).xyz;
+        const float3 brushOffset = GetParameters(1).xyz;
 
         const float3 nearest = clamp(p, float3(0.0, 0.0, 0.0), brushSize);
         if (any(nearest != p))
@@ -50,14 +57,14 @@ struct SDFBrush
     
     float SDF_Sphere(float3 p)
     {
-        const float radius = Parameter1.y;
+        const float radius = GetParameters(0).x;
         
         return length(p) - radius;
     }
     
     float SDF_Cube(float3 p)
     {
-        const float3 size = Parameter1.yzw;
+        const float3 size = GetParameters(0).xyz;
         
         const float3 nearest = clamp(p, float3(0.0, 0.0, 0.0), size);
         return distance(nearest, p);
@@ -68,7 +75,7 @@ struct SDFBrush
         const float3 p = mul(WorldToLocal, float4(wpos, 1.0));
 
         float sdf;
-        switch (Parameter0.x)
+        switch (Type)
         {
             case BRUSH_TYPE_NUMERICAL:
                 sdf = SDF_Numerical(p);
@@ -114,6 +121,7 @@ extern uint SceneMipLevel;
 
 #define MAX_GSM_BRUSH_COUNT 64
 
+// todo: bank conflict?
 groupshared SDFBrush GSM_Brushes[MAX_GSM_BRUSH_COUNT];
 
 // indirect buffer layout:

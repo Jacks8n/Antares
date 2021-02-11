@@ -1,7 +1,5 @@
 ﻿#if UNITY_EDITOR
 
-using System;
-using System.Collections.Generic;
 using Sirenix.OdinInspector;
 using UnityEditor;
 using UnityEngine;
@@ -11,61 +9,34 @@ namespace Antares.SDF
     [ExecuteAlways, RequireComponent(typeof(MeshRenderer), typeof(MeshFilter))]
     public class SDFBrushHelper : MonoBehaviour
     {
-        public static IEnumerable<SDFBrushHelper> EnabledSDFBrushes => _enabledSDFBrushes;
-
-        private static LinkedList<SDFBrushHelper> _enabledSDFBrushes = new LinkedList<SDFBrushHelper>();
-
-        private LinkedListNode<SDFBrushHelper> _listNode;
-
         [SerializeField]
-        private bool _useAnalytic;
+        private ISDFShape _shape;
 
-        [SerializeField, ShowIf(nameof(_useAnalytic))]
-        private SDFBrushType _type;
-
-        [SerializeField, HideIf(nameof(_useAnalytic))]
+        [SerializeField, ShowIf("@_shape is " + nameof(SDFShape.Numerical))]
         private Texture3D _bakedTexture;
 
-        [SerializeField, ShowIf("@_useAnalytic && _type == SDFBrushAnalyticalType.Sphere")]
-        private float _radius;
+        [SerializeField]
+        private int _materialID;
 
-        [SerializeField, ShowIf("@_useAnalytic && _type == SDFBrushAnalyticalType.Cube")]
-        private Vector3 _cubeSize;
-
-        public bool GetBrush(out SDFBrushNumericalWrapper brushNumerical, out SDFBrushAnalytical brushAnalytical)
+        /// <returns>whether the brush is numerical</returns>
+        public bool GetBrush(ref SDFBrush brush, ref Texture3D atlas)
         {
-            if (_useAnalytic)
+            if (_shape is SDFShape.Numerical)
             {
-                brushNumerical = default;
-
-                Vector4 parameters;
-                switch (_type)
-                {
-                    case SDFBrushType.Sphere:
-                        parameters = new Vector4(_radius, 0f);
-                        break;
-                    case SDFBrushType.Cube:
-                        parameters = _cubeSize;
-                        break;
-                    default:
-                        throw new NotImplementedException();
-                }
-                brushAnalytical = new SDFBrushAnalytical(transform, _type, parameters);
-
-                return false;
+                brush = SDFBrush.FromShape(transform, _shape, _materialID);
+                atlas = _bakedTexture;
+                return true;
             }
             else
             {
-                brushNumerical = new SDFBrushNumericalWrapper(transform, _bakedTexture);
-                brushAnalytical = default;
-                return true;
+                brush = SDFBrush.FromShape(transform, _shape, _materialID);
+                return false;
             }
         }
 
         private static void UpdatePreview()
         {
             // TODO
-            Debug.LogWarning("todo");
         }
 
         private void Awake()
@@ -76,16 +47,6 @@ namespace Antares.SDF
                 tag = editorOnly;
                 EditorUtility.SetDirty(gameObject);
             }
-        }
-
-        private void OnEnable()
-        {
-            _listNode = _enabledSDFBrushes.AddLast(this);
-        }
-
-        private void OnDisable()
-        {
-            _enabledSDFBrushes.Remove(_listNode);
         }
     }
 }

@@ -25,8 +25,39 @@ namespace Antares.Graphics
         }
 
         [Serializable]
-        public class SDFGenerationCompute
+        public partial class SDFGenerationCompute
         {
+            [StructLayout(LayoutKind.Sequential, Pack = 1)]
+            public struct SDFBrush
+            {
+                private readonly Vector3 WorldToLocalCol0;
+                private readonly Vector3 WorldToLocalCol1;
+                private readonly Vector3 WorldToLocalCol2;
+                private readonly Vector3 WorldToLocalCol3;
+
+                private readonly uint BrushType;
+
+                private readonly uint MaterialID;
+
+                private readonly uint ParameterOffset;
+
+                private readonly float Scale;
+
+                public SDFBrush(SDFBrushTransform transform, uint brushType, uint parameterOffset, uint materialID)
+                {
+                    Matrix4x4 worldToLocal = transform.WorldToLocal;
+                    WorldToLocalCol0 = worldToLocal.GetColumn(0);
+                    WorldToLocalCol1 = worldToLocal.GetColumn(1);
+                    WorldToLocalCol2 = worldToLocal.GetColumn(2);
+                    WorldToLocalCol3 = worldToLocal.GetColumn(3);
+
+                    BrushType = brushType;
+                    MaterialID = materialID;
+                    ParameterOffset = parameterOffset;
+                    Scale = transform.Scale;
+                }
+            }
+
             public const int CalculateMipGroupSizeX = 4;
             public const int CalculateMipGroupSizeY = 4;
             public const int CalculateMipGroupSizeZ = 4;
@@ -57,19 +88,19 @@ namespace Antares.Graphics
             [StructLayout(LayoutKind.Sequential, Pack = 1)]
             public struct SDFRayMarchingParameters
             {
-                public Vector3 UVToSceneColumn0;
-                public Vector3 UVToSceneColumn1;
-                public Vector3 UVToSceneColumn2;
-                public Vector3 UVToSceneColumn3;
+                private readonly Vector3 UVToSceneColumn0;
+                private readonly Vector3 UVToSceneColumn1;
+                private readonly Vector3 UVToSceneColumn2;
+                private readonly Vector3 UVToSceneColumn3;
 
-                public Vector4 SceneTexel;
+                private readonly Vector4 SceneTexel;
 
-                public Vector4 SceneSize;
+                private readonly Vector4 SceneSize;
 
-                public Vector3 WorldToSceneTColumn0;
-                public Vector3 WorldToSceneTColumn1;
-                public Vector3 WorldToSceneTColumn2;
-                public Vector3 WorldToSceneTColumn3;
+                private readonly Vector3 WorldToSceneTColumn0;
+                private readonly Vector3 WorldToSceneTColumn1;
+                private readonly Vector3 WorldToSceneTColumn2;
+                private readonly Vector3 WorldToSceneTColumn3;
 
                 public SDFRayMarchingParameters(Camera camera, SDFScene scene, float invW, float invH)
                 {
