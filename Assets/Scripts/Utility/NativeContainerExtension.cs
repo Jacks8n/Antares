@@ -1,8 +1,9 @@
 ﻿using Unity.Collections;
+using UnityEngine;
 
 namespace Antares.Utility
 {
-    public static class NativeSliceExtension
+    public static class NativeContainerExtension
     {
         public static TTo ReinterpretLoad<TTo, TFrom>(this NativeSlice<TFrom> slice, int index) where TTo : struct where TFrom : struct
         {

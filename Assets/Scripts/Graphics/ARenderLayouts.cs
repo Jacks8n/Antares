@@ -27,6 +27,9 @@ namespace Antares.Graphics
         public const string Binding_BlitSource = "BlitSrc";
         public const string Binding_BlitDestination = "BlitDst";
         public const string Binding_BlitOffset = "BlitOffset";
+        public const string Binding_SDFBrushes = "SDFBrushes";
+        public const string Binding_SDFBrushCount = "SDFBrushCount";
+        public const string Binding_SDFBrushParameters = "BrushParameters";
 
         public static readonly int ID_MaterialVolume = Shader.PropertyToID(Binding_MaterialVolume);
         public static readonly int ID_SceneVolume = Shader.PropertyToID(Binding_SceneVolume);
@@ -41,6 +44,9 @@ namespace Antares.Graphics
         public static readonly int ID_BlitSource = Shader.PropertyToID(Binding_BlitSource);
         public static readonly int ID_BlitDestination = Shader.PropertyToID(Binding_BlitDestination);
         public static readonly int ID_BlitOffset = Shader.PropertyToID(Binding_BlitOffset);
+        public static readonly int ID_SDFBrushes = Shader.PropertyToID(Binding_SDFBrushes);
+        public static readonly int ID_SDFBrushCount = Shader.PropertyToID(Binding_SDFBrushCount);
+        public static readonly int ID_SDFBrushParameters = Shader.PropertyToID(Binding_SDFBrushParameters);
 
         public static readonly int[] ID_NonAttachmentRTs = new int[] {
             ID_TiledRM,

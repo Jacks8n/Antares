@@ -15,26 +15,19 @@ namespace Antares.Graphics
     {
         private readonly AShaderSpecs _shaderSpecs;
 
-        private readonly ComputeBuffer _rayMarchingParamBuffer;
-
         private SDFScene _loadedScene;
 
         private RenderTexture _sceneVolume;
 
         private RenderTexture _materialVolume;
 
-        private ComputeBuffer _sdfGenerationBuffer;
-
-        public unsafe ARenderPipeline()
+        public ARenderPipeline()
         {
             _shaderSpecs = ShaderSpecsInstance;
-
-            _rayMarchingParamBuffer = new ComputeBuffer(1, sizeof(RayMarchingCompute.SDFRayMarchingParameters));
 
             _loadedScene = null;
             _sceneVolume = null;
             _materialVolume = null;
-            _sdfGenerationBuffer = null;
         }
 
         public void LoadScene(SDFScene scene)
@@ -67,32 +60,46 @@ namespace Antares.Graphics
 
             CommandBuffer cmd = CommandBufferPool.Get();
 
-            // TODO: apply brushes
+            // upload brushes
+            ComputeBuffer brushBuffer, brushParameterBuffer;
+            unsafe
             {
-                SDFBrushCollection brushes = _loadedScene.Brushes;
+                var brushes = _loadedScene.BrusheCollection.Brushes;
+                var brushParams = _loadedScene.BrusheCollection.BrushParameters;
 
-                var analyticalBrushes = brushes.AnalyticalBrushes;
-                var numericalBrushes = brushes.NumericalBrushes;
+                brushBuffer = new ComputeBuffer(brushes.Length, sizeof(SDFGenerationCompute.SDFBrush), ComputeBufferType.Structured);
+                var mappedBrushes = brushBuffer.BeginWrite<SDFGenerationCompute.SDFBrush>(0, brushes.Length);
+                for (int i = 0; i < brushes.Length; i++)
+                    mappedBrushes[i] = new SDFGenerationCompute.SDFBrush(brushes[i].Brush, (uint)brushes[i].Offset);
+                brushBuffer.EndWrite<SDFGenerationCompute.SDFBrush>(brushes.Length);
 
-                int brushSize;
-                unsafe
-                {
-                    brushSize = sizeof(SDFBrushNumerical);
-                }
+                brushParameterBuffer = new ComputeBuffer(brushParams.Length, sizeof(float), ComputeBufferType.Default);
+                var mappedBrushParams = brushParameterBuffer.BeginWrite<float>(0, brushParams.Length);
+                brushParams.CopyTo(mappedBrushParams);
+                brushParameterBuffer.EndWrite<float>(brushParams.Length);
+            }
 
-                ComputeBuffer brushBuffer = new ComputeBuffer(numericalBrushes.Count, brushSize);
+            // apply brushes
+            {
+                SDFGenerationCompute shader = ShaderSpecsInstance.SDFGenerationCS;
+                cmd.SetComputeBufferParam(shader.Shader, shader.GenerateMatVolumeKernel, ID_SDFBrushes, brushBuffer);
+                cmd.SetComputeIntParam(shader.Shader, ID_SDFBrushCount, brushBuffer.count);
+                cmd.SetComputeBufferParam(shader.Shader, shader.GenerateMatVolumeKernel, ID_SDFBrushParameters, brushParameterBuffer);
+                cmd.SetComputeTextureParam(shader.Shader, shader.GenerateMatVolumeKernel, ID_MaterialVolume, _materialVolume);
 
-
-                brushBuffer.Release();
+                // todo
             }
 
             // TODO: generate mipmaps
             {
                 Vector3Int mipSize = sceneSize;
 
-                UGraphics.ExecuteCommandBuffer(cmd);
             }
 
+            UGraphics.ExecuteCommandBuffer(cmd);
+
+            brushBuffer.Release();
+            brushParameterBuffer.Release();
             CommandBufferPool.Release(cmd);
         }
 
@@ -101,13 +108,18 @@ namespace Antares.Graphics
             if (disposing)
                 return;
 
-            _rayMarchingParamBuffer.Dispose();
+            if (_sceneVolume)
+                _sceneVolume.Release();
+            if (_materialVolume)
+                _materialVolume.Release();
 
             base.Dispose(disposing);
         }
 
         protected override void Render(ScriptableRenderContext context, Camera[] cameras)
         {
+            // todo: refactor setting ray marching parameter
+
             if (!_loadedScene)
                 return;
 

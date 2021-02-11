@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using Antares.SDF;
 using Sirenix.OdinInspector;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace Antares.Graphics
 {
@@ -43,18 +44,18 @@ namespace Antares.Graphics
 
                 private readonly float Scale;
 
-                public SDFBrush(SDFBrushTransform transform, uint brushType, uint parameterOffset, uint materialID)
+                public SDFBrush(SDFBrushProperty brushProperty, uint parameterOffset)
                 {
-                    Matrix4x4 worldToLocal = transform.WorldToLocal;
+                    Matrix4x4 worldToLocal = brushProperty.Transform.WorldToLocal;
                     WorldToLocalCol0 = worldToLocal.GetColumn(0);
                     WorldToLocalCol1 = worldToLocal.GetColumn(1);
                     WorldToLocalCol2 = worldToLocal.GetColumn(2);
                     WorldToLocalCol3 = worldToLocal.GetColumn(3);
 
-                    BrushType = brushType;
-                    MaterialID = materialID;
+                    BrushType = (uint)brushProperty.BrushType;
+                    MaterialID = brushProperty.MaterialID;
                     ParameterOffset = parameterOffset;
-                    Scale = transform.Scale;
+                    Scale = brushProperty.Transform.Scale;
                 }
             }
 
@@ -198,6 +199,7 @@ namespace Antares.Graphics
 
         private void Awake()
         {
+            AtlasBlitCS.OnAfterDeserialize();
             SDFGenerationCS.OnAfterDeserialize();
             RayMarchingCS.OnAfterDeserialize();
             Deferred.OnAfterDeserialize();

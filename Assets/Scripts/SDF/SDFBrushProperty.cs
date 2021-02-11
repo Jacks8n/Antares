@@ -53,16 +53,16 @@ namespace Antares.SDF
         [field: SerializeField, LabelText(nameof(BrushType))]
         public SDFBrushType BrushType { get; private set; }
 
-        public int MaterialID;
+        public uint MaterialID;
 
-        public SDFBrushProperty(SDFBrushTransform transform, SDFBrushType brushType, int materialID)
+        public SDFBrushProperty(SDFBrushTransform transform, SDFBrushType brushType, uint materialID)
         {
             Transform = transform;
             BrushType = brushType;
             MaterialID = materialID;
         }
 
-        public static SDFBrushProperty FromShape<T>(Transform transform, T shape, int materialID) where T : ISDFShape
+        public static SDFBrushProperty FromShape<T>(Transform transform, T shape, uint materialID) where T : ISDFShape
         {
             return new SDFBrushProperty(transform, shape.BrushType, materialID);
         }

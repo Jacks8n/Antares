@@ -18,14 +18,16 @@ namespace Antares.SDF
         [field: SerializeField, LabelText(nameof(NumericalBrushAtlas))]
         public RenderTexture NumericalBrushAtlas { get; private set; }
 
+        public NativeArray<(SDFBrushProperty Brush, int Offset)>.ReadOnly Brushes => _brushes.AsReadOnly();
+
+        public NativeArray<float>.ReadOnly BrushParameters => _brushParameters.AsReadOnly();
+
         [SerializeField, FilePath, Required]
         private string _serializationPath;
 
         private NativeArray<(SDFBrushProperty Brush, int Offset)> _brushes;
 
         private NativeArray<float> _brushParameters;
-
-        public void CopyBrushParameters(NativeArray<float> parameters) => _brushParameters.CopyTo(parameters);
 
         void ISerializationCallbackReceiver.OnBeforeSerialize()
         {
