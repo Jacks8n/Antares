@@ -1,10 +1,9 @@
 ﻿using System;
 using System.Runtime.InteropServices;
+using Antares.Utility;
 using Sirenix.OdinInspector;
 using Unity.Collections;
 using UnityEngine;
-
-using ReadOnlyAttribute = Sirenix.OdinInspector.ReadOnlyAttribute;
 
 namespace Antares.SDF
 {
@@ -43,12 +42,11 @@ namespace Antares.SDF
 
         int ParameterCount { get; }
 
-        // todo: default implementation of interface functions are not supported by unity currently
-        void GetParameters(NativeArray<float> dest);
+        void GetParameters(NativeSlice<float> dest);
     }
 
     [Serializable]
-    public struct SDFBrush
+    public struct SDFBrushProperty
     {
         public SDFBrushTransform Transform;
 
@@ -57,20 +55,16 @@ namespace Antares.SDF
 
         public int MaterialID;
 
-        [field: SerializeField, LabelText(nameof(ParameterCount))]
-        public int ParameterCount { get; private set; }
-
-        public SDFBrush(SDFBrushTransform transform, SDFBrushType brushType, int materialID, int parameterCount)
+        public SDFBrushProperty(SDFBrushTransform transform, SDFBrushType brushType, int materialID)
         {
             Transform = transform;
             BrushType = brushType;
             MaterialID = materialID;
-            ParameterCount = parameterCount;
         }
 
-        public static SDFBrush FromShape<T>(Transform transform, T shape, int materialID) where T : ISDFShape
+        public static SDFBrushProperty FromShape<T>(Transform transform, T shape, int materialID) where T : ISDFShape
         {
-            return new SDFBrush(transform, shape.BrushType, materialID, shape.ParameterCount);
+            return new SDFBrushProperty(transform, shape.BrushType, materialID);
         }
     }
 
@@ -87,7 +81,7 @@ namespace Antares.SDF
 
             public int ParameterCount => 6;
 
-            void ISDFShape.GetParameters(NativeArray<float> dest) => dest.ReinterpretStore(0, this);
+            void ISDFShape.GetParameters(NativeSlice<float> dest) => dest.ReinterpretStore(0, this);
         }
 
         [StructLayout(LayoutKind.Sequential, Pack = 1), Serializable]
@@ -100,7 +94,7 @@ namespace Antares.SDF
 
             public int ParameterCount => 1;
 
-            void ISDFShape.GetParameters(NativeArray<float> dest) => dest.ReinterpretStore(0, this);
+            void ISDFShape.GetParameters(NativeSlice<float> dest) => dest.ReinterpretStore(0, this);
         }
     }
 }

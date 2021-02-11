@@ -1,6 +1,7 @@
 ﻿#if UNITY_EDITOR
 
 using Sirenix.OdinInspector;
+using Unity.Collections;
 using UnityEditor;
 using UnityEngine;
 
@@ -12,26 +13,38 @@ namespace Antares.SDF
         [SerializeField]
         private ISDFShape _shape;
 
-        [SerializeField, ShowIf("@_shape is " + nameof(SDFShape.Numerical))]
-        private Texture3D _bakedTexture;
+        [SerializeField, ShowIf("@_shape is " + nameof(SDFShape.Numerical)), Required, OnValueChanged("OnSetBrushTexture")]
+        private Texture3D _brushTexture;
 
         [SerializeField]
         private int _materialID;
 
+        public int ShapeParameterCount => _shape.ParameterCount;
+
+        public void GetShapeParameters(NativeSlice<float> dest) => _shape.GetParameters(dest);
+
         /// <returns>whether the brush is numerical</returns>
-        public bool GetBrush(ref SDFBrush brush, ref Texture3D atlas)
+        public bool GetBrushProperty(ref SDFBrushProperty brushProperty, ref Texture3D brushTexture)
         {
             if (_shape is SDFShape.Numerical)
             {
-                brush = SDFBrush.FromShape(transform, _shape, _materialID);
-                atlas = _bakedTexture;
+                brushProperty = SDFBrushProperty.FromShape(transform, _shape, _materialID);
+                brushTexture = _brushTexture;
                 return true;
             }
             else
             {
-                brush = SDFBrush.FromShape(transform, _shape, _materialID);
+                brushProperty = SDFBrushProperty.FromShape(transform, _shape, _materialID);
                 return false;
             }
+        }
+
+        private void OnSetBrushTexture()
+        {
+            if (_brushTexture != null)
+                _shape = new SDFShape.Numerical() {
+                    Size = new Vector3(_brushTexture.width, _brushTexture.height, _brushTexture.depth)
+                };
         }
 
         private static void UpdatePreview()

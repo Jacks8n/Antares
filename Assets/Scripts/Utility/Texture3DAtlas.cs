@@ -9,11 +9,6 @@ using static Antares.Graphics.AShaderSpecs;
 
 namespace Antares.Utility
 {
-    public interface I3DAtlasElement
-    {
-        Vector3Int AtlasOffset { get; set; }
-    }
-
     public static class Texture3DAtlas
     {
         private struct SizedValue<T> : IComparable<SizedValue<T>>
@@ -56,7 +51,7 @@ namespace Antares.Utility
         /// <param name="cmd">Copy operations will be recorded into it.</param>
         /// <param name="offsets">Offsets of packed textures.</param>
         /// <returns>Packed atlas</returns>
-        public static RenderTexture GetAtlas<TTextures, TIndices, TElement>(TTextures textures, CommandBuffer cmd, TIndices offsets) where TTextures : IList<Texture3D> where TIndices : IList<TElement> where TElement : I3DAtlasElement
+        public static RenderTexture GetAtlas<TTextures, TOffsets>(CommandBuffer cmd, TTextures textures, TOffsets offsets) where TTextures : IList<Texture3D> where TOffsets : IList<Vector3Int>
         {
             if (textures.Count == 0)
                 return null;
@@ -122,7 +117,7 @@ namespace Antares.Utility
                 size[min] = freeSpace[min];
                 EnqueueChunk(offset, size);
 
-                offsets[sizedTexture.Value.Index].AtlasOffset = offset;
+                offsets[sizedTexture.Value.Index] = offset;
             }
 
             Vector3Int packSize = new Vector3Int(MaxTextureSize, MaxTextureSize, MaxTextureSize);
@@ -141,7 +136,7 @@ namespace Antares.Utility
             for (int i = 0; i < textures.Count; i++)
             {
                 Texture3D texture = textures[i];
-                cmd.SetComputeVectorParam(blitCS, ID_BlitOffset, (Vector3)offsets[i].AtlasOffset);
+                cmd.SetComputeVectorParam(blitCS, ID_BlitOffset, (Vector3)offsets[i]);
                 cmd.SetComputeTextureParam(blitCS, kernel, ID_BlitSource, texture);
                 cmd.DispatchCompute(blitCS, kernel, texture.width / AtlasBlitCompute.BlitMipGroupSizeX, texture.height / AtlasBlitCompute.BlitMipGroupSizeY, texture.depth / AtlasBlitCompute.BlitMipGroupSizeZ);
             }
