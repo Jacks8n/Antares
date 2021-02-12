@@ -30,6 +30,9 @@ namespace Antares.Graphics
         public const string Binding_SDFBrushes = "SDFBrushes";
         public const string Binding_SDFBrushCount = "SDFBrushCount";
         public const string Binding_SDFBrushParameters = "BrushParameters";
+        public const string Binding_SceneToWorld = "SceneToWorld";
+        public const string Binding_BrushCullRadius = "BrushCullRadius";
+        public const string Binding_DispatchCoordsBuffer = "DispatchCoords";
 
         public static readonly int ID_MaterialVolume = Shader.PropertyToID(Binding_MaterialVolume);
         public static readonly int ID_SceneVolume = Shader.PropertyToID(Binding_SceneVolume);
@@ -47,6 +50,9 @@ namespace Antares.Graphics
         public static readonly int ID_SDFBrushes = Shader.PropertyToID(Binding_SDFBrushes);
         public static readonly int ID_SDFBrushCount = Shader.PropertyToID(Binding_SDFBrushCount);
         public static readonly int ID_SDFBrushParameters = Shader.PropertyToID(Binding_SDFBrushParameters);
+        public static readonly int ID_SceneToWorld = Shader.PropertyToID(Binding_SceneToWorld);
+        public static readonly int ID_BrushCullRadius = Shader.PropertyToID(Binding_BrushCullRadius);
+        public static readonly int ID_DispatchCoordsBuffer = Shader.PropertyToID(Binding_DispatchCoordsBuffer);
 
         public static readonly int[] ID_NonAttachmentRTs = new int[] {
             ID_TiledRM,

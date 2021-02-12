@@ -1,4 +1,5 @@
-﻿using Antares.SDF;
+﻿using System;
+using Antares.SDF;
 using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
@@ -30,6 +31,19 @@ namespace Antares.Graphics
             _materialVolume = null;
         }
 
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                return;
+
+            if (_sceneVolume)
+                _sceneVolume.Release();
+            if (_materialVolume)
+                _materialVolume.Release();
+
+            base.Dispose(disposing);
+        }
+
         public void LoadScene(SDFScene scene)
         {
             void ReleaseVolumes()
@@ -49,19 +63,21 @@ namespace Antares.Graphics
             }
 
             // resize textures
-            Vector3Int sceneSize = scene.Size;
+            Vector3Int sceneSize = _loadedScene.Size;
+            Vector3Int matVolumeSize = sceneSize / SDFGenerationCompute.MatVolumeScale;
             if (_sceneVolume == null || _sceneVolume.width != sceneSize.x || _sceneVolume.height != sceneSize.z || _sceneVolume.volumeDepth != sceneSize.y)
             {
                 ReleaseVolumes();
 
                 _sceneVolume = CreateRWVolumeRT(GraphicsFormat.R8_SNorm, sceneSize, SceneMipCount);
-                _materialVolume = CreateRWVolumeRT(GraphicsFormat.R16G16_UInt, sceneSize / MaterialVolumeScale, 1);
+                _materialVolume = CreateRWVolumeRT(GraphicsFormat.R16_UInt, matVolumeSize, 1);
             }
 
-            CommandBuffer cmd = CommandBufferPool.Get();
+            CommandBuffer cmd = CommandBufferPool.Get(), cmdAsync = CommandBufferPool.Get();
+            cmdAsync.SetExecutionFlags(CommandBufferExecutionFlags.AsyncCompute);
 
             // upload brushes
-            ComputeBuffer brushBuffer, brushParameterBuffer;
+            ComputeBuffer brushBuffer, brushParameterBuffer, materialIndicesBuffer, dispatchCoordsBuffer;
             unsafe
             {
                 var brushes = _loadedScene.BrusheCollection.Brushes;
@@ -73,21 +89,52 @@ namespace Antares.Graphics
                     mappedBrushes[i] = new SDFGenerationCompute.SDFBrush(brushes[i].Brush, (uint)brushes[i].Offset);
                 brushBuffer.EndWrite<SDFGenerationCompute.SDFBrush>(brushes.Length);
 
-                brushParameterBuffer = new ComputeBuffer(brushParams.Length, sizeof(float), ComputeBufferType.Default);
+                brushParameterBuffer = new ComputeBuffer(brushParams.Length, sizeof(float), ComputeBufferType.Structured);
                 var mappedBrushParams = brushParameterBuffer.BeginWrite<float>(0, brushParams.Length);
                 brushParams.CopyTo(mappedBrushParams);
                 brushParameterBuffer.EndWrite<float>(brushParams.Length);
+
+                int matVolumeGridCount = matVolumeSize.x * matVolumeSize.y * matVolumeSize.z;
+                dispatchCoordsBuffer = GetIndirectBuffer(matVolumeGridCount);
+                materialIndicesBuffer = GetUShortAppendBuffer(matVolumeGridCount * SDFGenerationCompute.MaxBrushCountFactor);
             }
 
             // apply brushes
             {
                 SDFGenerationCompute shader = ShaderSpecsInstance.SDFGenerationCS;
-                cmd.SetComputeBufferParam(shader.Shader, shader.GenerateMatVolumeKernel, ID_SDFBrushes, brushBuffer);
-                cmd.SetComputeIntParam(shader.Shader, ID_SDFBrushCount, brushBuffer.count);
-                cmd.SetComputeBufferParam(shader.Shader, shader.GenerateMatVolumeKernel, ID_SDFBrushParameters, brushParameterBuffer);
-                cmd.SetComputeTextureParam(shader.Shader, shader.GenerateMatVolumeKernel, ID_MaterialVolume, _materialVolume);
 
-                // todo
+                // generate material volume mip 0
+                {
+                    cmd.SetComputeBufferParam(shader.Shader, shader.GenerateMatVolumeKernel, ID_SDFBrushes, brushBuffer);
+                    cmd.SetComputeIntParam(shader.Shader, ID_SDFBrushCount, brushBuffer.count);
+                    cmd.SetComputeBufferParam(shader.Shader, shader.GenerateMatVolumeKernel, ID_SDFBrushParameters, brushParameterBuffer);
+                    cmd.SetComputeTextureParam(shader.Shader, shader.GenerateMatVolumeKernel, ID_MaterialVolume, _materialVolume);
+                    cmd.SetComputeBufferParam(shader.Shader, shader.GenerateMatVolumeKernel, ID_DispatchCoordsBuffer, dispatchCoordsBuffer);
+
+                    float gridSize = _loadedScene.GridWorldSize;
+                    float sdfBand = gridSize * 4f;
+                    const int tileSizeInScene = SDFGenerationCompute.MatVolumeScale * SDFGenerationCompute.MatVolumeTileSize;
+                    Vector4 brushCullRadius = new Vector4(
+                        gridSize * tileSizeInScene + sdfBand,
+                        gridSize * SDFGenerationCompute.MatVolumeScale + sdfBand,
+                        gridSize + sdfBand);
+                    cmd.SetComputeVectorParam(shader.Shader, ID_BrushCullRadius, brushCullRadius);
+                    cmd.SetComputeMatrixParam(shader.Shader, ID_SceneToWorld, _loadedScene.SceneToWorld);
+                }
+
+                // generate scene volume mip 0(async)
+                GraphicsFence sceneGenerationFence;
+                {
+                    cmdAsync.SetComputeBufferParam(shader.Shader, shader.GenerateSceneVolumeKernel, ID_DispatchCoordsBuffer, dispatchCoordsBuffer);
+                    DispatchIndirect(cmdAsync, shader.Shader, shader.GenerateSceneVolumeKernel, dispatchCoordsBuffer);
+
+                    sceneGenerationFence = cmdAsync.CreateGraphicsFence(GraphicsFenceType.AsyncQueueSynchronisation, SynchronisationStageFlags.ComputeProcessing);
+                }
+
+                // generate material volume non-zero mips
+                {
+
+                }
             }
 
             // TODO: generate mipmaps
@@ -100,20 +147,8 @@ namespace Antares.Graphics
 
             brushBuffer.Release();
             brushParameterBuffer.Release();
+            dispatchCoordsBuffer.Release();
             CommandBufferPool.Release(cmd);
-        }
-
-        protected override void Dispose(bool disposing)
-        {
-            if (disposing)
-                return;
-
-            if (_sceneVolume)
-                _sceneVolume.Release();
-            if (_materialVolume)
-                _materialVolume.Release();
-
-            base.Dispose(disposing);
         }
 
         protected override void Render(ScriptableRenderContext context, Camera[] cameras)
@@ -278,6 +313,36 @@ namespace Antares.Graphics
 
             CommandBufferPool.Release(cmd);
             CommandBufferPool.Release(cmdCompute);
+        }
+
+        private ComputeBuffer GetIndirectBuffer(int count)
+        {
+            ComputeBuffer buffer = new ComputeBuffer(count + 4, sizeof(uint), ComputeBufferType.Structured | ComputeBufferType.IndirectArguments);
+
+            var mappedBuffer = buffer.BeginWrite<uint>(0, 4);
+            mappedBuffer[0] = 4;
+            mappedBuffer[1] = 8192;
+            mappedBuffer[2] = 0;
+            mappedBuffer[3] = 1;
+            buffer.EndWrite<uint>(4);
+
+            return buffer;
+        }
+
+        private ComputeBuffer GetUShortAppendBuffer(int count)
+        {
+            ComputeBuffer buffer = new ComputeBuffer(count + 1, sizeof(ushort), ComputeBufferType.Structured);
+
+            var mappedBuffer = buffer.BeginWrite<ushort>(0, 1);
+            mappedBuffer[0] = 1;
+            buffer.EndWrite<ushort>(1);
+
+            return buffer;
+        }
+
+        private void DispatchIndirect(CommandBuffer cmd, ComputeShader shader, int kernel, ComputeBuffer indirectBuffer)
+        {
+            cmd.DispatchCompute(shader, kernel, indirectBuffer, 1);
         }
     }
 }

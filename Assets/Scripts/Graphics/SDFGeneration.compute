@@ -5,16 +5,32 @@
 
 /// begin definations used by multiple kernels
 
-extern Texture3D<snorm float> BrushAtlas;
-extern SamplerState BrushAtlas_Sampler;
-
-extern Buffer<float4> BrushParameters;
-
+#define MAX_GSM_BRUSH_COUNT 64
+#define MAX_BRUSH_PARAMETER_COUNT 8 // maximum number of parameter that a brush can have
 #define SDF_MAX 1 << 15
-#define SDF_SUPREMUM 1.0    // it's limited by snorm
 #define BRUSH_TYPE_NUMERICAL 0
 #define BRUSH_TYPE_SPHERE 1
 #define BRUSH_TYPE_CUBE 2
+
+extern Texture3D<snorm float> BrushAtlas;
+extern SamplerState BrushAtlas_Sampler;
+
+extern Buffer<float> BrushParameters;
+
+// transform mip 0 scene's indices to world position
+extern float4x4 SceneToWorld;
+
+extern float3 BrushCullRadius;
+#define MAT_TILE_CULL_RADIUS_W BrushCullRadius.x
+#define MAT_GRID_CULL_RADIUS_W BrushCullRadius.y
+#define SCENE_GRID_CULL_RADIUS_W BrushCullRadius.z
+
+extern float3 SceneGridSize;
+#define SDF_SUPREMUM_W SceneGridSize.x
+#define SDF_SUPREMUM_INV_W SceneGridSize.y
+#define SQR_GRID_SPACE_W SceneGridSize.z
+
+groupshared float GSM_BrushParams[MAX_GSM_BRUSH_COUNT * MAX_BRUSH_PARAMETER_COUNT];
 
 struct SDFBrush
 {
@@ -24,7 +40,7 @@ struct SDFBrush
     
     uint MaterialID;
     
-    uint ParameterOffset;
+    uint ParameterOffsetCount;
     
     float Scale;
     
@@ -38,33 +54,61 @@ struct SDFBrush
         return Scale;
     }
     
-    float4 GetParameters(uint offset)
+    // only used when loading from global memory, it will be overwritten after loading
+    uint GetParameterCount()
     {
-        return BrushParameters[ParameterOffset + offset];
+        return ParameterOffsetCount >> 24;
     }
+    
+    uint GetParameterOffset()
+    {
+        return ParameterOffsetCount & 0xffffff;
+    }
+    
+    void SetParameterOffset(uint offset)
+    {
+        ParameterOffsetCount = offset;
+    }
+    
+#define Declare_GetParameter(dim)                       \
+    float##dim GetParameter##dim(uint offset)           \
+    {                                                   \
+        float##dim value;                               \
+        [unroll]                                        \
+        for (uint i = 0; i < dim; i++)                  \
+            value[i] = GSM_BrushParams[offset + i];     \
+        return value;                                   \
+    }
+
+    Declare_GetParameter(1)
+    Declare_GetParameter(2)
+    Declare_GetParameter(3)
+    Declare_GetParameter(4)
+    
+#undef Decalre_GetParameter
     
     float SDF_Numerical(float3 p)
     {
-        const float3 brushSize = GetParameters(0).xyz;
-        const float3 brushOffset = GetParameters(1).xyz;
+        const float3 brushSize = GetParameter3(0);
+        const float3 brushOffset = GetParameter3(3);
 
         const float3 nearest = clamp(p, float3(0.0, 0.0, 0.0), brushSize);
+
         if (any(nearest != p))
-            return distance(nearest, p) + SDF_SUPREMUM;
-        
+            return distance(nearest, p) + SDF_SUPREMUM_W;
         return BrushAtlas.Sample(BrushAtlas_Sampler, p + brushOffset);
     }
     
     float SDF_Sphere(float3 p)
     {
-        const float radius = GetParameters(0).x;
+        const float radius = GetParameter1(0);
         
         return length(p) - radius;
     }
     
     float SDF_Cube(float3 p)
     {
-        const float3 size = GetParameters(0).xyz;
+        const float3 size = GetParameter3(0);
         
         const float3 nearest = clamp(p, float3(0.0, 0.0, 0.0), size);
         return distance(nearest, p);
@@ -96,15 +140,6 @@ struct SDFBrush
     }
 };
 
-// transform mip 0 indices to world position
-extern float4x4 SceneToWorld;
-// world space metric(applied uniform scale)
-// x: 16^3 tile radius + SDF_SUPREMUM, y: 4^3 tile radius + SDF_SUPREMUM, z: grid radius + SDF_SUPREMUM
-extern float3 BrushCullRadius;
-// world space metric(applied uniform scale)
-// x: 1.0 / SDF_SUPREMUM, y: square of grid space
-extern float2 SceneGridSize;
-
 extern RWTexture3D<snorm float> SceneVolume;
 // mip 0: indices to MaterialIndices spans
 // mip n: nonsense values, indicating mip masks only
@@ -118,8 +153,6 @@ extern RWBuffer<uint> MipDispatches;
 
 // while generating things related to n-th mipmap, n - 1 should be set
 extern uint SceneMipLevel;
-
-#define MAX_GSM_BRUSH_COUNT 64
 
 // todo: bank conflict?
 groupshared SDFBrush GSM_Brushes[MAX_GSM_BRUSH_COUNT];
@@ -157,6 +190,7 @@ extern uint SDFBrushCount;
 
 groupshared uint GSM_BrushIndices[MAX_GSM_BRUSH_COUNT];
 groupshared uint GSM_BrushCount = 0;
+groupshared uint GSM_BrushParamCount = 0;
 groupshared uint GSM_DispatchCoordCount = 0;
 groupshared uint GSM_DispatchCoords[4 * 4 * 4];
 groupshared uint GSM_DispatchCoordOffset = 0;
@@ -177,7 +211,7 @@ void GenerateMatVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID, uin
     uint index, gsmIndex;
     
     // cull brushes that are guaranteed to be apart from 16^3 tile
-    const float tileRadius = BrushCullRadius.x;
+    const float tileRadius = MAT_TILE_CULL_RADIUS_W;
     const float3 tileCenter = mul(SceneToWorld, float4(gid * 16 + uint3(4, 4, 4), 1.0)).xyz;
     const uint threadIndex = dot(tid, uint3(1, 4, 16));
     for (index = threadIndex; index < SDFBrushCount; index += 64)
@@ -185,12 +219,17 @@ void GenerateMatVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID, uin
         const SDFBrush brush = SDFBrushes[index];
         if (brush.Cull(tileCenter, tileRadius))
         {
-            InterlockedAdd(GSM_BrushCount, 1u, gsmIndex);
+            uint brushIndex, paramIndex;
+            InterlockedAdd(GSM_BrushCount, 1, brushIndex);
             
-            if (gsmIndex < MAX_GSM_BRUSH_COUNT)
+            if (brushIndex < MAX_GSM_BRUSH_COUNT)
             {
-                GSM_Brushes[gsmIndex] = brush;
-                GSM_BrushIndices[gsmIndex] = index;
+                SDFBrush brush = SDFBrushes[index];
+                InterlockedAdd(GSM_BrushParamCount, brush.GetParameterOffset(), paramIndex);
+        
+                brush.SetParameterOffset(paramIndex);
+                GSM_Brushes[brushIndex] = brush;
+                GSM_BrushIndices[brushIndex] = index;
             }
             else
                 break;
@@ -200,7 +239,7 @@ void GenerateMatVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID, uin
     GroupMemoryBarrierWithGroupSync();
     
     // traversal brushes that coincide with 16^3 tile and cull per grid
-    const float gridRadius = BrushCullRadius.y;
+    const float gridRadius = MAT_GRID_CULL_RADIUS_W;
     const float3 gridPos = mul(SceneToWorld, float4(id * 4, 1.0)).xyz;
     uint brushIndices[MAX_GRID_BRUSH_COUNT], brushCount = 0;
 
@@ -347,14 +386,14 @@ void GenerateSceneVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID)
     // generate smooth union of sdfs
     const uint threadOffset = threadIndex % 8;
     const uint3 id = tileCoord * 4 + tid / 2;
-    const float gridRadius = BrushCullRadius.z;
+    const float gridRadius = SCENE_GRID_CULL_RADIUS_W;
     const float3 coord = mul(SceneToWorld, float4(id, 1.0)).xyz;
 
     float sdf = SDF_MAX;
     for (uint i = threadOffset; i < brushCount; i += 8)
         sdf = SmoothMin(sdf, GSM_Brushes[i].Sample(coord));
 
-    GSM_SDFGrids[threadIndex] = sdf * SceneGridSize.x;
+    GSM_SDFGrids[threadIndex] = sdf * SDF_SUPREMUM_INV_W;
     
     GroupMemoryBarrier();
     
@@ -382,13 +421,13 @@ groupshared float GSM_SDFMips[8 * 8 * 8];
 
 float Eikonal1(float x, float y)
 {
-    return min(x, y) + SceneGridSize.y;
+    return min(x, y) + SQR_GRID_SPACE_W;
 }
 
 float Eikonal2(float x, float y)
 {
     const float xy = x - y;
-    const float d = 2.0 * SceneGridSize.y - xy * xy;
+    const float d = 2.0 * SQR_GRID_SPACE_W - xy * xy;
     return 0.5 * (xy + sqrt(d));
 }
 
@@ -403,7 +442,7 @@ float Eikonal3(float x, float y, float z)
     {
         const float sum = dot(xyz, ones);
         const float sqsum = dot(xyz, xyz);
-        const float d = sum * sum - 3.0 * (sqsum - SceneGridSize.y);
+        const float d = sum * sum - 3.0 * (sqsum - SQR_GRID_SPACE_W);
         return third * (sum + sqrt(d));
     }
     else

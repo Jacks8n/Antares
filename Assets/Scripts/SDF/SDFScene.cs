@@ -22,6 +22,10 @@ namespace Antares.SDF
 
         public Vector3 WorldToScenePoint(Vector3 pos) => transform.worldToLocalMatrix.MultiplyPoint(pos);
 
+        public Matrix4x4 SceneToWorld => transform.localToWorldMatrix;
+
+        public float GridWorldSize => transform.localScale.x;
+
         private void Awake()
         {
             SizeInv = new Vector3(1f / Size.x, 1f / Size.y, 1f / Size.z);
@@ -33,12 +37,12 @@ namespace Antares.SDF
                 Instance.enabled = false;
             Instance = this;
 
-            TryRenderPipelineLoad(this);
+            LoadScene(this);
         }
 
         private void OnDisable()
         {
-            TryRenderPipelineLoad(null);
+            LoadScene(null);
         }
 
         private void Update()
@@ -53,7 +57,7 @@ namespace Antares.SDF
 #endif
         }
 
-        private static void TryRenderPipelineLoad(SDFScene scene)
+        private static void LoadScene(SDFScene scene)
         {
             RenderPipeline pipeline = RenderPipelineManager.currentPipeline;
             if (pipeline is ARenderPipeline)
