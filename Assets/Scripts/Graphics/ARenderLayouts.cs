@@ -77,6 +77,9 @@ namespace Antares.Graphics
         public const string Binding_BrushIndices = "BrushIndices";
         public readonly static int ID_BrushIndices = Shader.PropertyToID(Binding_BrushIndices);
 
+        public const string Binding_MipDispatchesBuffer = "MipDispatches";
+        public readonly static int ID_MipDispatchesBuffer = Shader.PropertyToID(Binding_MipDispatchesBuffer);
+
         public static readonly int[] ID_NonAttachmentRTs = new int[] {
             ID_TiledRM,
             ID_Shading,

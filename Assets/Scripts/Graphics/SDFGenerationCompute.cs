@@ -43,14 +43,25 @@ namespace Antares.Graphics
             }
 
             public const int MatVolumeScale = 4;
+
+            /// <summary>
+            /// thread number of material volume generation kernel
+            /// </summary>
             public const int MatVolumeTileSize = 4;
 
+            /// <summary>
+            /// maximum number of brushes that can be applied to each grid of material volume
+            /// </summary>
             public const int MaxBrushPerMatVolumeGrid = 16;
+
+            /// <summary>
+            /// maximum ratio between total brush indiex count and total grid count
+            /// </summary>
             public const int MaxBrushCountFactor = MaxBrushPerMatVolumeGrid / 8;
 
-            public const int CalculateMipGroupSizeX = MatVolumeTileSize;
-            public const int CalculateMipGroupSizeY = MatVolumeTileSize;
-            public const int CalculateMipGroupSizeZ = MatVolumeTileSize;
+            public const int GenerateMatVolumeKernelSize = 4;
+
+            public const int GenerateMipDispatchKernelSize = 4;
 
             [field: SerializeField, LabelText(nameof(Shader))]
             public ComputeShader Shader { get; }
