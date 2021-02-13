@@ -15,44 +15,67 @@ namespace Antares.Graphics
         public static readonly Vector2 ScreenBlitOffset = new Vector2(0f, IsUVFlipped ? 1f : 0f);
 
         public const string Binding_MaterialVolume = "MaterialVolume";
-        public const string Binding_SceneVolume = "SceneVolume";
-        public const string Binding_SceneVolumeMip = "SceneVolumeMip";
-        public const string Binding_SceneTexel = "SceneTexel";
-        public const string Binding_TiledRM = "TiledRM";
-        public const string Binding_Depth = "Depth";
-        public const string Binding_Shading = "Shading";
-        public const string Binding_SceneRM0 = "SceneRM0";
-        public const string Binding_SceneRM1 = "SceneRM1";
-        public const string Binding_RMParams = "RMParams";
-        public const string Binding_BlitSource = "BlitSrc";
-        public const string Binding_BlitDestination = "BlitDst";
-        public const string Binding_BlitOffset = "BlitOffset";
-        public const string Binding_SDFBrushes = "SDFBrushes";
-        public const string Binding_SDFBrushCount = "SDFBrushCount";
-        public const string Binding_SDFBrushParameters = "BrushParameters";
-        public const string Binding_SceneToWorld = "SceneToWorld";
-        public const string Binding_BrushCullRadius = "BrushCullRadius";
-        public const string Binding_DispatchCoordsBuffer = "DispatchCoords";
-
         public static readonly int ID_MaterialVolume = Shader.PropertyToID(Binding_MaterialVolume);
+
+        public const string Binding_SceneVolume = "SceneVolume";
         public static readonly int ID_SceneVolume = Shader.PropertyToID(Binding_SceneVolume);
-        public static readonly int ID_SceneVolumeMip = Shader.PropertyToID(Binding_SceneVolumeMip);
+
+        public const string Binding_MipVolume = "MipVolume";
+        public readonly static int ID_MipVolume = Shader.PropertyToID(Binding_MipVolume);
+
+        public const string Binding_VolumeMipLevel = "VolumeMipLevel";
+        public readonly static int ID_VolumeMipLevel = Shader.PropertyToID(Binding_VolumeMipLevel);
+
+        public const string Binding_SceneTexel = "SceneTexel";
         public static readonly int ID_SceneTexel = Shader.PropertyToID(Binding_SceneTexel);
+
+        public const string Binding_TiledRM = "TiledRM";
         public static readonly int ID_TiledRM = Shader.PropertyToID(Binding_TiledRM);
+
+        public const string Binding_Depth = "Depth";
         public static readonly int ID_Depth = Shader.PropertyToID(Binding_Depth);
+
+        public const string Binding_Shading = "Shading";
         public static readonly int ID_Shading = Shader.PropertyToID(Binding_Shading);
+
+        public const string Binding_SceneRM0 = "SceneRM0";
         public static readonly int ID_SceneRM0 = Shader.PropertyToID(Binding_SceneRM0);
+
+        public const string Binding_SceneRM1 = "SceneRM1";
         public static readonly int ID_SceneRM1 = Shader.PropertyToID(Binding_SceneRM1);
+
+        public const string Binding_RMParams = "RMParams";
         public static readonly int ID_RMParams = Shader.PropertyToID(Binding_RMParams);
+
+        public const string Binding_BlitSource = "BlitSrc";
         public static readonly int ID_BlitSource = Shader.PropertyToID(Binding_BlitSource);
+
+        public const string Binding_BlitDestination = "BlitDst";
         public static readonly int ID_BlitDestination = Shader.PropertyToID(Binding_BlitDestination);
+
+        public const string Binding_BlitOffset = "BlitOffset";
         public static readonly int ID_BlitOffset = Shader.PropertyToID(Binding_BlitOffset);
+
+        public const string Binding_SDFBrushes = "SDFBrushes";
         public static readonly int ID_SDFBrushes = Shader.PropertyToID(Binding_SDFBrushes);
+
+        public const string Binding_SDFBrushCount = "SDFBrushCount";
         public static readonly int ID_SDFBrushCount = Shader.PropertyToID(Binding_SDFBrushCount);
+
+        public const string Binding_SDFBrushParameters = "BrushParameters";
         public static readonly int ID_SDFBrushParameters = Shader.PropertyToID(Binding_SDFBrushParameters);
+
+        public const string Binding_SceneToWorld = "SceneToWorld";
         public static readonly int ID_SceneToWorld = Shader.PropertyToID(Binding_SceneToWorld);
+
+        public const string Binding_BrushCullRadius = "BrushCullRadius";
         public static readonly int ID_BrushCullRadius = Shader.PropertyToID(Binding_BrushCullRadius);
+
+        public const string Binding_DispatchCoordsBuffer = "DispatchCoords";
         public static readonly int ID_DispatchCoordsBuffer = Shader.PropertyToID(Binding_DispatchCoordsBuffer);
+
+        public const string Binding_BrushIndices = "BrushIndices";
+        public readonly static int ID_BrushIndices = Shader.PropertyToID(Binding_BrushIndices);
 
         public static readonly int[] ID_NonAttachmentRTs = new int[] {
             ID_TiledRM,

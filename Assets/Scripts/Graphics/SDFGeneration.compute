@@ -141,18 +141,18 @@ struct SDFBrush
 };
 
 extern RWTexture3D<snorm float> SceneVolume;
-// mip 0: indices to MaterialIndices spans
+// mip 0: indices to BrushIndices spans
 // mip n: nonsense values, indicating mip masks only
 extern RWTexture3D<uint> MaterialVolume;
 
 // first element should be 1, skipping itself
-extern RWBuffer<uint> MaterialIndices;
+extern RWBuffer<uint> BrushIndices;
 
 extern RWBuffer<uint> DispatchCoords;
 extern RWBuffer<uint> MipDispatches;
 
 // while generating things related to n-th mipmap, n - 1 should be set
-extern uint SceneMipLevel;
+extern uint VolumeMipLevel;
 
 // todo: bank conflict?
 groupshared SDFBrush GSM_Brushes[MAX_GSM_BRUSH_COUNT];
@@ -254,12 +254,12 @@ void GenerateMatVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID, uin
     {
         // brush count | brush0 | brush1 | ...
         
-        InterlockedAdd(MaterialIndices[0], brushCount + 1, index);
+        InterlockedAdd(BrushIndices[0], brushCount + 1, index);
         
         MaterialVolume[id] = index;
-        MaterialIndices[index++] = brushCount;
+        BrushIndices[index++] = brushCount;
         for (uint i = 0; i < brushCount; i++)
-            MaterialIndices[index + i] = brushIndices[i];
+            BrushIndices[index + i] = brushIndices[i];
     
         // store scene generation dispatch coordinate
         InterlockedAdd(GSM_DispatchCoordCount, 1, index);
@@ -317,10 +317,10 @@ void GenerateMipDispatch(uint3 tid : SV_GroupThreadID, uint3 id : SV_DispatchThr
     
     if (loadIndex < 6 * 6 * 6)
     {
-        GSM_PrevMip[loadIndex] = MaterialVolume.Load(int4(loadCoord, SceneMipLevel));
-        GSM_PrevMip[loadIndex + 1] = MaterialVolume.Load(int4(loadCoord + one.xyy, SceneMipLevel));
-        GSM_PrevMip[loadIndex + 6] = MaterialVolume.Load(int4(loadCoord + one.yxy, SceneMipLevel));
-        GSM_PrevMip[loadIndex + 7] = MaterialVolume.Load(int4(loadCoord + one.xxy, SceneMipLevel));
+        GSM_PrevMip[loadIndex] = MaterialVolume.Load(int4(loadCoord, VolumeMipLevel));
+        GSM_PrevMip[loadIndex + 1] = MaterialVolume.Load(int4(loadCoord + one.xyy, VolumeMipLevel));
+        GSM_PrevMip[loadIndex + 6] = MaterialVolume.Load(int4(loadCoord + one.yxy, VolumeMipLevel));
+        GSM_PrevMip[loadIndex + 7] = MaterialVolume.Load(int4(loadCoord + one.xxy, VolumeMipLevel));
     }
     
     GroupMemoryBarrier();
@@ -374,12 +374,12 @@ void GenerateSceneVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID)
     
     const uint3 tileCoord = UnpackGridCoord(DispatchCoords[dispatchID]);
     const uint brushOffset = MaterialVolume[tileCoord] + 1;
-    const uint brushCount = MaterialIndices[brushOffset - 1];
+    const uint brushCount = BrushIndices[brushOffset - 1];
 
     // read brushes into gsm
     const uint threadIndex = dot(tid, uint3(1, 8, 64));
     if (threadIndex < brushCount)
-        GSM_Brushes[threadIndex] = SDFBrushes[MaterialIndices[threadIndex + brushOffset]];
+        GSM_Brushes[threadIndex] = SDFBrushes[BrushIndices[threadIndex + brushOffset]];
     
     GroupMemoryBarrier();
 
@@ -462,14 +462,14 @@ float MinNeighbor(uint index, uint stride)
 float SampleAverage(uint3 coord)
 {
     const uint2 one = uint2(1, 0);
-    float avg = SceneVolume.Load(int4(coord, SceneMipLevel));
-    avg += SceneVolume.Load(int4(coord + one.xyy, SceneMipLevel));
-    avg += SceneVolume.Load(int4(coord + one.yxy, SceneMipLevel));
-    avg += SceneVolume.Load(int4(coord + one.xxy, SceneMipLevel));
-    avg += SceneVolume.Load(int4(coord + one.yyx, SceneMipLevel));
-    avg += SceneVolume.Load(int4(coord + one.xyx, SceneMipLevel));
-    avg += SceneVolume.Load(int4(coord + one.yxx, SceneMipLevel));
-    avg += SceneVolume.Load(int4(coord + one.xxx, SceneMipLevel));
+    float avg = SceneVolume.Load(int4(coord, VolumeMipLevel));
+    avg += SceneVolume.Load(int4(coord + one.xyy, VolumeMipLevel));
+    avg += SceneVolume.Load(int4(coord + one.yxy, VolumeMipLevel));
+    avg += SceneVolume.Load(int4(coord + one.xxy, VolumeMipLevel));
+    avg += SceneVolume.Load(int4(coord + one.yyx, VolumeMipLevel));
+    avg += SceneVolume.Load(int4(coord + one.xyx, VolumeMipLevel));
+    avg += SceneVolume.Load(int4(coord + one.yxx, VolumeMipLevel));
+    avg += SceneVolume.Load(int4(coord + one.xxx, VolumeMipLevel));
     return avg * 0.125;
 }
 
