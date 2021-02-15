@@ -101,7 +101,7 @@ namespace Antares.Graphics
             public const int GenerateMipDispatchKernelSize = 4;
 
             [field: SerializeField, LabelText(nameof(Shader))]
-            public ComputeShader Shader { get; }
+            public ComputeShader Shader { get; private set; }
 
             public int GenerateMatVolumeKernel { get; private set; }
 

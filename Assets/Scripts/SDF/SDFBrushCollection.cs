@@ -31,6 +31,9 @@ namespace Antares.SDF
 
         void ISerializationCallbackReceiver.OnBeforeSerialize()
         {
+            if (string.IsNullOrWhiteSpace(_serializationPath))
+                return;
+
             using FileStream stream = new FileStream(_serializationPath, FileMode.OpenOrCreate);
 
             int parameterCount = _brushParameters.Length;
@@ -42,6 +45,9 @@ namespace Antares.SDF
 
         void ISerializationCallbackReceiver.OnAfterDeserialize()
         {
+            if (string.IsNullOrWhiteSpace(_serializationPath))
+                return;
+
             using FileStream stream = new FileStream(_serializationPath, FileMode.Open);
 
             int parameterCount = SerializationUtility.DeserializeValue<int>(stream, DataFormat.Binary);

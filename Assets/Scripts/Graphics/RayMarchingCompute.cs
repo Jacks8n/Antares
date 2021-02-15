@@ -71,7 +71,7 @@ namespace Antares.Graphics
             public const int RayMarchingGroupSizeZ = 1;
 
             [field: SerializeField, LabelText(nameof(Shader))]
-            public ComputeShader Shader { get; }
+            public ComputeShader Shader { get; private set; }
 
             public int TiledMarchingKernel { get; private set; }
 

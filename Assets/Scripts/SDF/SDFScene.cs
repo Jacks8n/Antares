@@ -16,7 +16,7 @@ namespace Antares.SDF
         public Vector3 SizeInv { get; private set; }
 
         [field: SerializeField, Required, LabelText(nameof(BrusheCollection))]
-        public SDFBrushCollection BrusheCollection { get; }
+        public SDFBrushCollection BrusheCollection { get; private set; }
 
         public Vector3 WorldToSceneVector(Vector3 vec) => transform.worldToLocalMatrix.MultiplyVector(vec);
 

@@ -12,3 +12,15 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 5f7452bce6fa27e438273b6d126d2461, type: 3}
   m_Name: ShaderSpecs
   m_EditorClassIdentifier: 
+  <AtlasBlitCS>k__BackingField:
+    <Shader>k__BackingField: {fileID: 7200000, guid: 89bf5cc4c17638f41bbef72a7ab374f3,
+      type: 3}
+  <SDFGenerationCS>k__BackingField:
+    <Shader>k__BackingField: {fileID: 7200000, guid: ce44576c94bbb9b46853eb0899225b44,
+      type: 3}
+  <RayMarchingCS>k__BackingField:
+    <Shader>k__BackingField: {fileID: 7200000, guid: 3d8ed33ea02b6f54f86149b0ab306ff7,
+      type: 3}
+  <Deferred>k__BackingField:
+    <Shader>k__BackingField: {fileID: 4800000, guid: 9e407b9771df30a4d880c9d801eda026,
+      type: 3}

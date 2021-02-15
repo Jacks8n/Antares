@@ -14,7 +14,7 @@ namespace Antares.Graphics
             public const int BlitMipGroupSizeZ = 8;
 
             [field: SerializeField, LabelText(nameof(Shader))]
-            public ComputeShader Shader { get; }
+            public ComputeShader Shader { get; private set; }
 
             public int BlitKernel { get; private set; }
 

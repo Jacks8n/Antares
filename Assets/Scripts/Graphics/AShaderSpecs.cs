@@ -24,30 +24,27 @@ namespace Antares.Graphics
         [field: LabelText(nameof(ShaderSpecsInstance))]
         public static AShaderSpecs ShaderSpecsInstance { get; private set; }
 
-        private static readonly int ConstantBufferAlignment;
-
         public int ConstantBufferSize { get; private set; }
 
         [field: SerializeField, LabelText(nameof(AtlasBlitCS))]
-        public AtlasBlitCompute AtlasBlitCS { get; }
+        public AtlasBlitCompute AtlasBlitCS { get; private set; }
 
         [field: SerializeField, LabelText(nameof(SDFGenerationCS))]
-        public SDFGenerationCompute SDFGenerationCS { get; }
+        public SDFGenerationCompute SDFGenerationCS { get; private set; }
 
         [field: SerializeField, LabelText(nameof(RayMarchingCS))]
-        public RayMarchingCompute RayMarchingCS { get; }
+        public RayMarchingCompute RayMarchingCS { get; private set; }
 
         [field: SerializeField, LabelText(nameof(Deferred))]
-        public DeferredGraphics Deferred { get; }
+        public DeferredGraphics Deferred { get; private set; }
 
-        static AShaderSpecs()
-        {
-            ConstantBufferAlignment = SystemInfo.constantBufferOffsetAlignment;
-            Debug.Assert((ConstantBufferAlignment & (ConstantBufferAlignment - 1)) == 0);
-        }
+        private int _constantBufferAlignment;
 
         private void Awake()
         {
+            _constantBufferAlignment = SystemInfo.constantBufferOffsetAlignment;
+            Debug.Assert((_constantBufferAlignment & (_constantBufferAlignment - 1)) == 0);
+
             ConstantBufferSize = 0;
 
             InitializeSpec(AtlasBlitCS);
@@ -61,7 +58,7 @@ namespace Antares.Graphics
         unsafe int IShaderAggregator.RegisterConstantBuffer<T>()
         {
             ConstantBufferSize += sizeof(T);
-            return ConstantBufferSize = (ConstantBufferSize + ConstantBufferAlignment - 1) & ~ConstantBufferAlignment;
+            return ConstantBufferSize = (ConstantBufferSize + _constantBufferAlignment - 1) & ~_constantBufferAlignment;
         }
     }
 }

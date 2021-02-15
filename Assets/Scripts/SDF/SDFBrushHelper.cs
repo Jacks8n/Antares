@@ -1,6 +1,8 @@
 ﻿#if UNITY_EDITOR
 
+using System;
 using Sirenix.OdinInspector;
+using Sirenix.Serialization;
 using Unity.Collections;
 using UnityEditor;
 using UnityEngine;
@@ -8,12 +10,12 @@ using UnityEngine;
 namespace Antares.SDF
 {
     [ExecuteAlways, RequireComponent(typeof(MeshRenderer), typeof(MeshFilter))]
-    public class SDFBrushHelper : MonoBehaviour
+    public class SDFBrushHelper : SerializedMonoBehaviour
     {
-        [SerializeField]
+        [OdinSerialize, NonSerialized]
         private ISDFShape _shape;
 
-        [SerializeField, ShowIf("@_shape is " + nameof(SDFShape.Numerical)), Required, OnValueChanged("OnSetBrushTexture")]
+        [SerializeField, ShowIf("@_shape != null && _shape.BrushType == SDFBrushType.Numerical"), Required, OnValueChanged("OnSetBrushTexture")]
         private Texture3D _brushTexture;
 
         [SerializeField]

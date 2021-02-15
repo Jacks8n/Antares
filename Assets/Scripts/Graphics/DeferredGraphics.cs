@@ -10,7 +10,7 @@ namespace Antares.Graphics
         public class DeferredGraphics : IShaderSpec
         {
             [field: SerializeField, LabelText(nameof(Shader))]
-            public Shader Shader { get; }
+            public Shader Shader { get; private set; }
 
             public Material Material { get; private set; }
 

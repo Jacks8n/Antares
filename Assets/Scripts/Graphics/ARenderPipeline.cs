@@ -13,6 +13,8 @@ namespace Antares.Graphics
 {
     public class ARenderPipeline : RenderPipeline
     {
+        private readonly AShaderSpecs _shaderSpecs;
+
         private readonly ComputeBuffer _constantBuffer;
 
         private RenderTexture _sceneVolume;
@@ -21,13 +23,15 @@ namespace Antares.Graphics
 
         private SDFScene _loadedScene;
 
-        public ARenderPipeline()
+        public ARenderPipeline(AShaderSpecs shaderSpecs)
         {
+            _shaderSpecs = shaderSpecs;
+
             _sceneVolume = null;
             _materialVolume = null;
             _loadedScene = null;
 
-            _constantBuffer = new ComputeBuffer((ShaderSpecsInstance.ConstantBufferSize + 3) / 4, 4);
+            _constantBuffer = new ComputeBuffer((_shaderSpecs.ConstantBufferSize + 3) / 4, 4);
         }
 
         protected override void Dispose(bool disposing)
@@ -103,7 +107,7 @@ namespace Antares.Graphics
             NativeArray<byte> mappedCBuffer = BeginWriteCBuffer();
 
             {
-                SDFGenerationCompute sdfGeneration = ShaderSpecsInstance.SDFGenerationCS;
+                SDFGenerationCompute sdfGeneration = _shaderSpecs.SDFGenerationCS;
                 ComputeShader shader = sdfGeneration.Shader;
 
                 // set global params
@@ -204,7 +208,7 @@ namespace Antares.Graphics
                 // dispatch ray marching
                 GraphicsFence rmFence = default;
                 {
-                    RayMarchingCompute rayMarching = ShaderSpecsInstance.RayMarchingCS;
+                    RayMarchingCompute rayMarching = _shaderSpecs.RayMarchingCS;
                     ComputeShader shader = rayMarching.Shader;
 
                     int cbufferOffset = rayMarching.ConstantBufferOffset;
@@ -292,7 +296,7 @@ namespace Antares.Graphics
                     Mesh fullscreen = GetFullScreenMesh();
 #endif
 
-                    cmd.DrawMesh(fullscreen, Matrix4x4.identity, ShaderSpecsInstance.Deferred.Material);
+                    cmd.DrawMesh(fullscreen, Matrix4x4.identity, _shaderSpecs.Deferred.Material);
                     context.ExecuteCommandBuffer(cmd);
                     cmd.Clear();
 
@@ -327,9 +331,9 @@ namespace Antares.Graphics
             CommandBufferPool.Release(cmdCompute);
         }
 
-        private NativeArray<byte> BeginWriteCBuffer() => _constantBuffer.BeginWrite<byte>(0, ShaderSpecsInstance.ConstantBufferSize);
+        private NativeArray<byte> BeginWriteCBuffer() => _constantBuffer.BeginWrite<byte>(0, _shaderSpecs.ConstantBufferSize);
 
-        private void EndWriteCBuffer() => _constantBuffer.EndWrite<byte>(ShaderSpecsInstance.ConstantBufferSize);
+        private void EndWriteCBuffer() => _constantBuffer.EndWrite<byte>(_shaderSpecs.ConstantBufferSize);
 
         private void SetSceneVolume(CommandBuffer cmd, ComputeShader shader, int kernel) => cmd.SetComputeTextureParam(shader, kernel, ID_SceneVolume, _sceneVolume);
 
