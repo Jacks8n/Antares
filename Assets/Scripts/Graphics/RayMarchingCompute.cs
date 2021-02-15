@@ -77,10 +77,14 @@ namespace Antares.Graphics
 
             public int RayMarchingKernel { get; private set; }
 
-            void IShaderSpec.OnAfterDeserialize()
+            public int ConstantBufferOffset { get; private set; }
+
+            void IShaderSpec.OnAfterDeserialize<T>(T specs)
             {
                 TiledMarchingKernel = Shader.FindKernel("TiledMarching");
                 RayMarchingKernel = Shader.FindKernel("RayMarching");
+
+                ConstantBufferOffset = specs.RegisterConstantBuffer<SDFRayMarchingParameters>();
             }
         }
     }

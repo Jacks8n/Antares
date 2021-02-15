@@ -1,23 +1,31 @@
 ﻿#pragma kernel TiledMarching
 #pragma kernel RayMarching
 
+#include "HLSLSupport.cginc"
+
+CBUFFER_START(RayMarchingParameters)
 // column 0, 1: dudx, dvdy
 // column 2: left-bottom-near corner
 // column 3: position of camera
-extern float3x4 UVToScene;
+float3x4 UVToScene;
     
 // x: 1 / width, y: 1 / height, z: 1 / depth, w: max step
-extern float4 SceneTexel;
+float4 SceneTexel;
     
 // fourth row is unused
-extern float3x4 WorldToSceneT;
+float3x4 WorldToSceneT;
     
 // x: width, y: height, z: depth, w: mip level count
-extern float4 SceneSize;
+float4 SceneSize;
     
 // sdf supremum of different mip level
 // x: initial marching, y: hightest, z: lowest
-extern float3 SDFSupremum;
+float3 SDFSupremum;
+
+// xy: middle of render target(in pixel)
+// z: 0.5 * diagonal of tile(in world space) * near
+float3 TiledMarchingParams;
+CBUFFER_END
 
 extern RWTexture2D<float2> TiledRM;
 
@@ -81,10 +89,6 @@ float ClampRayToScene(float3 o, float3 d)
 }
 
 /// begin tiled marching
-
-// xy: middle of render target(in pixel)
-// z: 0.5 * diagonal of tile(in world space) * near
-extern float3 TiledMarchingParams;
 
 #define MARCHING_TILE_SIZE_X 8
 #define MARCHING_TILE_SIZE_Y 8

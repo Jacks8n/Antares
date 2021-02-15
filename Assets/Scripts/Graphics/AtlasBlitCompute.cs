@@ -18,7 +18,10 @@ namespace Antares.Graphics
 
             public int BlitKernel { get; private set; }
 
-            void IShaderSpec.OnAfterDeserialize() => BlitKernel = Shader.FindKernel("Blit");
+            void IShaderSpec.OnAfterDeserialize<T>(T specs)
+            {
+                BlitKernel = Shader.FindKernel("Blit");
+            }
         }
     }
 }

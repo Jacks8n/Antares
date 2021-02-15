@@ -1,8 +1,11 @@
 ﻿#pragma kernel Blit
 
+#include "HLSLSupport.cginc"
+
+uint3 Offset;
+
 Texture3D<float> BlitSrc;
 RWTexture3D<float> BlitDst;
-uint3 Offset;
 
 [numthreads(8, 8, 1)]
 void Blit(uint3 id : SV_DispatchThreadID)

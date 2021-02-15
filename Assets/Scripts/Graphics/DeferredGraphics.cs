@@ -14,7 +14,7 @@ namespace Antares.Graphics
 
             public Material Material { get; private set; }
 
-            void IShaderSpec.OnAfterDeserialize() => Material = new Material(Shader);
+            void IShaderSpec.OnAfterDeserialize<T>(T specs) => Material = new Material(Shader);
         }
     }
 }

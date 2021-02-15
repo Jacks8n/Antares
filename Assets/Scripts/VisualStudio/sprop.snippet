@@ -8,7 +8,7 @@
     <Snippet>
       <Code Language="CSharp">
         <![CDATA[public const string Binding_$Name$ = "$Name$";
-                 public readonly static int ID_$Name$ = Shader.PropertyToID(Binding_$Name$);$end$]]>
+                 public static int ID_$Name$ { get; } = Shader.PropertyToID(Binding_$Name$);$end$]]>
       </Code>
       <Declarations>
         <Literal>

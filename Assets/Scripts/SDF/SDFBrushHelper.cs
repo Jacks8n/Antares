@@ -17,7 +17,7 @@ namespace Antares.SDF
         private Texture3D _brushTexture;
 
         [SerializeField]
-        private int _materialID;
+        private uint _materialID;
 
         public int ShapeParameterCount => _shape.ParameterCount;
 

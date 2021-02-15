@@ -3,6 +3,8 @@
 #pragma kernel GenerateSceneVolume
 #pragma kernel GenerateMipMap
 
+#include "HLSLSupport.cginc"
+
 /// begin definations used by multiple kernels
 
 #define MAX_GSM_BRUSH_COUNT 64
@@ -12,23 +14,30 @@
 #define BRUSH_TYPE_SPHERE 1
 #define BRUSH_TYPE_CUBE 2
 
+CBUFFER_START(SDFGenerationParameters)
+    // transform mip 0 scene's indices to world position
+    row_major float3x4 SceneToWorld;
+
+    float3 BrushCullRadius;
+    #define MAT_TILE_CULL_RADIUS_W BrushCullRadius.x
+    #define MAT_GRID_CULL_RADIUS_W BrushCullRadius.y
+    #define SCENE_GRID_CULL_RADIUS_W BrushCullRadius.z
+
+    uint SDFBrushCount;
+
+    float3 SceneGridSize;
+    #define SDF_SUPREMUM_W SceneGridSize.x
+    #define SDF_SUPREMUM_INV_W SceneGridSize.y
+    #define SQR_GRID_SPACE_W SceneGridSize.z
+CBUFFER_END
+
+// while generating things related to n-th mipmap, n - 1 should be set
+uint VolumeMipLevel;
+
 extern Texture3D<snorm float> BrushAtlas;
 extern SamplerState BrushAtlas_Sampler;
 
 extern Buffer<float> BrushParameters;
-
-// transform mip 0 scene's indices to world position
-extern float4x4 SceneToWorld;
-
-extern float3 BrushCullRadius;
-#define MAT_TILE_CULL_RADIUS_W BrushCullRadius.x
-#define MAT_GRID_CULL_RADIUS_W BrushCullRadius.y
-#define SCENE_GRID_CULL_RADIUS_W BrushCullRadius.z
-
-extern float3 SceneGridSize;
-#define SDF_SUPREMUM_W SceneGridSize.x
-#define SDF_SUPREMUM_INV_W SceneGridSize.y
-#define SQR_GRID_SPACE_W SceneGridSize.z
 
 groupshared float GSM_BrushParams[MAX_GSM_BRUSH_COUNT * MAX_BRUSH_PARAMETER_COUNT];
 
@@ -151,9 +160,6 @@ extern RWBuffer<uint> BrushIndices;
 extern RWBuffer<uint> DispatchCoords;
 extern RWBuffer<uint> MipDispatches;
 
-// while generating things related to n-th mipmap, n - 1 should be set
-extern uint VolumeMipLevel;
-
 // todo: bank conflict?
 groupshared SDFBrush GSM_Brushes[MAX_GSM_BRUSH_COUNT];
 
@@ -186,7 +192,6 @@ uint GroupIDToDispatchID(uint3 gid)
 #define MATERIAL_GRID_NULL 0u
 
 extern StructuredBuffer<SDFBrush> SDFBrushes;
-extern uint SDFBrushCount;
 
 groupshared uint GSM_BrushIndices[MAX_GSM_BRUSH_COUNT];
 groupshared uint GSM_BrushCount = 0;
@@ -212,7 +217,7 @@ void GenerateMatVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID, uin
     
     // cull brushes that are guaranteed to be apart from 16^3 tile
     const float tileRadius = MAT_TILE_CULL_RADIUS_W;
-    const float3 tileCenter = mul(SceneToWorld, float4(gid * 16 + uint3(4, 4, 4), 1.0)).xyz;
+    const float3 tileCenter = mul(SceneToWorld, float4(gid * 16 + uint3(4, 4, 4), 1.0));
     const uint threadIndex = dot(tid, uint3(1, 4, 16));
     for (index = threadIndex; index < SDFBrushCount; index += 64)
     {
@@ -240,7 +245,7 @@ void GenerateMatVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID, uin
     
     // traversal brushes that coincide with 16^3 tile and cull per grid
     const float gridRadius = MAT_GRID_CULL_RADIUS_W;
-    const float3 gridPos = mul(SceneToWorld, float4(id * 4, 1.0)).xyz;
+    const float3 gridPos = mul(SceneToWorld, float4(id * 4, 1.0));
     uint brushIndices[MAX_GRID_BRUSH_COUNT], brushCount = 0;
 
     // store brushes(local)
@@ -387,7 +392,7 @@ void GenerateSceneVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID)
     const uint threadOffset = threadIndex % 8;
     const uint3 id = tileCoord * 4 + tid / 2;
     const float gridRadius = SCENE_GRID_CULL_RADIUS_W;
-    const float3 coord = mul(SceneToWorld, float4(id, 1.0)).xyz;
+    const float3 coord = mul(SceneToWorld, float4(id, 1.0));
 
     float sdf = SDF_MAX;
     for (uint i = threadOffset; i < brushCount; i += 8)
