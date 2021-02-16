@@ -293,7 +293,13 @@ MonoBehaviour:
     PrefabModifications: []
     SerializationNodes:
     - Name: _shape
-      Entry: 6
+      Entry: 7
+      Data: 0|Antares.SDF.SDFShape+Sphere, Assembly-CSharp
+    - Name: Radius
+      Entry: 4
+      Data: 0.26
+    - Name: 
+      Entry: 8
       Data: 
   _brushTexture: {fileID: 0}
   _materialID: 0

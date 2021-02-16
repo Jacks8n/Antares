@@ -31,7 +31,7 @@ namespace Antares.Graphics
             _materialVolume = null;
             _loadedScene = null;
 
-            _constantBuffer = new ComputeBuffer(_shaderSpecs.ConstantBufferSize, 1, ComputeBufferType.Constant);
+            _constantBuffer = new ComputeBuffer(_shaderSpecs.ConstantBufferCount, _shaderSpecs.ConstantBufferStride, ComputeBufferType.Constant, ComputeBufferMode.SubUpdates);
         }
 
         protected override void Dispose(bool disposing)
@@ -57,7 +57,7 @@ namespace Antares.Graphics
 
             _loadedScene = scene;
 
-            if (scene == null || scene)
+            if (scene == null || scene.IsEmpty)
             {
                 ReleaseVolumes();
                 return;
@@ -83,13 +83,13 @@ namespace Antares.Graphics
                 var brushes = _loadedScene.BrusheCollection.Brushes;
                 var brushParams = _loadedScene.BrusheCollection.BrushParameters;
 
-                brushBuffer = new ComputeBuffer(brushes.Length, sizeof(SDFGenerationCompute.SDFBrush), ComputeBufferType.Structured);
+                brushBuffer = new ComputeBuffer(brushes.Length, sizeof(SDFGenerationCompute.SDFBrush), ComputeBufferType.Structured, ComputeBufferMode.SubUpdates);
                 var mappedBrushes = brushBuffer.BeginWrite<SDFGenerationCompute.SDFBrush>(0, brushes.Length);
                 for (int i = 0; i < brushes.Length; i++)
                     mappedBrushes[i] = new SDFGenerationCompute.SDFBrush(brushes[i].Property, (uint)brushes[i].ParameterOffset);
                 brushBuffer.EndWrite<SDFGenerationCompute.SDFBrush>(brushes.Length);
 
-                brushParameterBuffer = new ComputeBuffer(brushParams.Length, sizeof(float), ComputeBufferType.Structured);
+                brushParameterBuffer = new ComputeBuffer(brushParams.Length, sizeof(float), ComputeBufferType.Structured, ComputeBufferMode.SubUpdates);
                 var mappedBrushParams = brushParameterBuffer.BeginWrite<float>(0, brushParams.Length);
                 mappedBrushParams.CopyFrom(brushParams);
                 brushParameterBuffer.EndWrite<float>(brushParams.Length);
@@ -207,8 +207,8 @@ namespace Antares.Graphics
                     ComputeShader shader = rayMarching.Shader;
 
                     int cbufferOffset = rayMarching.ConstantBufferOffset;
-                    using (var rmParams = GetTempNativeBuffer(new RayMarchingCompute.SDFRayMarchingParameters(camera, _loadedScene, invWidth, invHeight)))
-                        cmdCompute.SetComputeBufferData(_constantBuffer, rmParams, 0, cbufferOffset, 1);
+                    using (var parameters = GetTempNativeBuffer(new RayMarchingCompute.SDFRayMarchingParameters(camera, _loadedScene, invWidth, invHeight)))
+                        cmdCompute.SetComputeBufferData(_constantBuffer, parameters, 0, cbufferOffset, 1);
 
                     int kernel = rayMarching.TiledMarchingKernel;
                     int tiledCountX = width / RayMarchingCompute.TiledMarchingGroupSizeX, tiledCountY = height / RayMarchingCompute.TiledMarchingGroupSizeY;
@@ -339,7 +339,7 @@ namespace Antares.Graphics
 
         private ComputeBuffer GetIndirectBuffer(int count)
         {
-            ComputeBuffer buffer = new ComputeBuffer(count + 4, sizeof(uint), ComputeBufferType.Structured | ComputeBufferType.IndirectArguments);
+            ComputeBuffer buffer = new ComputeBuffer(count + 4, sizeof(uint), ComputeBufferType.Structured | ComputeBufferType.IndirectArguments, ComputeBufferMode.SubUpdates);
             ResetIndirectBuffer(buffer);
             return buffer;
         }

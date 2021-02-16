@@ -24,7 +24,9 @@ namespace Antares.Graphics
         [field: LabelText(nameof(ShaderSpecsInstance))]
         public static AShaderSpecs ShaderSpecsInstance { get; private set; }
 
-        public int ConstantBufferSize { get; private set; }
+        public int ConstantBufferCount { get; private set; }
+
+        public int ConstantBufferStride => 4;
 
         [field: SerializeField, LabelText(nameof(AtlasBlitCS))]
         public AtlasBlitCompute AtlasBlitCS { get; private set; }
@@ -45,22 +47,24 @@ namespace Antares.Graphics
             _constantBufferAlignment = checked(SystemInfo.constantBufferOffsetAlignment - 1);
             Debug.Assert((_constantBufferAlignment & (_constantBufferAlignment + 1)) == 0);
 
-            ConstantBufferSize = 0;
+            ConstantBufferCount = 0;
 
             InitializeSpec(AtlasBlitCS);
             InitializeSpec(SDFGenerationCS);
             InitializeSpec(RayMarchingCS);
             InitializeSpec(Deferred);
+
+            ConstantBufferCount = (ConstantBufferCount + ConstantBufferStride - 1) / ConstantBufferStride;
         }
 
         private void InitializeSpec<T>(T shaderSpec) where T : IShaderSpec => shaderSpec.OnAfterDeserialize(this);
 
         unsafe int IShaderAggregator.RegisterConstantBuffer<T>()
         {
-            int offset = ConstantBufferSize;
+            int offset = ConstantBufferCount;
 
-            ConstantBufferSize += sizeof(T);
-            ConstantBufferSize = (ConstantBufferSize + _constantBufferAlignment) & ~_constantBufferAlignment;
+            ConstantBufferCount += (sizeof(T) + ConstantBufferStride - 1) / ~(ConstantBufferStride - 1);
+            ConstantBufferCount = (ConstantBufferCount + _constantBufferAlignment) & ~_constantBufferAlignment;
 
             return offset;
         }
