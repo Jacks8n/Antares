@@ -12,5 +12,15 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ce1fd55800445fe43b5f00b2a9289735, type: 3}
   m_Name: BrushCollection
   m_EditorClassIdentifier: 
-  _numericalBrushes: []
-  _analyticalBrushes: []
+  <NumericalBrushAtlas>k__BackingField: {fileID: 0}
+  <Brushes>k__BackingField:
+  - Property:
+      Transform:
+        Translation: {x: -0, y: -0, z: -0}
+        Scale: 1
+        Rotation: {x: -0, y: -0, z: -0, w: 1}
+      <BrushType>k__BackingField: 1
+      MaterialID: 0
+    ParameterOffset: 0
+  <BrushParameters>k__BackingField:
+  - 0.26

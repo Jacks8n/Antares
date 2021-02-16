@@ -42,8 +42,8 @@ namespace Antares.Graphics
 
         private void Awake()
         {
-            _constantBufferAlignment = SystemInfo.constantBufferOffsetAlignment;
-            Debug.Assert((_constantBufferAlignment & (_constantBufferAlignment - 1)) == 0);
+            _constantBufferAlignment = checked(SystemInfo.constantBufferOffsetAlignment - 1);
+            Debug.Assert((_constantBufferAlignment & (_constantBufferAlignment + 1)) == 0);
 
             ConstantBufferSize = 0;
 
@@ -57,8 +57,12 @@ namespace Antares.Graphics
 
         unsafe int IShaderAggregator.RegisterConstantBuffer<T>()
         {
+            int offset = ConstantBufferSize;
+
             ConstantBufferSize += sizeof(T);
-            return ConstantBufferSize = (ConstantBufferSize + _constantBufferAlignment - 1) & ~_constantBufferAlignment;
+            ConstantBufferSize = (ConstantBufferSize + _constantBufferAlignment) & ~_constantBufferAlignment;
+
+            return offset;
         }
     }
 }

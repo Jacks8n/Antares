@@ -18,6 +18,8 @@ namespace Antares.SDF
         [field: SerializeField, Required, LabelText(nameof(BrusheCollection))]
         public SDFBrushCollection BrusheCollection { get; private set; }
 
+        public bool IsEmpty => BrusheCollection.Brushes.Length == 0;
+
         public Vector3 WorldToSceneVector(Vector3 vec) => transform.worldToLocalMatrix.MultiplyVector(vec);
 
         public Vector3 WorldToScenePoint(Vector3 pos) => transform.worldToLocalMatrix.MultiplyPoint(pos);

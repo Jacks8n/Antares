@@ -5,6 +5,8 @@ using Sirenix.OdinInspector;
 using Unity.Collections;
 using UnityEngine;
 
+using ReadOnlyAttribute = Sirenix.OdinInspector.ReadOnlyAttribute;
+
 namespace Antares.SDF
 {
     public enum SDFBrushType { Numerical, Sphere, Cube }
@@ -50,7 +52,7 @@ namespace Antares.SDF
     {
         public SDFBrushTransform Transform;
 
-        [field: SerializeField, LabelText(nameof(BrushType))]
+        [field: SerializeField, LabelText(nameof(BrushType)), ReadOnly]
         public SDFBrushType BrushType { get; private set; }
 
         public uint MaterialID;
@@ -70,6 +72,16 @@ namespace Antares.SDF
 
     public static class SDFShape
     {
+        /// <summary>
+        /// all the shapes are guaranteed to use less than this number of paramters
+        /// </summary>
+        public const int MaxParameterCount = 8;
+
+        public static unsafe int GetParameterCount<T>() where T: unmanaged, ISDFShape
+        {
+            return sizeof(T) / sizeof(float);
+        }
+
         [StructLayout(LayoutKind.Sequential, Pack = 1), Serializable]
         public struct Numerical : ISDFShape
         {

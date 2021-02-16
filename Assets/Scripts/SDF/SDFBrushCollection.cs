@@ -1,95 +1,93 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using Antares.Utility;
 using Sirenix.OdinInspector;
-using Sirenix.Serialization;
 using Unity.Collections;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
 
-using FilePathAttribute = Sirenix.OdinInspector.FilePathAttribute;
+using ReadOnlyAttribute = Sirenix.OdinInspector.ReadOnlyAttribute;
 
 namespace Antares.SDF
 {
     [CreateAssetMenu(menuName = "SDF/BrushCollection")]
-    public class SDFBrushCollection : ScriptableObject, ISerializationCallbackReceiver
+    public class SDFBrushCollection : ScriptableObject
     {
+        [Serializable]
+        public struct Brush
+        {
+            public SDFBrushProperty Property;
+
+            [ReadOnly]
+            public int ParameterOffset;
+
+            public Brush(SDFBrushProperty property, int offset)
+            {
+                Property = property;
+                ParameterOffset = offset;
+            }
+        }
+
         [field: SerializeField, LabelText(nameof(NumericalBrushAtlas))]
         public RenderTexture NumericalBrushAtlas { get; private set; }
 
-        public NativeArray<(SDFBrushProperty Brush, int Offset)>.ReadOnly Brushes => _brushes.AsReadOnly();
+        [field: SerializeField, LabelText(nameof(Brushes))]
+        public Brush[] Brushes { get; private set; }
 
-        public NativeArray<float>.ReadOnly BrushParameters => _brushParameters.AsReadOnly();
-
-        [SerializeField, FilePath, Required]
-        private string _serializationPath;
-
-        private NativeArray<(SDFBrushProperty Brush, int Offset)> _brushes;
-
-        private NativeArray<float> _brushParameters;
-
-        void ISerializationCallbackReceiver.OnBeforeSerialize()
-        {
-            if (string.IsNullOrWhiteSpace(_serializationPath))
-                return;
-
-            using FileStream stream = new FileStream(_serializationPath, FileMode.OpenOrCreate);
-
-            int parameterCount = _brushParameters.Length;
-            SerializationUtility.SerializeValue(parameterCount, stream, DataFormat.Binary);
-
-            for (int i = 0; i < _brushParameters.Length; i++)
-                SerializationUtility.SerializeValue(_brushParameters[i], stream, DataFormat.Binary);
-        }
-
-        void ISerializationCallbackReceiver.OnAfterDeserialize()
-        {
-            if (string.IsNullOrWhiteSpace(_serializationPath))
-                return;
-
-            using FileStream stream = new FileStream(_serializationPath, FileMode.Open);
-
-            int parameterCount = SerializationUtility.DeserializeValue<int>(stream, DataFormat.Binary);
-            _brushParameters = new NativeArray<float>(parameterCount, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
-
-            for (int i = 0; i < parameterCount; i++)
-                _brushParameters[i] = SerializationUtility.DeserializeValue<float>(stream, DataFormat.Binary);
-        }
+        [field: SerializeField, LabelText(nameof(BrushParameters)), ReadOnly]
+        public float[] BrushParameters { get; private set; }
 
 #if UNITY_EDITOR
         [Button]
         private void GatherBrushes()
         {
+            SDFBrushHelper[] brushHelpers = FindObjectsOfType<SDFBrushHelper>();
+
             var numericalBrushes = new List<Texture3D>();
             var numericalBrushIndices = new List<int>();
+            using var paramBuffer = new NativeArray<float>(SDFShape.MaxParameterCount, Allocator.Temp);
 
             {
-                SDFBrushHelper[] brushHelpers = FindObjectsOfType<SDFBrushHelper>();
                 int brushCount = brushHelpers.Length;
+                int parameterCount, totalParameterCount = 0;
 
-                _brushes = new NativeArray<(SDFBrushProperty, int)>(brushCount, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+                Brushes = new Brush[brushCount];
 
-                SDFBrushProperty brush = default;
-                Texture3D brushTexture = null;
-                int parameterCount = 0;
-                for (int i = 0; i < brushHelpers.Length; i++)
                 {
-                    if (brushHelpers[i].GetBrushProperty(ref brush, ref brushTexture))
+                    SDFBrushProperty brush = default;
+                    Texture3D brushTexture = null;
+                    for (int i = 0; i < brushHelpers.Length; i++)
                     {
-                        numericalBrushes.Add(brushTexture);
-                        numericalBrushIndices.Add(i);
-                    }
+                        if (brushHelpers[i].GetBrushProperty(ref brush, ref brushTexture))
+                        {
+                            numericalBrushes.Add(brushTexture);
+                            numericalBrushIndices.Add(i);
+                        }
 
-                    _brushes[i] = (brush, parameterCount);
-                    parameterCount += brushHelpers[i].ShapeParameterCount;
+                        parameterCount = brushHelpers[i].ShapeParameterCount;
+                        Brushes[i] = new Brush(brush, parameterCount);
+                        totalParameterCount += parameterCount;
+                    }
                 }
 
-                _brushParameters = new NativeArray<float>(parameterCount, Allocator.Persistent, NativeArrayOptions.UninitializedMemory);
+                BrushParameters = new float[totalParameterCount];
+
+                int parameterOffset = 0;
                 for (int i = 0; i < brushCount; i++)
-                    brushHelpers[i].GetShapeParameters(_brushParameters.Slice(_brushes[i].Offset));
+                {
+                    parameterCount = Brushes[i].ParameterOffset;
+                    Brushes[i].ParameterOffset = parameterOffset;
+
+                    brushHelpers[i].GetShapeParameters(paramBuffer);
+                    for (int j = 0; j < parameterCount; j++)
+                        BrushParameters[parameterOffset + j] = paramBuffer[j];
+                    parameterOffset += parameterCount;
+                }
             }
 
+            if (numericalBrushes.Count > 0)
             {
                 CommandBuffer cmd = CommandBufferPool.Get();
                 Vector3Int[] brushOffsets = new Vector3Int[numericalBrushes.Count];
@@ -102,14 +100,15 @@ namespace Antares.SDF
 
                 for (int i = 0; i < numericalBrushIndices.Count; i++)
                 {
-                    int index = _brushes[numericalBrushIndices[i]].Offset;
-                    var shape = _brushParameters.ReinterpretLoad<SDFShape.Numerical>(index);
+                    int offset = Brushes[numericalBrushIndices[i]].ParameterOffset;
+                    for (int j = 0; j < SDFShape.GetParameterCount<SDFShape.Numerical>(); j++)
+                        BrushParameters[offset + j] = paramBuffer[j];
+                    var shape = paramBuffer.ReinterpretLoad<SDFShape.Numerical>(0);
                     shape.Offset = brushOffsets[i];
                 }
             }
-
-            EditorUtility.SetDirty(this);
-            AssetDatabase.SaveAssets();
+            else
+                NumericalBrushAtlas = null;
         }
 #endif
     }
