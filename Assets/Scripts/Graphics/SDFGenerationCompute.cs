@@ -23,11 +23,11 @@ namespace Antares.Graphics
 
                 private readonly uint MaterialID;
 
-                private readonly uint ParameterOffset;
+                private readonly uint ParameterCountAndOffset;
 
                 private readonly float Scale;
 
-                public SDFBrush(SDFBrushProperty brushProperty, uint parameterOffset)
+                public SDFBrush(SDFBrushProperty brushProperty, int parameterCount, int parameterOffset)
                 {
                     Matrix4x4 worldToLocal = brushProperty.Transform.WorldToLocal;
                     WorldToLocalCol0 = worldToLocal.GetColumn(0);
@@ -37,7 +37,7 @@ namespace Antares.Graphics
 
                     BrushType = (uint)brushProperty.BrushType;
                     MaterialID = brushProperty.MaterialID;
-                    ParameterOffset = parameterOffset;
+                    ParameterCountAndOffset = (uint)(parameterCount << 24 | parameterOffset);
                     Scale = brushProperty.Transform.Scale;
                 }
             }
@@ -45,9 +45,10 @@ namespace Antares.Graphics
             [StructLayout(LayoutKind.Sequential, Pack = 1)]
             public struct SDFGenerationParameters
             {
-                private readonly Vector4 SceneToWorldRow0;
-                private readonly Vector4 SceneToWorldRow1;
-                private readonly Vector4 SceneToWorldRow2;
+                private readonly Vector3 SceneToWorldColumn0;
+                private readonly Vector3 SceneToWorldColumn1;
+                private readonly Vector3 SceneToWorldColumn2;
+                private readonly Vector3 SceneToWorldColumn3;
 
                 private readonly Vector3 BrushCullRadius;
 
@@ -58,9 +59,10 @@ namespace Antares.Graphics
                 public SDFGenerationParameters(SDFScene scene)
                 {
                     Matrix4x4 sceneToWorld = scene.SceneToWorld;
-                    SceneToWorldRow0 = sceneToWorld.GetRow(0);
-                    SceneToWorldRow1 = sceneToWorld.GetRow(1);
-                    SceneToWorldRow2 = sceneToWorld.GetRow(2);
+                    SceneToWorldColumn0 = sceneToWorld.GetColumn(0);
+                    SceneToWorldColumn1 = sceneToWorld.GetColumn(1);
+                    SceneToWorldColumn2 = sceneToWorld.GetColumn(2);
+                    SceneToWorldColumn3 = sceneToWorld.GetColumn(3);
 
                     float gridSize = scene.GridWorldSize;
                     float sdfBand = gridSize * 4f;

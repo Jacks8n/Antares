@@ -1,11 +1,13 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using Antares.Graphics;
 using Antares.Utility;
 using Sirenix.OdinInspector;
 using Unity.Collections;
 using UnityEditor;
 using UnityEngine;
+using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
 
 using ReadOnlyAttribute = Sirenix.OdinInspector.ReadOnlyAttribute;
@@ -21,11 +23,15 @@ namespace Antares.SDF
             public SDFBrushProperty Property;
 
             [ReadOnly]
+            public int ParameterCount;
+
+            [ReadOnly]
             public int ParameterOffset;
 
-            public Brush(SDFBrushProperty property, int offset)
+            public Brush(SDFBrushProperty property, int count, int offset)
             {
                 Property = property;
+                ParameterCount = count;
                 ParameterOffset = offset;
             }
         }
@@ -49,12 +55,14 @@ namespace Antares.SDF
             var numericalBrushIndices = new List<int>();
             using var paramBuffer = new NativeArray<float>(SDFShape.MaxParameterCount, Allocator.Temp);
 
+            // store brushes
             {
                 int brushCount = brushHelpers.Length;
                 int parameterCount, totalParameterCount = 0;
 
                 Brushes = new Brush[brushCount];
 
+                // store sizes and offsets
                 {
                     SDFBrushProperty brush = default;
                     Texture3D brushTexture = null;
@@ -67,36 +75,33 @@ namespace Antares.SDF
                         }
 
                         parameterCount = brushHelpers[i].ShapeParameterCount;
-                        Brushes[i] = new Brush(brush, parameterCount);
+                        Brushes[i] = new Brush(brush, parameterCount, totalParameterCount);
                         totalParameterCount += parameterCount;
                     }
                 }
 
                 BrushParameters = new float[totalParameterCount];
 
-                int parameterOffset = 0;
+                // store parameters
+                int parameterOffset;
                 for (int i = 0; i < brushCount; i++)
                 {
-                    parameterCount = Brushes[i].ParameterOffset;
-                    Brushes[i].ParameterOffset = parameterOffset;
+                    parameterCount = Brushes[i].ParameterCount;
+                    parameterOffset = Brushes[i].ParameterOffset;
 
                     brushHelpers[i].GetShapeParameters(paramBuffer);
                     for (int j = 0; j < parameterCount; j++)
                         BrushParameters[parameterOffset + j] = paramBuffer[j];
-                    parameterOffset += parameterCount;
                 }
             }
 
+            // generate brush atlas
             if (numericalBrushes.Count > 0)
             {
                 CommandBuffer cmd = CommandBufferPool.Get();
                 Vector3Int[] brushOffsets = new Vector3Int[numericalBrushes.Count];
                 NumericalBrushAtlas = Texture3DAtlas.GetAtlas(cmd, numericalBrushes, brushOffsets);
                 UnityEngine.Graphics.ExecuteCommandBuffer(cmd);
-
-                string path = AssetDatabase.GetAssetPath(this);
-                path = Path.GetDirectoryName(path) + "_Atlas.assets";
-                AssetDatabase.AddObjectToAsset(NumericalBrushAtlas, path);
 
                 for (int i = 0; i < numericalBrushIndices.Count; i++)
                 {
@@ -108,7 +113,12 @@ namespace Antares.SDF
                 }
             }
             else
-                NumericalBrushAtlas = null;
+                NumericalBrushAtlas = ARenderLayouts.CreateRWVolumeRT(GraphicsFormat.R8_SNorm, new Vector3Int(4, 4, 4));
+
+            string path = AssetDatabase.GetAssetPath(this);
+            path = Path.GetDirectoryName(path) + "_Atlas.assets";
+            AssetDatabase.AddObjectToAsset(NumericalBrushAtlas, path);
+            AssetDatabase.Refresh();
         }
 #endif
     }

@@ -1,4 +1,5 @@
 ﻿using Sirenix.OdinInspector;
+using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine;
 
 namespace Antares.Graphics
@@ -26,6 +27,7 @@ namespace Antares.Graphics
 
         public int ConstantBufferCount { get; private set; }
 
+        // todo: compatibility
         public int ConstantBufferStride => 4;
 
         [field: SerializeField, LabelText(nameof(AtlasBlitCS))]
@@ -46,6 +48,7 @@ namespace Antares.Graphics
         {
             _constantBufferAlignment = checked(SystemInfo.constantBufferOffsetAlignment - 1);
             Debug.Assert((_constantBufferAlignment & (_constantBufferAlignment + 1)) == 0);
+            Debug.Assert(ConstantBufferStride <= _constantBufferAlignment);
 
             ConstantBufferCount = 0;
 
@@ -63,10 +66,10 @@ namespace Antares.Graphics
         {
             int offset = ConstantBufferCount;
 
-            ConstantBufferCount += (sizeof(T) + ConstantBufferStride - 1) / ~(ConstantBufferStride - 1);
+            ConstantBufferCount += sizeof(T);
             ConstantBufferCount = (ConstantBufferCount + _constantBufferAlignment) & ~_constantBufferAlignment;
 
-            return offset;
+            return offset / ConstantBufferStride;
         }
     }
 }

@@ -78,15 +78,16 @@ namespace Antares.Graphics
 
             // upload brushes
             ComputeBuffer brushBuffer, brushParameterBuffer;
+            var brushCollection = _loadedScene.BrusheCollection;
             unsafe
             {
-                var brushes = _loadedScene.BrusheCollection.Brushes;
-                var brushParams = _loadedScene.BrusheCollection.BrushParameters;
+                var brushes = brushCollection.Brushes;
+                var brushParams = brushCollection.BrushParameters;
 
                 brushBuffer = new ComputeBuffer(brushes.Length, sizeof(SDFGenerationCompute.SDFBrush), ComputeBufferType.Structured, ComputeBufferMode.SubUpdates);
                 var mappedBrushes = brushBuffer.BeginWrite<SDFGenerationCompute.SDFBrush>(0, brushes.Length);
                 for (int i = 0; i < brushes.Length; i++)
-                    mappedBrushes[i] = new SDFGenerationCompute.SDFBrush(brushes[i].Property, (uint)brushes[i].ParameterOffset);
+                    mappedBrushes[i] = new SDFGenerationCompute.SDFBrush(brushes[i].Property, brushes[i].ParameterCount, brushes[i].ParameterOffset);
                 brushBuffer.EndWrite<SDFGenerationCompute.SDFBrush>(brushes.Length);
 
                 brushParameterBuffer = new ComputeBuffer(brushParams.Length, sizeof(float), ComputeBufferType.Structured, ComputeBufferMode.SubUpdates);
@@ -120,6 +121,7 @@ namespace Antares.Graphics
                 int kernel = sdfGeneration.GenerateMatVolumeKernel;
                 {
                     SetMaterialVolume(cmd, shader, kernel);
+                    cmd.SetComputeTextureParam(shader, kernel, ID_BrushAtlas, brushCollection.NumericalBrushAtlas);
                     cmd.SetComputeBufferParam(shader, kernel, ID_SDFBrushes, brushBuffer);
                     cmd.SetComputeBufferParam(shader, kernel, ID_SDFBrushParameters, brushParameterBuffer);
                     cmd.SetComputeBufferParam(shader, kernel, ID_DispatchCoordsBuffer, dispatchCoordsBuffer);
@@ -134,6 +136,7 @@ namespace Antares.Graphics
                 {
                     SetMaterialVolume(cmd, shader, kernel);
                     SetSceneVolume(cmd, shader, kernel);
+                    cmd.SetComputeTextureParam(shader, kernel, ID_BrushAtlas, brushCollection.NumericalBrushAtlas);
                     cmd.SetComputeBufferParam(shader, kernel, ID_BrushIndices, brushIndicesBuffer);
                     DispatchIndirect(cmd, shader, kernel, ID_DispatchCoordsBuffer, dispatchCoordsBuffer);
                 }
@@ -155,7 +158,7 @@ namespace Antares.Graphics
                         cmd.DispatchCompute(shader, kernel, dispatchSize.x, dispatchSize.y, dispatchSize.z);
 
                         kernel = sdfGeneration.GenerateMipMapKernel;
-                        cmd.SetComputeTextureParam(shader, kernel, ID_MipVolume, _sceneVolume, i + 1);
+                        SetSceneVolume(cmd, shader, kernel, i + 1);
                         DispatchIndirect(cmd, shader, kernel, ID_MipDispatchesBuffer, mipDispatchesBuffer);
 
                         if (i < SceneMipCount - 2)
@@ -333,9 +336,9 @@ namespace Antares.Graphics
             return buffer;
         }
 
-        private void SetSceneVolume(CommandBuffer cmd, ComputeShader shader, int kernel) => cmd.SetComputeTextureParam(shader, kernel, ID_SceneVolume, _sceneVolume);
+        private void SetSceneVolume(CommandBuffer cmd, ComputeShader shader, int kernel, int mipLevel = 0) => cmd.SetComputeTextureParam(shader, kernel, ID_SceneVolume, _sceneVolume, mipLevel);
 
-        private void SetMaterialVolume(CommandBuffer cmd, ComputeShader shader, int kernel) => cmd.SetComputeTextureParam(shader, kernel, ID_MaterialVolume, _materialVolume);
+        private void SetMaterialVolume(CommandBuffer cmd, ComputeShader shader, int kernel, int mipLevel = 0) => cmd.SetComputeTextureParam(shader, kernel, ID_MaterialVolume, _materialVolume, mipLevel);
 
         private ComputeBuffer GetIndirectBuffer(int count)
         {
@@ -356,7 +359,7 @@ namespace Antares.Graphics
 
         private ComputeBuffer GetUShortAppendBuffer(int count)
         {
-            ComputeBuffer buffer = new ComputeBuffer(count + 1, sizeof(ushort), ComputeBufferType.Structured);
+            ComputeBuffer buffer = new ComputeBuffer(count / 2 + 1, sizeof(uint), ComputeBufferType.Structured, ComputeBufferMode.SubUpdates);
 
             var mappedBuffer = buffer.BeginWrite<ushort>(0, 1);
             mappedBuffer[0] = 1;

@@ -4,27 +4,29 @@
 #include "HLSLSupport.cginc"
 
 CBUFFER_START(RayMarchingParameters)
-// column 0, 1: dudx, dvdy
-// column 2: left-bottom-near corner
-// column 3: position of camera
-float3x4 UVToScene;
+    // column 0, 1: dudx, dvdy
+    // column 2: left-bottom-near corner
+    // column 3: position of camera
+    float3x4 UVToScene;
     
-// x: 1 / width, y: 1 / height, z: 1 / depth, w: max step
-float4 SceneTexel;
+    // w: unused
+    float4 SceneTexel;
+    #define SCENE_TEXEL_SIZE SceneTexel.xyz
     
-// fourth row is unused
-float3x4 WorldToSceneT;
+    float3x4 WorldToSceneT;
     
-// x: width, y: height, z: depth, w: mip level count
-float4 SceneSize;
+    float4 SceneSize;
+    #define SCENE_SIZE SceneSize.xyz
+    #define SCENE_MAX_MIP SceneSize.w
     
-// sdf supremum of different mip level
-// x: initial marching, y: hightest, z: lowest
-float3 SDFSupremum;
+    float3 SDFSupremum;
+    #define SDF_SUP_INITIAL_W SDFSupremum.x
+    #define SDF_SUP_HIGHEST_W SDFSupremum.y
+    #define SDF_SUP_LOWEST_W SDFSupremum.z
 
-// xy: middle of render target(in pixel)
-// z: 0.5 * diagonal of tile(in world space) * near
-float3 TiledMarchingParams;
+    // xy: middle of render target(in pixel)
+    // z: 0.5 * diagonal of tile(in world space) * near
+    float3 TiledMarchingParams;
 CBUFFER_END
 
 extern RWTexture2D<float2> TiledRM;
@@ -43,7 +45,7 @@ bool IsHit(float sdf, float t)
 // returns **normalized** sdf
 float SampleSDF(float3 pos, float mip)
 {
-    const float3 texel = SceneTexel.xyz;
+    const float3 texel = SCENE_TEXEL_SIZE;
     const float3 uvw = pos * texel;
     return SceneVolume.SampleLevel(SDFSampler_Linear_Clamp, uvw, mip);
 }
@@ -56,7 +58,6 @@ float3 SampleColor(float3 p)
 float3 SampleNormal(float3 p, float mip)
 {
     const float2 offset = float2(1.0, -1.0);
-    const float3 texel = SceneSize.xyz;
     return normalize(SampleSDF(p + offset.xxx, mip) +
                      SampleSDF(p + offset.yyx, mip) +
                      SampleSDF(p + offset.xyy, mip) +
@@ -82,7 +83,7 @@ float ClampRayToScene(float3 o, float3 d)
 {
     float3 invd = 1.0 / d;
     float3 t0 = -o * invd;
-    float3 t1 = (SceneSize.xyz - o) * invd;
+    float3 t1 = (SCENE_SIZE - o) * invd;
     t0 = min(t0, t1);
     
     return max(max(t0.x, t0.y), max(t0.z, 0.0));
@@ -121,7 +122,8 @@ void TiledMarching(uint3 id : SV_DispatchThreadID)
     const float3 o = GetCameraPos();
     
     float t = ClampRayToScene(o, d);
-    float mip, sup, sdf, r;
+    // todo: mip control
+    float mip = 2.0, sup, sdf, r;
     for (uint i = 0; i < 32; i++)
     {
         r = k * t;
@@ -152,13 +154,13 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
 
     const float3 o = GetCameraPos();
     
-    const float maxMip = SceneSize.w;
-    const float supHighest = SDFSupremum.y;
-    const float supLowest = SDFSupremum.z;
+    const float maxMip = SCENE_MAX_MIP;
+    const float supHighest = SDF_SUP_HIGHEST_W;
+    const float supLowest = SDF_SUP_LOWEST_W;
 
     float nsdf, sdf;
-    float mip = ceil(maxMip * 0.5);
-    float supremum = SDFSupremum.x;
+    float mip = maxMip * 0.5;
+    float supremum = SDF_SUP_INITIAL_W;
     for (int i = 0; i < 32; i++)
     {
         nsdf = SampleSDF(d * t + o, mip);
