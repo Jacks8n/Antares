@@ -15,7 +15,7 @@ namespace Antares.Graphics
     {
         private readonly AShaderSpecs _shaderSpecs;
 
-        private readonly ComputeBuffer _constantBuffer;
+        private ComputeBuffer _constantBuffer;
 
         private RenderTexture _sceneVolume;
 
@@ -111,10 +111,11 @@ namespace Antares.Graphics
 
                 // set global params
                 {
+                    int parameterOffset = sdfGeneration.SDFGenerationParametersOffset;
                     using (var parameters = GetTempNativeBuffer(new SDFGenerationCompute.SDFGenerationParameters(_loadedScene)))
-                        cmd.SetComputeBufferData(_constantBuffer, parameters, 0, sdfGeneration.SDFGenerationParametersOffset, 1);
+                        cmd.SetComputeBufferData(_constantBuffer, parameters, 0, parameterOffset, parameters.Length);
 
-                    cmd.SetComputeConstantBufferParam(shader, ID_SDFGenerationParameters, _constantBuffer, sdfGeneration.SDFGenerationParametersOffset, sdfGeneration.SDFGenerationParametersSize);
+                    cmd.SetComputeConstantBufferParam(shader, ID_SDFGenerationParameters, _constantBuffer, parameterOffset, sdfGeneration.SDFGenerationParametersSize);
                 }
 
                 // generate material volume mip 0
@@ -207,33 +208,52 @@ namespace Antares.Graphics
                 float invWidth = 1f / width, invHeight = 1f / height;
 
                 // dispatch ray marching
-                GraphicsFence rmFence = default;
+                // todo: don't know why cbuffer is not set
+                GraphicsFence rmFence;
                 {
                     RayMarchingCompute rayMarching = _shaderSpecs.RayMarchingCS;
                     ComputeShader shader = rayMarching.Shader;
 
-                    int cbufferOffset = rayMarching.ConstantBufferOffset;
-                    using (var parameters = GetTempNativeBuffer(new RayMarchingCompute.SDFRayMarchingParameters(camera, _loadedScene, width, height, invWidth, invHeight)))
-                        cmdCompute.SetComputeBufferData(_constantBuffer, parameters, 0, cbufferOffset, 1);
-
-                    int kernel = rayMarching.TiledMarchingKernel;
+                    // set cbuffer
+                    // todo: don't know why this doesn't set data though there's no error
+                    // answer: f**king unity didn't mark computebuffer.setdata as deprecated, it does literally noting
                     int tiledCountX = width / RayMarchingCompute.TiledMarchingGroupSizeX, tiledCountY = height / RayMarchingCompute.TiledMarchingGroupSizeY;
-                    cmdCompute.SetComputeConstantBufferParam(shader, ID_RayMarchingParameters, _constantBuffer, cbufferOffset, rayMarching.ConstantBufferOffset);
+                    {
+                        int parameterOffset = rayMarching.RayMarchingParametersOffset;
+                        int parameterSize = rayMarching.RayMarchingParametersSize;
 
-                    cmdCompute.GetTemporaryRT(ID_TiledRM, new RenderTextureDescriptor(tiledCountX, tiledCountY, RenderTextureFormat.RFloat, depthBufferBits: 0) { enableRandomWrite = true });
-                    cmdCompute.SetComputeTextureParam(shader, kernel, ID_SceneVolume, _sceneVolume);
-                    cmdCompute.SetComputeTextureParam(shader, kernel, ID_TiledRM, new RenderTargetIdentifier(ID_TiledRM));
-                    cmdCompute.DispatchCompute(shader, kernel, tiledCountX, tiledCountY, RayMarchingCompute.RayMarchingGroupSizeZ);
+                        using (var parameters = GetTempNativeBuffer(new RayMarchingCompute.SDFRayMarchingParameters(camera, _loadedScene, width, height, invWidth, invHeight)))
+                        {
+                            var mapped = _constantBuffer.BeginWrite<byte>(parameterOffset, parameterSize);
+                            mapped.CopyFrom(parameters);
+                            _constantBuffer.EndWrite<byte>(parameterSize);
 
+                        }
+
+                        cmdCompute.SetComputeConstantBufferParam(shader, ID_RayMarchingParameters, _constantBuffer, parameterOffset, parameterSize);
+                    }
+
+                    // tiled marching
+                    int kernel = rayMarching.TiledMarchingKernel;
+                    {
+                        cmdCompute.GetTemporaryRT(ID_TiledRM, new RenderTextureDescriptor(tiledCountX, tiledCountY, RenderTextureFormat.RGFloat, depthBufferBits: 0) { enableRandomWrite = true });
+                        cmdCompute.SetComputeTextureParam(shader, kernel, ID_SceneVolume, _sceneVolume);
+                        cmdCompute.SetComputeTextureParam(shader, kernel, ID_TiledRM, new RenderTargetIdentifier(ID_TiledRM));
+                        cmdCompute.DispatchCompute(shader, kernel, tiledCountX, tiledCountY, RayMarchingCompute.RayMarchingGroupSizeZ);
+                    }
+
+                    // per pixel marching
                     kernel = rayMarching.RayMarchingKernel;
-                    RenderTextureDescriptor rmRTDesc = new RenderTextureDescriptor(width, height, RenderTextureFormat.ARGBHalf, depthBufferBits: 0, mipCount: 0) { enableRandomWrite = true };
-                    cmdCompute.SetComputeTextureParam(shader, kernel, ID_SceneVolume, _sceneVolume);
-                    cmdCompute.GetTemporaryRT(ID_SceneRM0, rmRTDesc);
-                    cmdCompute.GetTemporaryRT(ID_SceneRM1, rmRTDesc);
-                    cmdCompute.SetComputeTextureParam(shader, kernel, ID_TiledRM, new RenderTargetIdentifier(ID_TiledRM));
-                    cmdCompute.SetComputeTextureParam(shader, kernel, ID_SceneRM0, new RenderTargetIdentifier(ID_SceneRM0));
-                    cmdCompute.SetComputeTextureParam(shader, kernel, ID_SceneRM1, new RenderTargetIdentifier(ID_SceneRM1));
-                    cmdCompute.DispatchCompute(shader, kernel, width / RayMarchingCompute.RayMarchingGroupSizeX, height / RayMarchingCompute.RayMarchingGroupSizeY, 1);
+                    {
+                        RenderTextureDescriptor rmRTDesc = new RenderTextureDescriptor(width, height, RenderTextureFormat.ARGBHalf, depthBufferBits: 0, mipCount: 0) { enableRandomWrite = true };
+                        cmdCompute.SetComputeTextureParam(shader, kernel, ID_SceneVolume, _sceneVolume);
+                        cmdCompute.GetTemporaryRT(ID_SceneRM0, rmRTDesc);
+                        cmdCompute.GetTemporaryRT(ID_SceneRM1, rmRTDesc);
+                        cmdCompute.SetComputeTextureParam(shader, kernel, ID_TiledRM, new RenderTargetIdentifier(ID_TiledRM));
+                        cmdCompute.SetComputeTextureParam(shader, kernel, ID_SceneRM0, new RenderTargetIdentifier(ID_SceneRM0));
+                        cmdCompute.SetComputeTextureParam(shader, kernel, ID_SceneRM1, new RenderTargetIdentifier(ID_SceneRM1));
+                        cmdCompute.DispatchCompute(shader, kernel, width / RayMarchingCompute.RayMarchingGroupSizeX, height / RayMarchingCompute.RayMarchingGroupSizeY, 1);
+                    }
 
                     rmFence = cmdCompute.CreateGraphicsFence(GraphicsFenceType.AsyncQueueSynchronisation, SynchronisationStageFlags.PixelProcessing);
 
@@ -332,9 +352,9 @@ namespace Antares.Graphics
             CommandBufferPool.Release(cmdCompute);
         }
 
-        private unsafe NativeArray<float> GetTempNativeBuffer<T>(T value) where T : unmanaged
+        private unsafe NativeArray<byte> GetTempNativeBuffer<T>(T value) where T : unmanaged
         {
-            NativeArray<float> buffer = new NativeArray<float>((sizeof(T) + 3) / 4, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+            NativeArray<byte> buffer = new NativeArray<byte>(sizeof(T), Allocator.Temp, NativeArrayOptions.UninitializedMemory);
             buffer.ReinterpretStore(0, value);
             return buffer;
         }

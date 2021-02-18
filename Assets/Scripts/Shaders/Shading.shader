@@ -64,8 +64,7 @@
 
                 float3 lum = vn * -dot(refl, view) * rm0.rgb;
 
-                return rm1;
-                //return float4(lum, rm0.w);
+                return rm0;
             }
             ENDCG
         }

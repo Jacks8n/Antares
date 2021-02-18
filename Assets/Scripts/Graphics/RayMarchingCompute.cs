@@ -40,17 +40,19 @@ namespace Antares.Graphics
                     Vector2 pixel = new Vector2(dxduHalf * invW, dydvHalf * invH);
 
                     Transform cameraTrans = camera.transform;
-                    Vector3 right = cameraTrans.localToWorldMatrix.GetColumn(0) * (2f * pixel.x);
+                    Matrix4x4 cameraToWorld = cameraTrans.localToWorldMatrix;
+                    Vector3 right = (Vector3)cameraToWorld.GetColumn(0) * (2f * pixel.x);
                     UVToSceneColumn0 = scene.WorldToSceneVector(right);
+                    UVToSceneColumn0 = Vector3.one;
 
-                    Vector3 up = cameraTrans.localToWorldMatrix.GetColumn(1) * (2f * pixel.y);
+                    Vector3 up = (Vector3)cameraToWorld.GetColumn(1) * (2f * pixel.y);
                     UVToSceneColumn1 = scene.WorldToSceneVector(up);
 
-                    Vector3 lbn = cameraTrans.localToWorldMatrix.MultiplyPoint(new Vector3(-dxduHalf, -dydvHalf, near));
+                    Vector3 lbn = cameraToWorld.MultiplyPoint(new Vector3(-dxduHalf, -dydvHalf, near));
                     UVToSceneColumn2 = scene.WorldToScenePoint(lbn);
 
-                    Vector3 camPos = cameraTrans.position;
-                    UVToSceneColumn3 = scene.WorldToScenePoint(camPos);
+                    Vector3 cameraPos = cameraTrans.position;
+                    UVToSceneColumn3 = scene.WorldToScenePoint(cameraPos);
 
                     Vector3 texel = scene.SizeInv;
                     SceneTexel = new Vector4(texel.x, texel.y, texel.z, AShaderSpecs.SDFSupremum);
@@ -93,14 +95,16 @@ namespace Antares.Graphics
 
             public int RayMarchingKernel { get; private set; }
 
-            public int ConstantBufferOffset { get; private set; }
+            public int RayMarchingParametersOffset { get; private set; }
+
+            public unsafe int RayMarchingParametersSize => sizeof(SDFRayMarchingParameters);
 
             void IShaderSpec.OnAfterDeserialize<T>(T specs)
             {
                 TiledMarchingKernel = Shader.FindKernel("TiledMarching");
                 RayMarchingKernel = Shader.FindKernel("RayMarching");
 
-                ConstantBufferOffset = specs.RegisterConstantBuffer<SDFRayMarchingParameters>();
+                RayMarchingParametersOffset = specs.RegisterConstantBuffer<SDFRayMarchingParameters>();
             }
         }
     }

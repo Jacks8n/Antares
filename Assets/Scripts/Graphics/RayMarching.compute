@@ -169,10 +169,10 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
     const float2 sphere = TiledRM[id.xy / tile];
     const float2 middle = float2((id.xy - id.xy % tile) + tileHalf);
     
-    const float3 center = GetRayDirectionUnnormalized(middle);
+    const float3 cray = GetRayDirectionUnnormalized(middle);
     const float3 d = GetRayDirection(float2(id.xy));
     
-    const float od = dot(center, d) * sphere.x;
+    const float od = dot(cray, d) * sphere.x;
     const float b = sqrt(od * od - sphere.y);
     float t = sphere.y * rcp(od - b);
 
@@ -207,6 +207,6 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
     
     const float3 color = SampleColor(hit);
     
-    SceneRM0[id.xy] = float4(color, 1.0);
+    SceneRM0[id.xy] = float4(abs(o), 1.0);
     SceneRM1[id.xy] = float4(normal, 1.0);
 }

@@ -1,5 +1,4 @@
 ﻿using Sirenix.OdinInspector;
-using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine;
 
 namespace Antares.Graphics
@@ -29,7 +28,7 @@ namespace Antares.Graphics
 
         public int ConstantBufferCount { get; private set; }
 
-        // todo: compatibility
+        // todo: compatibility?
         public int ConstantBufferStride => 4;
 
         [field: SerializeField, LabelText(nameof(AtlasBlitCS))]
@@ -60,6 +59,8 @@ namespace Antares.Graphics
             InitializeSpec(Deferred);
 
             ConstantBufferCount = (ConstantBufferCount + ConstantBufferStride - 1) / ConstantBufferStride;
+
+            ShaderSpecsInstance = this;
         }
 
         private void InitializeSpec<T>(T shaderSpec) where T : IShaderSpec => shaderSpec.OnAfterDeserialize(this);
@@ -71,7 +72,8 @@ namespace Antares.Graphics
             ConstantBufferCount += sizeof(T);
             ConstantBufferCount = (ConstantBufferCount + _constantBufferAlignment) & ~_constantBufferAlignment;
 
-            return offset / ConstantBufferStride;
+            Debug.Log($"cbuffer in size of {sizeof(T)} registered at {offset}");
+            return offset;
         }
     }
 }
