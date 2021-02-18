@@ -332,10 +332,10 @@ namespace Antares.Graphics
             CommandBufferPool.Release(cmdCompute);
         }
 
-        private NativeArray<T> GetTempNativeBuffer<T>(T value) where T : struct
+        private unsafe NativeArray<float> GetTempNativeBuffer<T>(T value) where T : unmanaged
         {
-            NativeArray<T> buffer = new NativeArray<T>(1, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
-            buffer[0] = value;
+            NativeArray<float> buffer = new NativeArray<float>((sizeof(T) + 3) / 4, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+            buffer.ReinterpretStore(0, value);
             return buffer;
         }
 

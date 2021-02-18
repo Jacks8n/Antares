@@ -2,6 +2,7 @@
 using UnityEngine.Experimental.Rendering;
 using UnityEngine;
 using UnityEngine.Rendering;
+using UnityEditor;
 
 namespace Antares.Graphics
 {

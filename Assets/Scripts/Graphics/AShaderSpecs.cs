@@ -46,7 +46,7 @@ namespace Antares.Graphics
 
         private int _constantBufferAlignment;
 
-        private void Awake()
+        private void OnEnable()
         {
             _constantBufferAlignment = checked(SystemInfo.constantBufferOffsetAlignment - 1);
             Debug.Assert((_constantBufferAlignment & (_constantBufferAlignment + 1)) == 0);
