@@ -18,6 +18,8 @@ namespace Antares.Graphics
         }
 
         public const int SceneMipCount = 5;
+
+        public const float SDFSupremum = 4f;
     }
 
     public partial class AShaderSpecs

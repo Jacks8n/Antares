@@ -19,7 +19,7 @@
 /// begin constant buffer
 
 CBUFFER_START(SDFGenerationParameters)
-    // transform mip 0 scene's indices to world position
+// transform mip 0 scene's indices to world position
 float3x4 SceneToWorld;
 
 float3 BrushCullRadius;
@@ -30,9 +30,9 @@ float3 BrushCullRadius;
 uint SDFBrushCount;
 
 float3 SceneGridSize;
-    #define SDF_SUPREMUM_W SceneGridSize.x
-    #define SDF_SUPREMUM_INV_W SceneGridSize.y
-    #define SQR_GRID_SPACE_W SceneGridSize.z
+#define SDF_SUPREMUM_W SceneGridSize.x
+#define SDF_SUPREMUM_INV_W SceneGridSize.y
+#define SQR_GRID_SPACE_W SceneGridSize.z
 CBUFFER_END
 
 // while generating things related to n-th mipmap, n - 1 should be set
@@ -120,7 +120,7 @@ struct SDFBrush
     {
         const float radius = GetParameter1(0);
         
-        return length(p) - radius; 
+        return length(p) - radius;
     }
     
     float SDF_Cube(float3 p)

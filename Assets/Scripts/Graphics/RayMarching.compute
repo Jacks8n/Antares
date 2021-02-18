@@ -4,29 +4,30 @@
 #include "HLSLSupport.cginc"
 
 CBUFFER_START(RayMarchingParameters)
-    // column 0, 1: dudx, dvdy
-    // column 2: left-bottom-near corner
-    // column 3: position of camera
-    float3x4 UVToScene;
+// column 0, 1: dudx, dvdy
+// column 2: left-bottom-near corner
+// column 3: position of camera
+float3x4 UVToScene;
     
-    // w: unused
-    float4 SceneTexel;
-    #define SCENE_TEXEL_SIZE SceneTexel.xyz
+// w: unused
+float4 SceneTexel;
+#define SCENE_TEXEL_SIZE SceneTexel.xyz
     
-    float3x4 WorldToSceneT;
+float3x4 WorldToSceneT;
     
-    float4 SceneSize;
-    #define SCENE_SIZE SceneSize.xyz
-    #define SCENE_MAX_MIP SceneSize.w
+float4 SceneSize;
+#define SCENE_SIZE SceneSize.xyz
+#define SCENE_MAX_MIP SceneSize.w
     
-    float3 SDFSupremum;
-    #define SDF_SUP_INITIAL_W SDFSupremum.x
-    #define SDF_SUP_HIGHEST_W SDFSupremum.y
-    #define SDF_SUP_LOWEST_W SDFSupremum.z
+float4 SDFSupremum;
+#define SDF_SUP_INITIAL_W SDFSupremum.x
+#define SDF_SUP_HIGHEST_W SDFSupremum.y
+#define SDF_SUP_LOWEST_W SDFSupremum.z
+#define SCENE_INITIAL_MIP SDFSupremum.w
 
-    // xy: middle of render target(in pixel)
-    // z: 0.5 * diagonal of tile(in world space) * near
-    float3 TiledMarchingParams;
+// xy: middle of render target(in pixel)
+// z: 0.5 * diagonal of tile(in world space) * near
+float3 TiledMarchingParams;
 CBUFFER_END
 
 extern RWTexture2D<float2> TiledRM;
@@ -40,6 +41,20 @@ bool IsHit(float sdf, float t)
 {
     // TODO: pixel-sized filter
     return abs(sdf) < 0.001;
+}
+
+void UpdateMip(float nsdf, float maxMip, float2 supRange, inout float mip, inout float supremum)
+{
+    if (nsdf == 1.0)
+    {
+        mip = min(mip + 2.0, maxMip);
+        supremum = min(supremum * 4.0, supRange.y);
+    }
+    else if (nsdf < 0.25)
+    {
+        mip = max(mip - 2.0, 0);
+        supremum = max(supremum * 0.25, supRange.x);
+    }
 }
 
 // returns **normalized** sdf
@@ -121,14 +136,23 @@ void TiledMarching(uint3 id : SV_DispatchThreadID)
     const float3 d = co * coNormInv;
     const float3 o = GetCameraPos();
     
+    const float maxMip = SCENE_MAX_MIP;
+    const float2 supRange = float2(SDF_SUP_LOWEST_W, SDF_SUP_HIGHEST_W);
+
     float t = ClampRayToScene(o, d);
     // todo: mip control
-    float mip = 2.0, sup, sdf, r;
+    float mip = SCENE_INITIAL_MIP;
+    float supremum = SDF_SUP_INITIAL_W;
+    float nsdf, sdf, r;
     for (uint i = 0; i < 32; i++)
     {
         r = k * t;
-        sdf = SampleSDF(mad(d, t, o), mip);
-        if (sdf < r)
+        nsdf = SampleSDF(mad(d, t, o), mip);
+        sdf = nsdf * supremum;
+        
+        UpdateMip(nsdf, maxMip, supRange, mip, supremum);
+        
+        if (max(sdf, supremum) < r)
             break;
         
         t = sdf * k + r;
@@ -155,11 +179,10 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
     const float3 o = GetCameraPos();
     
     const float maxMip = SCENE_MAX_MIP;
-    const float supHighest = SDF_SUP_HIGHEST_W;
-    const float supLowest = SDF_SUP_LOWEST_W;
+    const float2 supRange = float2(SDF_SUP_LOWEST_W, SDF_SUP_HIGHEST_W);
 
     float nsdf, sdf;
-    float mip = maxMip * 0.5;
+    float mip = SCENE_INITIAL_MIP;
     float supremum = SDF_SUP_INITIAL_W;
     for (int i = 0; i < 32; i++)
     {
@@ -170,20 +193,11 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
         if (IsHit(sdf, t))
             break;
         
-        if (nsdf == 1.0)
-        {
-            mip = min(mip + 2.0, maxMip);
-            supremum = min(supremum * 4.0, supHighest);
-        }
-        else if (nsdf < 0.25)
-        {
-            mip = max(mip - 2.0, 0.0);
-            supremum *= max(supremum * 0.25, supLowest);
-        }
+        UpdateMip(nsdf, maxMip, supRange, mip, supremum);
     }
 
     // remedy with linear interpolation, which requires infinite marching steps to converge
-    const float last = SampleSDF(d * t + o, 0.0) * supLowest;
+    const float last = SampleSDF(d * t + o, 0.0) * supRange.x;
     const float bias = last * rcp(1.0 - (last - sdf));
 
     t += bias;

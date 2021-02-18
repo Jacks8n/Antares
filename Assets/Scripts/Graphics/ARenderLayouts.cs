@@ -155,6 +155,7 @@ namespace Antares.Graphics
                 width = size.x,
                 height = size.z,
                 volumeDepth = size.y,
+                depthBufferBits = 0,
                 graphicsFormat = format,
                 msaaSamples = 1,
                 useMipMap = mipCount > 1,

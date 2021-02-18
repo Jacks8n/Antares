@@ -1,4 +1,5 @@
 ﻿using System;
+using Antares.Graphics;
 using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
@@ -7,11 +8,9 @@ namespace Antares.SDF
 {
     public static class SDFGenerator
     {
-        public const float MaxDistance = 8f;
+        private const float UnitDistance = AShaderSpecs.SDFSupremum * 2f / (byte.MaxValue - byte.MinValue);
 
-        public const float UnitDistance = MaxDistance * 2f / (byte.MaxValue - byte.MinValue);
-
-        public const float InvUnitDistance = 1f / UnitDistance;
+        private const float InvUnitDistance = 1f / UnitDistance;
 
         public static Texture3D CreateSDFTexture3D(int sizeX, int sizeY, int sizeZ, Func<Vector3, float> sdf)
         {

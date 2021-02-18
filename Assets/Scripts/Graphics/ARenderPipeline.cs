@@ -71,7 +71,7 @@ namespace Antares.Graphics
                 ReleaseVolumes();
 
                 _sceneVolume = CreateRWVolumeRT(GraphicsFormat.R8_SNorm, sceneSize, SceneMipCount);
-                _materialVolume = CreateRWVolumeRT(GraphicsFormat.R16_UInt, matVolumeSize, 1);
+                _materialVolume = CreateRWVolumeRT(GraphicsFormat.R16_UInt, matVolumeSize, SceneMipCount);
             }
 
             CommandBuffer cmd = CommandBufferPool.Get();
@@ -136,6 +136,8 @@ namespace Antares.Graphics
                 {
                     SetMaterialVolume(cmd, shader, kernel);
                     SetSceneVolume(cmd, shader, kernel);
+                    cmd.SetComputeBufferParam(shader, kernel, ID_SDFBrushes, brushBuffer);
+                    cmd.SetComputeBufferParam(shader, kernel, ID_SDFBrushParameters, brushParameterBuffer);
                     cmd.SetComputeTextureParam(shader, kernel, ID_BrushAtlas, brushCollection.NumericalBrushAtlas);
                     cmd.SetComputeBufferParam(shader, kernel, ID_BrushIndices, brushIndicesBuffer);
                     DispatchIndirect(cmd, shader, kernel, ID_DispatchCoordsBuffer, dispatchCoordsBuffer);
@@ -145,6 +147,7 @@ namespace Antares.Graphics
                 // generate scene volume non-zero mips(async)
                 {
                     SetMaterialVolume(cmd, shader, sdfGeneration.GenerateMipDispatchKernel);
+                    SetSceneVolume(cmd, shader, sdfGeneration.GenerateMipMapKernel);
 
                     Vector3Int dispatchSize = matVolumeSize / SDFGenerationCompute.GenerateMipDispatchKernelSize;
                     for (int i = 0; i < SceneMipCount - 1; i++)
@@ -158,11 +161,11 @@ namespace Antares.Graphics
                         cmd.DispatchCompute(shader, kernel, dispatchSize.x, dispatchSize.y, dispatchSize.z);
 
                         kernel = sdfGeneration.GenerateMipMapKernel;
-                        SetSceneVolume(cmd, shader, kernel, i + 1);
+                        cmd.SetComputeTextureParam(shader, kernel, ID_MipVolume, _sceneVolume, i + 1);
                         DispatchIndirect(cmd, shader, kernel, ID_MipDispatchesBuffer, mipDispatchesBuffer);
 
                         if (i < SceneMipCount - 2)
-                            ResetIndirectBuffer(mipDispatchesBuffer);
+                            ResetIndirectBuffer(cmd, mipDispatchesBuffer);
                     }
                 }
             }
@@ -210,7 +213,7 @@ namespace Antares.Graphics
                     ComputeShader shader = rayMarching.Shader;
 
                     int cbufferOffset = rayMarching.ConstantBufferOffset;
-                    using (var parameters = GetTempNativeBuffer(new RayMarchingCompute.SDFRayMarchingParameters(camera, _loadedScene, invWidth, invHeight)))
+                    using (var parameters = GetTempNativeBuffer(new RayMarchingCompute.SDFRayMarchingParameters(camera, _loadedScene, width, height, invWidth, invHeight)))
                         cmdCompute.SetComputeBufferData(_constantBuffer, parameters, 0, cbufferOffset, 1);
 
                     int kernel = rayMarching.TiledMarchingKernel;
@@ -343,18 +346,21 @@ namespace Antares.Graphics
         private ComputeBuffer GetIndirectBuffer(int count)
         {
             ComputeBuffer buffer = new ComputeBuffer(count + 4, sizeof(uint), ComputeBufferType.Structured | ComputeBufferType.IndirectArguments, ComputeBufferMode.SubUpdates);
-            ResetIndirectBuffer(buffer);
-            return buffer;
-        }
 
-        private void ResetIndirectBuffer(ComputeBuffer buffer)
-        {
             var mappedBuffer = buffer.BeginWrite<uint>(0, 4);
             mappedBuffer[0] = 4;
             mappedBuffer[1] = 8192;
             mappedBuffer[2] = 0;
             mappedBuffer[3] = 1;
             buffer.EndWrite<uint>(4);
+
+            return buffer;
+        }
+
+        private void ResetIndirectBuffer(CommandBuffer cmd, ComputeBuffer buffer)
+        {
+            using var header = new NativeArray<uint>(new uint[] { 4, 8192, 0, 1 }, Allocator.Temp);
+            cmd.SetComputeBufferData(buffer, header);
         }
 
         private ComputeBuffer GetUShortAppendBuffer(int count)

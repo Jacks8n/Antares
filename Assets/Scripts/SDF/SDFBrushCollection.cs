@@ -116,9 +116,8 @@ namespace Antares.SDF
                 NumericalBrushAtlas = ARenderLayouts.CreateRWVolumeRT(GraphicsFormat.R8_SNorm, new Vector3Int(4, 4, 4));
 
             string path = AssetDatabase.GetAssetPath(this);
-            path = Path.GetDirectoryName(path) + "_Atlas.assets";
-            AssetDatabase.AddObjectToAsset(NumericalBrushAtlas, path);
-            AssetDatabase.Refresh();
+            path = Path.ChangeExtension(path, "Atlas.asset");
+            AssetDatabase.CreateAsset(NumericalBrushAtlas, path);
         }
 #endif
     }
