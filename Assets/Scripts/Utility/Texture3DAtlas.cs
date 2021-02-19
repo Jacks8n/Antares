@@ -129,16 +129,16 @@ namespace Antares.Utility
 
             GraphicsFormat format = textures[0].graphicsFormat;
             RenderTexture atlasRT = CreateRWVolumeRT(format, packSize);
-            ComputeShader blitCS = ShaderSpecsInstance.AtlasBlitCS.Shader;
-            int kernel = ShaderSpecsInstance.AtlasBlitCS.BlitKernel;
+            ComputeShader blitCS = ShaderSpecsInstance.TextureUtilCS.Shader;
+            int kernel = ShaderSpecsInstance.TextureUtilCS.BlitKernel;
 
-            cmd.SetComputeTextureParam(blitCS, kernel, ID_BlitDestination, atlasRT);
+            cmd.SetComputeTextureParam(blitCS, kernel, ID_Destination, atlasRT);
             for (int i = 0; i < textures.Count; i++)
             {
                 Texture3D texture = textures[i];
-                cmd.SetComputeVectorParam(blitCS, ID_BlitOffset, (Vector3)offsets[i]);
-                cmd.SetComputeTextureParam(blitCS, kernel, ID_BlitSource, texture);
-                cmd.DispatchCompute(blitCS, kernel, texture.width / AtlasBlitCompute.BlitMipGroupSizeX, texture.height / AtlasBlitCompute.BlitMipGroupSizeY, texture.depth / AtlasBlitCompute.BlitMipGroupSizeZ);
+                cmd.SetComputeVectorParam(blitCS, ID_Offset, (Vector3)offsets[i]);
+                cmd.SetComputeTextureParam(blitCS, kernel, ID_Source, texture);
+                cmd.DispatchCompute(blitCS, kernel, texture.width / TextureUtilCompute.BlitMipGroupSizeX, texture.height / TextureUtilCompute.BlitMipGroupSizeY, texture.depth / TextureUtilCompute.BlitMipGroupSizeZ);
             }
 
             return atlasRT;

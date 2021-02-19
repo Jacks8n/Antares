@@ -1,4 +1,6 @@
-﻿#pragma kernel TiledMarching
+﻿#define USE_MIP0_ONLY 1
+
+#pragma kernel TiledMarching
 #pragma kernel RayMarching
 
 #include "HLSLSupport.cginc"
@@ -17,13 +19,24 @@ float4x3 WorldToSceneT;
     
 float4 SceneSize;
 #define SCENE_SIZE SceneSize.xyz
+#if !USE_MIP0_ONLY
 #define SCENE_MAX_MIP SceneSize.w
+#else
+#define SCENE_MAX_MIP 0.0
+#endif
     
 float4 SDFSupremum;
+#if !USE_MIP0_ONLY
 #define SDF_SUP_INITIAL_W SDFSupremum.x
 #define SDF_SUP_HIGHEST_W SDFSupremum.y
 #define SDF_SUP_LOWEST_W SDFSupremum.z
 #define SCENE_INITIAL_MIP SDFSupremum.w
+#else
+#define SDF_SUP_INITIAL_W SDFSupremum.z
+#define SDF_SUP_HIGHEST_W SDFSupremum.z
+#define SDF_SUP_LOWEST_W SDFSupremum.z
+#define SCENE_INITIAL_MIP 0.0
+#endif
 
 // x: aperture, yzw: unused
 float4 TiledMarchingParams;
@@ -44,6 +57,7 @@ bool IsHit(float sdf, float t)
 
 void UpdateMip(float nsdf, float maxMip, float2 supRange, inout float mip, inout float supremum)
 {
+#if !USE_MIP0_ONLY
     if (nsdf == 1.0)
     {
         mip = min(mip + 2.0, maxMip);
@@ -54,6 +68,7 @@ void UpdateMip(float nsdf, float maxMip, float2 supRange, inout float mip, inout
         mip = max(mip - 2.0, 0);
         supremum = max(supremum * 0.25, supRange.x);
     }
+#endif
 }
 
 // returns **normalized** sdf
@@ -137,7 +152,7 @@ void TiledMarching(uint3 id : SV_DispatchThreadID)
     float mip = SCENE_INITIAL_MIP;
     float supremum = SDF_SUP_INITIAL_W;
     float nsdf, sdf, r;
-    for (uint i = 0; i < 1; i++)
+    for (uint i = 0; i < 32; i++)
     {
         r = k * t;
         nsdf = SampleSDF(d * t + o, mip);
@@ -197,7 +212,7 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
     const float3 hit = d * t + o;
 
     const float3 color = SampleColor(hit);
-    SceneRM0[id.xy] = float4(color, IsHit(sdf, t) ? 1.0 : 0.0);
+    SceneRM0[id.xy] = float4((1.0 - rcp(t)).xxx, 1.0);
     
     const float3 normal = SampleNormal(hit, 0.0);
     SceneRM1[id.xy] = float4(normal, 1.0);

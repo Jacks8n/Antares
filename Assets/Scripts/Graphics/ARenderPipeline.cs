@@ -76,6 +76,12 @@ namespace Antares.Graphics
 
             CommandBuffer cmd = CommandBufferPool.Get();
 
+            // clear volumes
+            {
+                for (int j = 0; j < SceneMipCount; j++)
+                    _shaderSpecs.TextureUtilCS.ClearVolume(cmd, _sceneVolume, -1f, j);
+            }
+
             // upload brushes
             ComputeBuffer brushBuffer, brushParameterBuffer;
             var brushCollection = _loadedScene.BrusheCollection;
@@ -145,13 +151,11 @@ namespace Antares.Graphics
                 // generate material volume non-zero mips
                 // generate scene volume non-zero mips(async)
                 {
-                    SetMaterialVolume(cmd, shader, sdfGeneration.GenerateMipDispatchKernel);
-                    SetSceneVolume(cmd, shader, sdfGeneration.GenerateMipMapKernel);
-
                     Vector3Int dispatchSize = matVolumeSize / SDFGenerationCompute.GenerateMipDispatchKernelSize;
                     for (int i = 0; i < SceneMipCount - 1; i++)
                     {
                         kernel = sdfGeneration.GenerateMipDispatchKernel;
+                        SetMaterialVolume(cmd, shader, kernel);
                         cmd.SetComputeIntParam(shader, ID_VolumeMipLevel, i);
                         cmd.SetComputeTextureParam(shader, kernel, ID_MipVolume, _materialVolume, i + 1);
                         cmd.SetComputeBufferParam(shader, kernel, ID_MipDispatchesBuffer, mipDispatchesBuffer);
@@ -160,6 +164,7 @@ namespace Antares.Graphics
                         cmd.DispatchCompute(shader, kernel, dispatchSize.x, dispatchSize.y, dispatchSize.z);
 
                         kernel = sdfGeneration.GenerateMipMapKernel;
+                        SetSceneVolume(cmd, shader, kernel);
                         cmd.SetComputeTextureParam(shader, kernel, ID_MipVolume, _sceneVolume, i + 1);
                         DispatchIndirect(cmd, shader, kernel, ID_MipDispatchesBuffer, mipDispatchesBuffer);
 

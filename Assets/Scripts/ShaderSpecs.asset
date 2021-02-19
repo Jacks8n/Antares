@@ -12,7 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 5f7452bce6fa27e438273b6d126d2461, type: 3}
   m_Name: ShaderSpecs
   m_EditorClassIdentifier: 
-  <AtlasBlitCS>k__BackingField:
+  <TextureUtilCS>k__BackingField:
     <Shader>k__BackingField: {fileID: 7200000, guid: 89bf5cc4c17638f41bbef72a7ab374f3,
       type: 3}
   <SDFGenerationCS>k__BackingField:

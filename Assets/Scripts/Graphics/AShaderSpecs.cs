@@ -31,8 +31,8 @@ namespace Antares.Graphics
         // todo: compatibility?
         public int ConstantBufferStride => 4;
 
-        [field: SerializeField, LabelText(nameof(AtlasBlitCS))]
-        public AtlasBlitCompute AtlasBlitCS { get; private set; }
+        [field: SerializeField, LabelText(nameof(TextureUtilCS))]
+        public TextureUtilCompute TextureUtilCS { get; private set; }
 
         [field: SerializeField, LabelText(nameof(SDFGenerationCS))]
         public SDFGenerationCompute SDFGenerationCS { get; private set; }
@@ -53,7 +53,7 @@ namespace Antares.Graphics
 
             ConstantBufferCount = 0;
 
-            InitializeSpec(AtlasBlitCS);
+            InitializeSpec(TextureUtilCS);
             InitializeSpec(SDFGenerationCS);
             InitializeSpec(RayMarchingCS);
             InitializeSpec(Deferred);

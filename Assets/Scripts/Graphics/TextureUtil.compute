@@ -1,0 +1,22 @@
+﻿#pragma kernel Blit
+#pragma kernel Clear
+
+#include "HLSLSupport.cginc"
+
+uint3 Offset;
+float Value;
+
+Texture3D<snorm float> Source;
+RWTexture3D<snorm float> Destination;
+
+[numthreads(8, 8, 8)]
+void Blit(uint3 id : SV_DispatchThreadID)
+{
+    Destination[id + Offset] = Source.Load(int4(id, 0));
+}
+
+[numthreads(8, 8, 8)]
+void Clear(uint3 id : SV_DispatchThreadID)
+{
+    Destination[id] = Value;
+}

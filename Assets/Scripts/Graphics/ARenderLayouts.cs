@@ -45,14 +45,17 @@ namespace Antares.Graphics
         public const string Binding_RayMarchingParameters = "RayMarchingParameters";
         public static int ID_RayMarchingParameters { get; } = Shader.PropertyToID(Binding_RayMarchingParameters);
 
-        public const string Binding_BlitSource = "BlitSrc";
-        public static int ID_BlitSource { get; } = Shader.PropertyToID(Binding_BlitSource);
+        public const string Binding_Source = "Source";
+        public static int ID_Source { get; } = Shader.PropertyToID(Binding_Source);
 
-        public const string Binding_BlitDestination = "BlitDst";
-        public static int ID_BlitDestination { get; } = Shader.PropertyToID(Binding_BlitDestination);
+        public const string Binding_Destination = "Destination";
+        public static int ID_Destination { get; } = Shader.PropertyToID(Binding_Destination);
 
-        public const string Binding_BlitOffset = "BlitOffset";
-        public static int ID_BlitOffset { get; } = Shader.PropertyToID(Binding_BlitOffset);
+        public const string Binding_Offset = "Offset";
+        public static int ID_Offset { get; } = Shader.PropertyToID(Binding_Offset);
+
+        public const string Binding_Value = "Value";
+        public static int ID_Value { get; } = Shader.PropertyToID(Binding_Value);
 
         public const string Binding_SDFBrushes = "SDFBrushes";
         public static int ID_SDFBrushes { get; } = Shader.PropertyToID(Binding_SDFBrushes);

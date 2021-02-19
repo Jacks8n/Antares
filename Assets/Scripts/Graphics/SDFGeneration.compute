@@ -1,4 +1,6 @@
-﻿#pragma kernel GenerateMatVolume
+﻿#pragma enable_d3d11_debug_symbols
+
+#pragma kernel GenerateMatVolume
 #pragma kernel GenerateMipDispatch
 #pragma kernel GenerateSceneVolume
 #pragma kernel GenerateMipMap
@@ -57,7 +59,7 @@ groupshared uint GSM_BrushParamCount = 0;
 
 struct SDFBrush
 {
-    float3x4 WorldToLocal;
+    float4x3 WorldToLocal;
     
     uint Type;
     
@@ -138,7 +140,7 @@ struct SDFBrush
     
     float Sample(float3 wpos)
     {
-        const float3 p = mul(WorldToLocal, float4(wpos, 1.0));
+        const float3 p = mul(float4(wpos, 1.0), WorldToLocal);
 
         float sdf;
         switch (Type)
