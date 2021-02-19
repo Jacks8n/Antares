@@ -17,3 +17,6 @@
     - shadow
     - ao
     - tone mapping
+
+## Known Issues
+1. non-serialized reference types that are initialized in `ScriptableObject.OnEnable()` become `null` after initialization of editor

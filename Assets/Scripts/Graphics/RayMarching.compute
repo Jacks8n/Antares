@@ -25,9 +25,8 @@ float4 SDFSupremum;
 #define SDF_SUP_LOWEST_W SDFSupremum.z
 #define SCENE_INITIAL_MIP SDFSupremum.w
 
-// xy: middle of render target(in pixel)
-// z: 0.5 * diagonal of tile(in world space) * near
-float3 TiledMarchingParams;
+// x: aperture, yzw: unused
+float4 TiledMarchingParams;
 CBUFFER_END
 
 extern RWTexture2D<float2> TiledRM;
@@ -112,30 +111,24 @@ float ClampRayToScene(float3 o, float3 d)
 [numthreads(8, 8, 1)]
 void TiledMarching(uint3 id : SV_DispatchThreadID)
 {
-    const float2 tile = float2(MARCHING_TILE_SIZE_X, MARCHING_TILE_SIZE_Y);
-    const float2 tileHalf = tile * 0.5;
-
-    const float2 uv = float2(id.xy) * tile;
-    const float2 biased = uv - TiledMarchingParams.xy;
-    const float2 nearest = step(uv, -tileHalf) * tile + uv;
-    const float2 middle = uv + tileHalf;
-
-    const float3 no = GetRayDirectionUnnormalized(nearest);
-    const float3 co = GetRayDirectionUnnormalized(middle);
-    
     // analytical aperture:
-    // distance(center, tile corner) * near / (distance(nearest corner, origin) * distance(center, origin))
+    // 0.5 * tile diagonal * near / (distance(tile corner, origin) * distance(center, origin))
     // numerator is a constant determined by camera and size of tile
     // for divisor a relaxed approximation is taken:
     // dot(nearest corner - origin, center - origin)
     
-    const float c = dot(no, co);
-    const float k = c * rcp(c + TiledMarchingParams.z);
+    const float2 tile = float2(MARCHING_TILE_SIZE_X, MARCHING_TILE_SIZE_Y);
+    const float2 tileHalf = tile * 0.5;
 
+    const float2 uv = float2(id.xy) * tile;
+    const float2 middle = uv + tileHalf;
+    
+    const float3 co = GetRayDirectionUnnormalized(middle);
     const float coNormInv = rcp(length(co));
+    
     const float3 d = co * coNormInv;
     const float3 o = GetCameraPos();
-    
+    const float k = TiledMarchingParams.x;
     const float maxMip = SCENE_MAX_MIP;
     const float2 supRange = float2(SDF_SUP_LOWEST_W, SDF_SUP_HIGHEST_W);
 
@@ -144,10 +137,10 @@ void TiledMarching(uint3 id : SV_DispatchThreadID)
     float mip = SCENE_INITIAL_MIP;
     float supremum = SDF_SUP_INITIAL_W;
     float nsdf, sdf, r;
-    for (uint i = 0; i < 32; i++)
+    for (uint i = 0; i < 1; i++)
     {
         r = k * t;
-        nsdf = SampleSDF(mad(d, t, o), mip);
+        nsdf = SampleSDF(d * t + o, mip);
         sdf = nsdf * supremum;
         
         UpdateMip(nsdf, maxMip, supRange, mip, supremum);
@@ -169,12 +162,12 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
     const float2 sphere = TiledRM[id.xy / tile];
     const float2 middle = float2((id.xy - id.xy % tile) + tileHalf);
     
-    const float3 cray = GetRayDirectionUnnormalized(middle);
-    const float3 d = GetRayDirection(float2(id.xy));
+    const float3 mray = GetRayDirectionUnnormalized(middle);
+    const float3 d = GetRayDirection(id.xy);
     
-    const float od = dot(cray, d) * sphere.x;
-    const float b = sqrt(od * od - sphere.y);
-    float t = sphere.y * rcp(od - b);
+    const float od = dot(mray, d) * sphere.x;
+    const float delta = sqrt(max(0.0, od * od - sphere.y));
+    float t = od + delta;
 
     const float3 o = GetCameraPos();
     
@@ -203,10 +196,9 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
     t += bias;
     const float3 hit = d * t + o;
 
-    const float3 normal = SampleNormal(hit, 0.0);
-    
     const float3 color = SampleColor(hit);
+    SceneRM0[id.xy] = float4(color, IsHit(sdf, t) ? 1.0 : 0.0);
     
-    SceneRM0[id.xy] = float4(sphere.yyy, 1.0);
+    const float3 normal = SampleNormal(hit, 0.0);
     SceneRM1[id.xy] = float4(normal, 1.0);
 }

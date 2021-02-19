@@ -28,7 +28,7 @@ namespace Antares.Graphics
 
                 private readonly Vector4 SDFSupremum;
 
-                private readonly Vector3 TiledMarchingParams;
+                private readonly Vector4 TiledMarchingParams;
 
                 public SDFRayMarchingParameters(Camera camera, SDFScene scene, float width, float height, float invW, float invH)
                 {
@@ -74,7 +74,10 @@ namespace Antares.Graphics
                         supWorld,
                         InitalSampleMip);
 
-                    TiledMarchingParams = new Vector3(width, height, pixel.magnitude) * .5f;
+                    float pixelDiagSqr = pixel.sqrMagnitude;
+                    float pixelDiagHalf = .5f * Mathf.Sqrt(pixelDiagSqr);
+                    float apertue = pixelDiagHalf / Mathf.Sqrt(pixelDiagSqr + near * near);
+                    TiledMarchingParams = new Vector4(1f / (apertue + 1f), 0f, 0f, 0f);
                 }
             }
 

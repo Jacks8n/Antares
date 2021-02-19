@@ -226,7 +226,7 @@ namespace Antares.Graphics
                     // tiled marching
                     int kernel = rayMarching.TiledMarchingKernel;
                     {
-                        cmdCompute.GetTemporaryRT(ID_TiledRM, new RenderTextureDescriptor(tiledCountX, tiledCountY, RenderTextureFormat.RGFloat, depthBufferBits: 0) { enableRandomWrite = true });
+                        cmdCompute.GetTemporaryRT(ID_TiledRM, new RenderTextureDescriptor(tiledCountX, tiledCountY, GraphicsFormat.R32G32_SFloat, depthBufferBits: 0) { enableRandomWrite = true });
                         cmdCompute.SetComputeTextureParam(shader, kernel, ID_SceneVolume, _sceneVolume);
                         cmdCompute.SetComputeTextureParam(shader, kernel, ID_TiledRM, new RenderTargetIdentifier(ID_TiledRM));
                         cmdCompute.DispatchCompute(shader, kernel, tiledCountX, tiledCountY, RayMarchingCompute.RayMarchingGroupSizeZ);
@@ -235,7 +235,7 @@ namespace Antares.Graphics
                     // per pixel marching
                     kernel = rayMarching.RayMarchingKernel;
                     {
-                        RenderTextureDescriptor rmRTDesc = new RenderTextureDescriptor(width, height, RenderTextureFormat.ARGBHalf, depthBufferBits: 0, mipCount: 0) { enableRandomWrite = true };
+                        RenderTextureDescriptor rmRTDesc = new RenderTextureDescriptor(width, height, GraphicsFormat.R16G16B16A16_SFloat, depthBufferBits: 0, mipCount: 0) { enableRandomWrite = true };
                         cmdCompute.SetComputeTextureParam(shader, kernel, ID_SceneVolume, _sceneVolume);
                         cmdCompute.GetTemporaryRT(ID_SceneRM0, rmRTDesc);
                         cmdCompute.GetTemporaryRT(ID_SceneRM1, rmRTDesc);
