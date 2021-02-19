@@ -20,7 +20,7 @@
 
 CBUFFER_START(SDFGenerationParameters)
 // transform mip 0 scene's indices to world position
-float3x4 SceneToWorld;
+float4x3 SceneToWorld;
 
 float3 BrushCullRadius;
 #define MAT_TILE_CULL_RADIUS_W BrushCullRadius.x
@@ -46,6 +46,11 @@ extern Texture3D<snorm float> BrushAtlas;
 extern SamplerState SDFSampler_Linear_Clamp;
 
 extern Buffer<float> BrushParameters;
+
+float3 VolumeIndexToWorldPos(float3 index)
+{
+    return mul(float4(index, 1.0), SceneToWorld);
+}
 
 groupshared float GSM_BrushParams[MAX_GROUP_BRUSH_COUNT * MAX_BRUSH_PARAMETER_COUNT];
 groupshared uint GSM_BrushParamCount = 0;
@@ -264,7 +269,7 @@ void GenerateMatVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID, uin
     
     // cull brushes that are guaranteed to be apart from 16^3 tile
     const float tileRadius = MAT_TILE_CULL_RADIUS_W;
-    const float3 tileCenter = mul(SceneToWorld, float4(gid * 16 + uint3(4, 4, 4), 1.0));
+    const float3 tileCenter = VolumeIndexToWorldPos(gid * 16 + uint3(4, 4, 4));
     const uint threadIndex = dot(tid, uint3(1, 4, 16));
     
     for (index = threadIndex; index < SDFBrushCount; index += 64)
@@ -284,7 +289,7 @@ void GenerateMatVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID, uin
     
     // traversal brushes that coincide with 16^3 tile and cull per grid
     const float gridRadius = MAT_GRID_CULL_RADIUS_W;
-    const float3 gridPos = mul(SceneToWorld, float4(id * 4, 1.0));
+    const float3 gridPos = VolumeIndexToWorldPos(id * 4);
     uint brushIndices[MAX_THREAD_BRUSH_COUNT], brushCount = 0;
 
     // store brushes(local)
@@ -434,7 +439,7 @@ void GenerateSceneVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID)
     const uint threadOffset = threadIndex % 8;
     const uint3 id = tileCoord * 4 + tid / 2;
     const float gridRadius = SCENE_GRID_CULL_RADIUS_W;
-    const float3 coord = mul(SceneToWorld, float4(id, 1.0));
+    const float3 coord = VolumeIndexToWorldPos(id);
 
     float sdf = SDF_MAX;
     for (uint i = threadOffset; i < brushCount; i += 8)

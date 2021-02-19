@@ -9,12 +9,12 @@ namespace Antares.Graphics
         [Serializable]
         public class DeferredGraphics : IShaderSpec
         {
-            [field: SerializeField, LabelText(nameof(Shader))]
-            public Shader Shader { get; private set; }
-
+            [field: SerializeField, LabelText(nameof(Material))]
             public Material Material { get; private set; }
 
-            void IShaderSpec.OnAfterDeserialize<T>(T specs) => Material = new Material(Shader);
+            void IShaderSpec.OnAfterDeserialize<T>(T specs)
+            {
+            }
         }
     }
 }

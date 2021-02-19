@@ -14,10 +14,9 @@ namespace Antares.Graphics
             [StructLayout(LayoutKind.Sequential, Pack = 1)]
             public struct SDFBrush
             {
-                private readonly Vector3 WorldToLocalCol0;
-                private readonly Vector3 WorldToLocalCol1;
-                private readonly Vector3 WorldToLocalCol2;
-                private readonly Vector3 WorldToLocalCol3;
+                private readonly Vector4 WorldToLocalRow0;
+                private readonly Vector4 WorldToLocalRow1;
+                private readonly Vector4 WorldToLocalRow2;
 
                 private readonly uint BrushType;
 
@@ -30,10 +29,9 @@ namespace Antares.Graphics
                 public SDFBrush(SDFBrushProperty brushProperty, int parameterCount, int parameterOffset)
                 {
                     Matrix4x4 worldToLocal = brushProperty.Transform.WorldToLocal;
-                    WorldToLocalCol0 = worldToLocal.GetColumn(0);
-                    WorldToLocalCol1 = worldToLocal.GetColumn(1);
-                    WorldToLocalCol2 = worldToLocal.GetColumn(2);
-                    WorldToLocalCol3 = worldToLocal.GetColumn(3);
+                    WorldToLocalRow0 = worldToLocal.GetRow(0);
+                    WorldToLocalRow1 = worldToLocal.GetRow(1);
+                    WorldToLocalRow2 = worldToLocal.GetRow(2);
 
                     BrushType = (uint)brushProperty.BrushType;
                     MaterialID = brushProperty.MaterialID;

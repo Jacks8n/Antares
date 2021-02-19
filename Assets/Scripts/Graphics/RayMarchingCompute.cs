@@ -14,17 +14,15 @@ namespace Antares.Graphics
             [StructLayout(LayoutKind.Sequential, Pack = 1)]
             public struct SDFRayMarchingParameters
             {
-                private readonly Vector3 UVToSceneColumn0;
-                private readonly Vector3 UVToSceneColumn1;
-                private readonly Vector3 UVToSceneColumn2;
-                private readonly Vector3 UVToSceneColumn3;
+                private readonly Vector4 UVToSceneRow0;
+                private readonly Vector4 UVToSceneRow1;
+                private readonly Vector4 UVToSceneRow2;
 
                 private readonly Vector4 SceneTexel;
 
-                private readonly Vector3 WorldToSceneTColumn0;
-                private readonly Vector3 WorldToSceneTColumn1;
-                private readonly Vector3 WorldToSceneTColumn2;
-                private readonly Vector3 WorldToSceneTColumn3;
+                private readonly Vector4 WorldToSceneTRow0;
+                private readonly Vector4 WorldToSceneTRow1;
+                private readonly Vector4 WorldToSceneTRow2;
 
                 private readonly Vector4 SceneSize;
 
@@ -42,27 +40,29 @@ namespace Antares.Graphics
                     Transform cameraTrans = camera.transform;
                     Matrix4x4 cameraToWorld = cameraTrans.localToWorldMatrix;
                     Vector3 right = (Vector3)cameraToWorld.GetColumn(0) * (2f * pixel.x);
-                    UVToSceneColumn0 = scene.WorldToSceneVector(right);
-                    UVToSceneColumn0 = Vector3.one;
+                    right = scene.WorldToSceneVector(right);
 
                     Vector3 up = (Vector3)cameraToWorld.GetColumn(1) * (2f * pixel.y);
-                    UVToSceneColumn1 = scene.WorldToSceneVector(up);
+                    up = scene.WorldToSceneVector(up);
 
                     Vector3 lbn = cameraToWorld.MultiplyPoint(new Vector3(-dxduHalf, -dydvHalf, near));
-                    UVToSceneColumn2 = scene.WorldToScenePoint(lbn);
+                    lbn = scene.WorldToScenePoint(lbn);
 
                     Vector3 cameraPos = cameraTrans.position;
-                    UVToSceneColumn3 = scene.WorldToScenePoint(cameraPos);
+                    cameraPos = scene.WorldToScenePoint(cameraPos);
+
+                    UVToSceneRow0 = new Vector4(right.x, up.x, lbn.x, cameraPos.x);
+                    UVToSceneRow1 = new Vector4(right.y, up.y, lbn.y, cameraPos.y);
+                    UVToSceneRow2 = new Vector4(right.z, up.z, lbn.z, cameraPos.z);
 
                     Vector3 texel = scene.SizeInv;
                     SceneTexel = new Vector4(texel.x, texel.y, texel.z, AShaderSpecs.SDFSupremum);
 
                     Transform sceneTrans = scene.transform;
                     Matrix4x4 worldToScene = sceneTrans.worldToLocalMatrix;
-                    WorldToSceneTColumn0 = worldToScene.GetColumn(0);
-                    WorldToSceneTColumn1 = worldToScene.GetColumn(1);
-                    WorldToSceneTColumn2 = worldToScene.GetColumn(2);
-                    WorldToSceneTColumn3 = worldToScene.GetColumn(3);
+                    WorldToSceneTRow0 = worldToScene.GetRow(0);
+                    WorldToSceneTRow1 = worldToScene.GetRow(1);
+                    WorldToSceneTRow2 = worldToScene.GetRow(2);
 
                     Vector3 size = scene.Size;
                     SceneSize = new Vector4(size.x, size.y, size.z, 0f);

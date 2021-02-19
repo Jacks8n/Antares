@@ -7,13 +7,13 @@ CBUFFER_START(RayMarchingParameters)
 // column 0, 1: dudx, dvdy
 // column 2: left-bottom-near corner
 // column 3: position of camera
-float3x4 UVToScene;
+float4x3 UVToScene;
     
 // w: unused
 float4 SceneTexel;
 #define SCENE_TEXEL_SIZE SceneTexel.xyz
     
-float3x4 WorldToSceneT;
+float4x3 WorldToSceneT;
     
 float4 SceneSize;
 #define SCENE_SIZE SceneSize.xyz
@@ -81,12 +81,12 @@ float3 SampleNormal(float3 p, float mip)
 
 float3 GetCameraPos()
 {
-    return UVToScene._14_24_34;
+    return UVToScene._31_32_33;
 }
 
 float3 GetRayDirectionUnnormalized(float2 uv)
 {
-    return mul(UVToScene, float4(uv, 1.0, -1.0)).xyz;
+    return mul(float4(uv, 1.0, -1.0), UVToScene);
 }
 
 float3 GetRayDirection(float2 uv)
@@ -207,6 +207,6 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
     
     const float3 color = SampleColor(hit);
     
-    SceneRM0[id.xy] = float4(abs(o), 1.0);
+    SceneRM0[id.xy] = float4(sphere.yyy, 1.0);
     SceneRM1[id.xy] = float4(normal, 1.0);
 }
