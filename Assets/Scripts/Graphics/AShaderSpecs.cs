@@ -1,4 +1,5 @@
-﻿using Sirenix.OdinInspector;
+﻿using Antares.Utility;
+using Sirenix.OdinInspector;
 using UnityEngine;
 
 namespace Antares.Graphics
@@ -14,6 +15,11 @@ namespace Antares.Graphics
         private interface IShaderSpec
         {
             void OnAfterDeserialize<T>(T specs) where T : IShaderAggregator;
+        }
+
+        private interface IComputeShaderSpec : IShaderSpec
+        {
+            ComputeShader Shader { get; }
         }
 
         public const int SceneMipCount = 5;
@@ -63,7 +69,18 @@ namespace Antares.Graphics
             ShaderSpecsInstance = this;
         }
 
-        private void InitializeSpec<T>(T shaderSpec) where T : IShaderSpec => shaderSpec.OnAfterDeserialize(this);
+        private void InitializeSpec<T>(T shaderSpec) where T : IShaderSpec
+        {
+            shaderSpec.OnAfterDeserialize(this);
+
+#if UNITY_EDITOR
+            if (shaderSpec is IComputeShaderSpec computeShaderSpec)
+                ComputeShaderPostprocessor.SetImportHandler(computeShaderSpec.Shader, (_) =>
+                {
+                    OnEnable();
+                });
+#endif
+        }
 
         unsafe int IShaderAggregator.RegisterConstantBuffer<T>()
         {

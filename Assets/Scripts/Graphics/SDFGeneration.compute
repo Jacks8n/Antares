@@ -354,17 +354,29 @@ uint3 Map4To6Cube(uint3 coord)
     return coord * 2;
 }
 
-uint GetMipMask(uint index, uint offset)
+uint GetMipMask3(uint index)
 {
-    return GSM_PrevMip[index + offset - 1] | GSM_PrevMip[index + offset] | GSM_PrevMip[index + offset + 1];
+    return GSM_PrevMip[index] | GSM_PrevMip[index + 1] | GSM_PrevMip[index + 2];
+}
+
+uint GetMipMask9(uint index)
+{
+    return GetMipMask3(index) | GetMipMask3(index + 6) | GetMipMask3(index + 12);
+}
+
+uint GetMipMask(uint index)
+{
+    return GetMipMask9(index) | GetMipMask9(index + 36) | GetMipMask9(index + 72);
 }
 
 [numthreads(4, 4, 4)]
 void GenerateMipDispatch(uint3 tid : SV_GroupThreadID, uint3 id : SV_DispatchThreadID)
 {
     const uint2 one = uint2(1, 0);
-    const uint3 loadCoord = Map4To6Cube(tid);
-    const uint loadIndex = dot(loadCoord, uint3(1, 6, 36));
+    const uint3 localLoadCoord = Map4To6Cube(tid);
+    const uint loadIndex = dot(localLoadCoord, uint3(1, 6, 36));
+    const uint3 tileCoord = (id & uint(~3).xxx) * 4;
+    const int3 loadCoord = int3(localLoadCoord + tileCoord) - int3(one.xxx);
     
     if (loadIndex < 6 * 6 * 6)
     {
@@ -374,13 +386,10 @@ void GenerateMipDispatch(uint3 tid : SV_GroupThreadID, uint3 id : SV_DispatchThr
         GSM_PrevMip[loadIndex + 7] = MaterialVolume.Load(int4(loadCoord + one.xxy, VolumeMipLevel));
     }
     
-    GroupMemoryBarrier();
+    GroupMemoryBarrierWithGroupSync();
     
-    const uint threadIndex = dot(tid, uint3(1, 4, 16));
-    const uint maskIndex = threadIndex + (1 + 4 + 16);
-    uint mask = GetMipMask(maskIndex, 0) | GetMipMask(maskIndex, 6) | GetMipMask(maskIndex, -6);
-    mask |= GetMipMask(maskIndex, -30) | GetMipMask(maskIndex, -36) | GetMipMask(maskIndex, -42);
-    mask |= GetMipMask(maskIndex, 30) | GetMipMask(maskIndex, 36) | GetMipMask(maskIndex, 42);
+    const uint threadIndex = dot(tid, uint3(1, 6, 36));
+    const uint mask = GetMipMask(threadIndex);
 
     MipVolume[id] = mask;
     

@@ -34,8 +34,11 @@ namespace Antares.Graphics
                     WorldToLocalRow2 = worldToLocal.GetRow(2);
 
                     BrushType = (uint)brushProperty.BrushType;
-                    MaterialID = brushProperty.MaterialID;
+
+                    MaterialID = brushProperty.MaterialID + 1;
+
                     ParameterCountAndOffset = (uint)(parameterCount << 24 | parameterOffset);
+
                     Scale = brushProperty.Transform.Scale;
                 }
             }
