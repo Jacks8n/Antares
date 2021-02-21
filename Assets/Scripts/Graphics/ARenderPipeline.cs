@@ -86,6 +86,7 @@ namespace Antares.Graphics
 
             // clear volumes
             {
+                // 1.0 stands for maximum of snorm
                 for (int j = 0; j < SceneMipCount; j++)
                     _shaderSpecs.TextureUtilCS.ClearVolume(cmd, _sceneVolume, 1f, j);
             }
@@ -163,10 +164,11 @@ namespace Antares.Graphics
                     Vector3Int dispatchSize = matVolumeSize / SDFGenerationCompute.GenerateMipDispatchKernelSize;
                     for (int i = 0; i < SceneMipCount - 1; i++)
                     {
+
+
                         // generate material volume non-zero mips
                         kernel = sdfGeneration.GenerateMipDispatchKernel;
                         SetMaterialVolume(cmd, shader, kernel);
-                        cmd.SetComputeIntParam(shader, ID_VolumeMipLevel, i);
                         cmd.SetComputeTextureParam(shader, kernel, ID_MipVolume, _materialVolume, i + 1);
                         cmd.SetComputeBufferParam(shader, kernel, ID_MipDispatchesBuffer, mipDispatchesBuffers[i]);
 

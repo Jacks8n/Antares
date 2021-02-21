@@ -54,7 +54,7 @@ namespace Antares.Graphics
 
                 private readonly int SDFBrushCount;
 
-                private readonly Vector3 SceneGridSize;
+                private readonly Vector2 SceneGridSize;
 
                 public SDFGenerationParameters(SDFScene scene)
                 {
@@ -64,7 +64,7 @@ namespace Antares.Graphics
                     SceneToWorldRow2 = sceneToWorld.GetRow(2);
 
                     float gridSize = scene.GridWorldSize;
-                    float sdfBand = gridSize * 4f;
+                    float sdfBand = gridSize * SDFSupremum;
                     const float cubert3Half = 0.7211247851537f;
                     const int tileSizeInt = SDFGenerationCompute.MatVolumeScale * SDFGenerationCompute.MatVolumeTileSize;
                     const float tileRadiusFactor = tileSizeInt * cubert3Half;
@@ -76,7 +76,23 @@ namespace Antares.Graphics
 
                     SDFBrushCount = scene.BrusheCollection.Brushes.Length;
 
-                    SceneGridSize = new Vector3(sdfBand, 1f / sdfBand, gridSize * gridSize);
+                    SceneGridSize = new Vector2(gridSize, gridSize * gridSize);
+                }
+            }
+
+            [StructLayout(LayoutKind.Sequential, Pack = 1)]
+            public struct MipGenerationParameters
+            {
+                private readonly Vector2 SDFSupremum;
+
+                private readonly int VolumeMipLevel;
+
+                public MipGenerationParameters(SDFScene scene, int mip)
+                {
+                    float gridSize = (1 << mip) * AShaderSpecs.SDFSupremum * scene.GridWorldSize;
+                    SDFSupremum = new Vector2(gridSize, 1f / gridSize);
+
+                    VolumeMipLevel = mip;
                 }
             }
 

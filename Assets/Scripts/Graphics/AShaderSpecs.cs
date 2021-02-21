@@ -1,5 +1,6 @@
 ﻿using Antares.Utility;
 using Sirenix.OdinInspector;
+using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -8,9 +9,29 @@ namespace Antares.Graphics
     [CreateAssetMenu(menuName = "Rendering/ShaderSpecification")]
     public partial class AShaderSpecs : ScriptableObject, AShaderSpecs.IShaderAggregator
     {
+        public struct ConstantBufferSegment<T> where T : unmanaged
+        {
+            public readonly int Offset;
+
+            public unsafe int Size => sizeof(T);
+
+            public ConstantBufferSegment(int offsetInBytes)
+            {
+                Offset = offsetInBytes;
+            }
+
+            public void UpdateCBuffer(CommandBuffer cmd, ComputeBuffer cbuffer, T data)
+            {
+                var temp = new NativeArray<byte>(Size, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+                temp.ReinterpretStore(0, data);
+                cmd.SetComputeBufferData(cbuffer, temp, 0, Offset, Size);
+                temp.Dispose();
+            }
+        }
+
         private interface IShaderAggregator
         {
-            int RegisterConstantBuffer<T>() where T : unmanaged;
+            ConstantBufferSegment<T> RegisterConstantBuffer<T>() where T : unmanaged;
         }
 
         private interface IShaderSpec
@@ -85,7 +106,7 @@ namespace Antares.Graphics
 #endif
         }
 
-        unsafe int IShaderAggregator.RegisterConstantBuffer<T>()
+        unsafe ConstantBufferSegment<T> IShaderAggregator.RegisterConstantBuffer<T>()
         {
             int offset = ConstantBufferCount;
 
@@ -93,7 +114,7 @@ namespace Antares.Graphics
             ConstantBufferCount = (ConstantBufferCount + _constantBufferAlignment) & ~_constantBufferAlignment;
 
             Debug.Log($"cbuffer in size of {sizeof(T)} registered at {offset}");
-            return offset;
+            return new ConstantBufferSegment<T>(offset);
         }
     }
 }

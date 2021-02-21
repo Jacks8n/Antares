@@ -29,7 +29,11 @@ namespace Antares.Graphics
             {
                 cmd.SetComputeTextureParam(Shader, ClearKernel, ARenderLayouts.ID_Destination, volume, mip);
                 cmd.SetComputeFloatParam(Shader, ARenderLayouts.ID_Value, value);
-                cmd.DispatchCompute(Shader, ClearKernel, volume.width / ClearKernelSize, volume.height / ClearKernelSize, volume.volumeDepth / ClearKernelSize);
+
+                int width = volume.width >> mip;
+                int height = volume.height >> mip;
+                int depth = volume.volumeDepth >> mip;
+                cmd.DispatchCompute(Shader, ClearKernel, width / ClearKernelSize, height / ClearKernelSize, depth / ClearKernelSize);
             }
 
             void IShaderSpec.OnAfterDeserialize<T>(T specs)

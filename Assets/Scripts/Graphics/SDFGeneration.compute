@@ -31,14 +31,19 @@ float3 BrushCullRadius;
 
 uint SDFBrushCount;
 
-float3 SceneGridSize;
-#define SDF_SUPREMUM_W SceneGridSize.x
-#define SDF_SUPREMUM_INV_W SceneGridSize.y
-#define SQR_GRID_SPACE_W SceneGridSize.z
+float2 SceneGridSize;
+#define GRID_SPACE_W SceneGridSize.z
+#define SQR_GRID_SPACE_W SceneGridSize.w
 CBUFFER_END
+
+CBUFFER_START(MipGenerationParameters)
+float2 SDFSupremum;
+#define SDF_SUPREMUM_W SDFSupremum.x
+#define SDF_SUPREMUM_INV_W SDFSupremum.y
 
 // while generating things related to n-th mipmap, n - 1 should be set
 uint VolumeMipLevel;
+CBUFFER_END
 
 /// end constant buffer
 
@@ -197,9 +202,10 @@ void LoadBrushToGSMUnchecked(SDFBrush brush, uint dest)
 {
     const uint paramCount = brush.GetParameterCount();
     const uint paramOffset = brush.GetParameterOffset();
-    uint gsmParamOffset;
     
+    uint gsmParamOffset;
     InterlockedAdd(GSM_BrushParamCount, paramCount, gsmParamOffset);
+    
     for (uint i = 0; i < paramCount; i++)
         GSM_BrushParams[gsmParamOffset + i] = BrushParameters[paramOffset + i];
     
@@ -236,7 +242,7 @@ void AllocateRange(RWBuffer<uint> buffer, uint n, out uint offset)
 uint GroupIDToDispatchID(uint3 gid)
 {
     // skip total count and 3 indirect arguments
-    return mad(gid.y, 8192, gid.x) + 4;
+    return gid.y * 8192 + gid.x + 4;
 }
 
 #define GetDispatchCount(buffer) (buffer[0])
@@ -388,8 +394,7 @@ void GenerateMipDispatch(uint3 tid : SV_GroupThreadID, uint3 id : SV_DispatchThr
     
     GroupMemoryBarrierWithGroupSync();
     
-    const uint threadIndex = dot(tid, uint3(1, 6, 36));
-    const uint mask = GetMipMask(threadIndex);
+    const uint mask = GetMipMask(dot(tid, uint3(1, 6, 36)));
 
     MipVolume[id] = mask;
     
@@ -402,6 +407,7 @@ void GenerateMipDispatch(uint3 tid : SV_GroupThreadID, uint3 id : SV_DispatchThr
     
     GroupMemoryBarrierWithGroupSync();
     
+    const uint threadIndex = dot(tid, uint3(1, 4, 16));
     if (!threadIndex)
         AllocateRange(MipDispatches, GSM_MipDispatchCount, GSM_MipDispatchOffset);
     
@@ -424,7 +430,7 @@ float SmoothMin(float a, float b)
 
 groupshared float GSM_SDFGrids[8 * 8 * 8];
 
-// 8 parallel threads per grid
+// 8 parallel threads per grid in 4^3 tile
 [numthreads(8, 8, 8)]
 void GenerateSceneVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID)
 {
@@ -447,7 +453,7 @@ void GenerateSceneVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID)
     GroupMemoryBarrier();
 
     // generate smooth union of sdfs
-    const uint threadOffset = threadIndex % 8;
+    const uint threadOffset = dot(tid % 2, uint3(1, 2, 4));
     const uint3 id = tileCoord * 4 + tid / 2;
     const float gridRadius = SCENE_GRID_CULL_RADIUS_W;
     const float3 coord = VolumeIndexToWorldPos(id);
@@ -484,7 +490,7 @@ groupshared float GSM_SDFMips[8 * 8 * 8];
 
 float Eikonal1(float x, float y)
 {
-    return min(x, y) + SQR_GRID_SPACE_W;
+    return min(x, y) + GRID_SPACE_W;
 }
 
 float Eikonal2(float x, float y)
@@ -499,8 +505,9 @@ float Eikonal3(float x, float y, float z)
     const float3 ones = float3(1.0, 1.0, 1.0);
     const float third = 1.0 / 3.0;
     
+    const float gridSpace = GRID_SPACE_W;
     const float3 xyz = float3(x, y, z);
-    const bool3 cond = abs(xyz - xyz.zxy) < ones;
+    const bool3 cond = abs(xyz - xyz.zxy) < gridSpace.xxx;
     if (all(cond))
     {
         const float sum = dot(xyz, ones);
@@ -519,7 +526,9 @@ float Eikonal3(float x, float y, float z)
 
 float MinNeighbor(uint index, uint stride)
 {
-    return min(GSM_SDFMips[index + stride], GSM_SDFMips[index - stride]);
+    const float a = GSM_SDFMips[index + stride];
+    const float b = GSM_SDFMips[index - stride];
+    return abs(a) < abs(b) ? a : b;
 }
 
 float SampleAverage(uint3 coord)
@@ -547,7 +556,7 @@ void GenerateMipMap(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID)
     const uint3 prevMipCoord = coord * 2;
     
     const uint threadIndex = dot(tid, uint3(1, 8, 64));
-    GSM_SDFMips[threadIndex] = SampleAverage(prevMipCoord);
+    GSM_SDFMips[threadIndex] = SampleAverage(prevMipCoord) * SDF_SUPREMUM_W;
     
     GroupMemoryBarrier();
     
@@ -566,8 +575,8 @@ void GenerateMipMap(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID)
         }
     }
     
-    if (all(tid >= uint3(2, 2, 2) && tid < uint3(4, 4, 4)))
-        MipVolume[coord] = sdf;
+    if (all(tid >= uint3(2, 2, 2) && tid < uint3(6, 6, 6)))
+        MipVolume[coord] = GSM_SDFMips[threadIndex] * SDF_SUPREMUM_INV_W;
 }
 
 /// end generate mipmap
