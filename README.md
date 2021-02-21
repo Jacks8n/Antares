@@ -20,3 +20,5 @@
 
 ## Known Issues
 1. non-serialized reference types that are initialized in `ScriptableObject.OnEnable()` become `null` after initialization of editor
+2. `ComputeBuffer` created with `ComputeBufferMode.SubUpdate` can't be set via `ComputeBuffeer.SetData()` and `CommandBuffer.SetComputeBufferData()`
+3. `ComputeBuffer` created with `ComputeBufferMode.SubUpdate` or `ComputeBufferMode.Dynamic` can't be bound as UAV
