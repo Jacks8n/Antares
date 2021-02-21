@@ -351,7 +351,7 @@ uint3 Map4To6Cube(uint3 coord)
         coord = uint3(coord.yz, 4);
     else if (coord.y > 2)
         coord = uint3(coord.xz, 5);
-    return coord * 2;
+    return uint3(coord.xy * 2, coord.z);
 }
 
 uint GetMipMask3(uint index)

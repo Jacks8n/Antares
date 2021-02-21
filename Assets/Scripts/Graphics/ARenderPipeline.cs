@@ -52,9 +52,15 @@ namespace Antares.Graphics
             void ReleaseVolumes()
             {
                 if (_sceneVolume)
+                {
                     _sceneVolume.Release();
+                    _sceneVolume = null;
+                }
                 if (_materialVolume)
+                {
                     _materialVolume.Release();
+                    _materialVolume = null;
+                }
             }
 
             _loadedScene = scene;

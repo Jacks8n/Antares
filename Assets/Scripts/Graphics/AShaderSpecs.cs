@@ -1,6 +1,7 @@
 ﻿using Antares.Utility;
 using Sirenix.OdinInspector;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace Antares.Graphics
 {
@@ -78,6 +79,8 @@ namespace Antares.Graphics
                 ComputeShaderPostprocessor.SetImportHandler(computeShaderSpec.Shader, (_) =>
                 {
                     OnEnable();
+                    if (RenderPipelineManager.currentPipeline is ARenderPipeline pipeline)
+                        pipeline.LoadScene(null);
                 });
 #endif
         }
