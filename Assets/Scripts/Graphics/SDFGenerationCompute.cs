@@ -9,7 +9,7 @@ namespace Antares.Graphics
     public partial class AShaderSpecs
     {
         [Serializable]
-        public partial class SDFGenerationCompute : IShaderSpec
+        public partial class SDFGenerationCompute : IComputeShaderSpec
         {
             [StructLayout(LayoutKind.Sequential, Pack = 1)]
             public struct SDFBrush
@@ -50,11 +50,11 @@ namespace Antares.Graphics
                 private readonly Vector4 SceneToWorldRow1;
                 private readonly Vector4 SceneToWorldRow2;
 
-                private readonly Vector3 BrushCullRadius;
-
-                private readonly int SDFBrushCount;
+                private readonly Vector2 BrushCullRadius;
 
                 private readonly Vector2 SceneGridSize;
+
+                private readonly int SDFBrushCount;
 
                 public SDFGenerationParameters(SDFScene scene)
                 {
@@ -66,13 +66,12 @@ namespace Antares.Graphics
                     float gridSize = scene.GridWorldSize;
                     float sdfBand = gridSize * SDFSupremum;
                     const float cubert3Half = 0.7211247851537f;
-                    const int tileSizeInt = SDFGenerationCompute.MatVolumeScale * SDFGenerationCompute.MatVolumeTileSize;
+                    const int tileSizeInt = MatVolumeScale * MatVolumeTileSize;
                     const float tileRadiusFactor = tileSizeInt * cubert3Half;
-                    const float gridRadiusFactor = SDFGenerationCompute.MatVolumeScale * cubert3Half;
-                    BrushCullRadius = new Vector3(
+                    const float gridRadiusFactor = MatVolumeScale * cubert3Half;
+                    BrushCullRadius = new Vector2(
                         gridSize * tileRadiusFactor + sdfBand,
-                        gridSize * gridRadiusFactor + sdfBand,
-                        gridSize * cubert3Half + sdfBand);
+                        gridSize * gridRadiusFactor + sdfBand);
 
                     SDFBrushCount = scene.BrusheCollection.Brushes.Length;
 
@@ -89,8 +88,8 @@ namespace Antares.Graphics
 
                 public MipGenerationParameters(SDFScene scene, int mip)
                 {
-                    float gridSize = (1 << mip) * AShaderSpecs.SDFSupremum * scene.GridWorldSize;
-                    SDFSupremum = new Vector2(gridSize, 1f / gridSize);
+                    float supremum = (1 << mip) * AShaderSpecs.SDFSupremum * scene.GridWorldSize;
+                    SDFSupremum = new Vector2(supremum, 1f / supremum);
 
                     VolumeMipLevel = mip;
                 }
@@ -128,9 +127,9 @@ namespace Antares.Graphics
 
             public int GenerateMipMapKernel { get; private set; }
 
-            public unsafe int SDFGenerationParametersSize => sizeof(SDFGenerationParameters);
+            public ConstantBufferSegment<SDFGenerationParameters> SDFGenerationCBuffer { get; private set; }
 
-            public int SDFGenerationParametersOffset { get; private set; }
+            public ConstantBufferSegment<MipGenerationParameters> MipGenerationCBuffer { get; private set; }
 
             void IShaderSpec.OnAfterDeserialize<T>(T specs)
             {
@@ -139,7 +138,8 @@ namespace Antares.Graphics
                 GenerateSceneVolumeKernel = Shader.FindKernel("GenerateSceneVolume");
                 GenerateMipMapKernel = Shader.FindKernel("GenerateMipMap");
 
-                SDFGenerationParametersOffset = specs.RegisterConstantBuffer<SDFGenerationParameters>();
+                SDFGenerationCBuffer = specs.RegisterConstantBuffer<SDFGenerationParameters>();
+                MipGenerationCBuffer = specs.RegisterConstantBuffer<MipGenerationParameters>();
             }
         }
     }

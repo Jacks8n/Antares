@@ -10,10 +10,12 @@
 /// begin definations used by multiple kernels
 
 #define SDF_SUPREMUM 4.0
+#define SDF_MAX float(1 << 15)
+
 #define MAX_GROUP_BRUSH_COUNT 64
 #define MAX_THREAD_BRUSH_COUNT 16
 #define MAX_BRUSH_PARAMETER_COUNT 8 // maximum number of parameter that a brush can have
-#define SDF_MAX 1 << 15
+
 #define BRUSH_TYPE_NUMERICAL 0
 #define BRUSH_TYPE_SPHERE 1
 #define BRUSH_TYPE_CUBE 2
@@ -24,19 +26,19 @@ CBUFFER_START(SDFGenerationParameters)
 // transform mip 0 scene's indices to world position
 float4x3 SceneToWorld;
 
-float3 BrushCullRadius;
+float2 BrushCullRadius;
 #define MAT_TILE_CULL_RADIUS_W BrushCullRadius.x
 #define MAT_GRID_CULL_RADIUS_W BrushCullRadius.y
-#define SCENE_GRID_CULL_RADIUS_W BrushCullRadius.z
-
-uint SDFBrushCount;
 
 float2 SceneGridSize;
-#define GRID_SPACE_W SceneGridSize.z
-#define SQR_GRID_SPACE_W SceneGridSize.w
+#define GRID_SPACE_W SceneGridSize.x
+#define SQR_GRID_SPACE_W SceneGridSize.y
+
+uint SDFBrushCount;
 CBUFFER_END
 
 CBUFFER_START(MipGenerationParameters)
+
 float2 SDFSupremum;
 #define SDF_SUPREMUM_W SDFSupremum.x
 #define SDF_SUPREMUM_INV_W SDFSupremum.y
@@ -139,7 +141,7 @@ struct SDFBrush
     {
         const float3 size = GetParameter3(0);
         
-        const float3 nearest = clamp(p, float3(0.0, 0.0, 0.0), size);
+        const float3 nearest = clamp(p, float(0.0).xxx, size);
         return distance(nearest, p);
     }
     
@@ -446,23 +448,23 @@ void GenerateSceneVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID)
     // todo: it assumes the numeber of brushes that coincide with a grid of
     // material volume doesn't exceed 8^3(numthreads), which should be expl-
     // ictly defined
-    const uint threadIndex = dot(tid, uint3(1, 8, 64));
+    const uint threadOffset = dot(tid % 2, uint3(1, 2, 4));
+    const uint threadIndex = dot(tid / 2, uint3(1, 4, 16) * 8) + threadOffset;
     if (threadIndex < brushCount)
         LoadBrushToGSMUnchecked(SDFBrushes[BrushIndices[brushOffset + threadIndex]], threadIndex);
     
     GroupMemoryBarrier();
 
     // generate smooth union of sdfs
-    const uint threadOffset = dot(tid % 2, uint3(1, 2, 4));
-    const uint3 id = tileCoord * 4 + tid / 2;
-    const float gridRadius = SCENE_GRID_CULL_RADIUS_W;
-    const float3 coord = VolumeIndexToWorldPos(id);
+    const uint3 alignedCoord = tileCoord * 4;
+    const uint3 gridCoord = alignedCoord + tid / 2;
+    const float3 coord = VolumeIndexToWorldPos(gridCoord);
 
     float sdf = SDF_MAX;
     for (uint i = threadOffset; i < brushCount; i += 8)
         sdf = SmoothMin(sdf, GSM_Brushes[i].Sample(coord));
-
-    GSM_SDFGrids[threadIndex] = sdf * SDF_SUPREMUM_INV_W;
+    
+    GSM_SDFGrids[threadIndex] = sdf;
     
     GroupMemoryBarrier();
     
@@ -474,10 +476,10 @@ void GenerateSceneVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID)
             GSM_SDFGrids[threadIndex] = SmoothMin(GSM_SDFGrids[threadIndex], GSM_SDFGrids[threadIndex + i]);
         GroupMemoryBarrier();
     }
-
+    
     if (!threadOffset)
     {
-        SceneVolume[id] = GSM_SDFGrids[threadIndex];
+        SceneVolume[gridCoord] = GSM_SDFGrids[threadIndex] * SDF_SUPREMUM_INV_W;
         MaterialVolume[tileCoord] = GSM_Brushes[0].GetMaterialID();
     }
 }
@@ -502,7 +504,6 @@ float Eikonal2(float x, float y)
 
 float Eikonal3(float x, float y, float z)
 {
-    const float3 ones = float3(1.0, 1.0, 1.0);
     const float third = 1.0 / 3.0;
     
     const float gridSpace = GRID_SPACE_W;
@@ -510,7 +511,7 @@ float Eikonal3(float x, float y, float z)
     const bool3 cond = abs(xyz - xyz.zxy) < gridSpace.xxx;
     if (all(cond))
     {
-        const float sum = dot(xyz, ones);
+        const float sum = dot(xyz, float(1.0).xxx);
         const float sqsum = dot(xyz, xyz);
         const float d = sum * sum - 3.0 * (sqsum - SQR_GRID_SPACE_W);
         return third * (sum + sqrt(d));

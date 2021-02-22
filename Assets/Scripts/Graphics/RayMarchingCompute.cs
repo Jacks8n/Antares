@@ -9,10 +9,10 @@ namespace Antares.Graphics
     public partial class AShaderSpecs
     {
         [Serializable]
-        public class RayMarchingCompute : IShaderSpec
+        public class RayMarchingCompute : IComputeShaderSpec
         {
             [StructLayout(LayoutKind.Sequential, Pack = 1)]
-            public struct SDFRayMarchingParameters
+            public struct RayMarchingParameters
             {
                 private readonly Vector4 UVToSceneRow0;
                 private readonly Vector4 UVToSceneRow1;
@@ -30,7 +30,7 @@ namespace Antares.Graphics
 
                 private readonly Vector4 TiledMarchingParams;
 
-                public SDFRayMarchingParameters(Camera camera, SDFScene scene, float width, float height, float invW, float invH)
+                public RayMarchingParameters(Camera camera, SDFScene scene, float width, float height, float invW, float invH)
                 {
                     float near = camera.nearClipPlane;
                     float dydvHalf = Mathf.Tan(Mathf.Deg2Rad * .5f * camera.fieldOfView) * near;
@@ -98,16 +98,14 @@ namespace Antares.Graphics
 
             public int RayMarchingKernel { get; private set; }
 
-            public int RayMarchingParametersOffset { get; private set; }
-
-            public unsafe int RayMarchingParametersSize => sizeof(SDFRayMarchingParameters);
+            public ConstantBufferSegment<RayMarchingParameters> RayMarchingParametersCBuffer { get; private set; }
 
             void IShaderSpec.OnAfterDeserialize<T>(T specs)
             {
                 TiledMarchingKernel = Shader.FindKernel("TiledMarching");
                 RayMarchingKernel = Shader.FindKernel("RayMarching");
 
-                RayMarchingParametersOffset = specs.RegisterConstantBuffer<SDFRayMarchingParameters>();
+                RayMarchingParametersCBuffer = specs.RegisterConstantBuffer<RayMarchingParameters>();
             }
         }
     }

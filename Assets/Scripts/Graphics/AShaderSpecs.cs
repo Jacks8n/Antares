@@ -11,21 +11,26 @@ namespace Antares.Graphics
     {
         public struct ConstantBufferSegment<T> where T : unmanaged
         {
-            public readonly int Offset;
+            public readonly int OffsetInBytes;
 
-            public unsafe int Size => sizeof(T);
+            public unsafe int Size => sizeof(T) < _constantBufferMimmumSize ? _constantBufferMimmumSize : sizeof(T);
 
             public ConstantBufferSegment(int offsetInBytes)
             {
-                Offset = offsetInBytes;
+                OffsetInBytes = offsetInBytes;
             }
 
             public void UpdateCBuffer(CommandBuffer cmd, ComputeBuffer cbuffer, T data)
             {
                 var temp = new NativeArray<byte>(Size, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
                 temp.ReinterpretStore(0, data);
-                cmd.SetComputeBufferData(cbuffer, temp, 0, Offset, Size);
+                cmd.SetComputeBufferData(cbuffer, temp, 0, OffsetInBytes, Size);
                 temp.Dispose();
+            }
+
+            public void BindCBuffer(CommandBuffer cmd, ComputeShader shader, int cbufferID, ComputeBuffer cbuffer)
+            {
+                cmd.SetComputeConstantBufferParam(shader, cbufferID, cbuffer, OffsetInBytes, Size);
             }
         }
 
@@ -72,6 +77,8 @@ namespace Antares.Graphics
         public DeferredGraphics Deferred { get; private set; }
 
         private int _constantBufferAlignment;
+
+        private const int _constantBufferMimmumSize = 16;
 
         private void OnEnable()
         {

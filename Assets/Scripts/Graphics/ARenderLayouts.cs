@@ -75,6 +75,9 @@ namespace Antares.Graphics
         public const string Binding_SDFGenerationParameters = "SDFGenerationParameters";
         public static int ID_SDFGenerationParameters { get; } = Shader.PropertyToID(Binding_SDFGenerationParameters);
 
+        public const string Binding_MipGenerationParameters = "MipGenerationParameters";
+        public static int ID_MipGenerationParameters { get; } = Shader.PropertyToID(Binding_MipGenerationParameters);
+
         public const string Binding_BrushAtlas = "BrushAtlas";
         public static int ID_BrushAtlas { get; } = Shader.PropertyToID(Binding_BrushAtlas);
 

@@ -8,7 +8,7 @@ namespace Antares.Graphics
     public partial class AShaderSpecs
     {
         [Serializable]
-        public class TextureUtilCompute : IShaderSpec
+        public class TextureUtilCompute : IComputeShaderSpec
         {
             public const int BlitMipGroupSizeX = 8;
             public const int BlitMipGroupSizeY = 8;
