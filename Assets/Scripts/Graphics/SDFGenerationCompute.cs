@@ -89,7 +89,7 @@ namespace Antares.Graphics
                 public MipGenerationParameters(SDFScene scene, int mip)
                 {
                     float supremum = (1 << mip) * AShaderSpecs.SDFSupremum * scene.GridWorldSize;
-                    SDFSupremum = new Vector2(supremum, 1f / supremum);
+                    SDFSupremum = new Vector2(supremum, (mip > 0 ? .5f : 1f) / supremum);
 
                     VolumeMipLevel = mip;
                 }
@@ -129,7 +129,7 @@ namespace Antares.Graphics
 
             public ConstantBufferSegment<SDFGenerationParameters> SDFGenerationCBuffer { get; private set; }
 
-            public ConstantBufferSegment<MipGenerationParameters> MipGenerationCBuffer { get; private set; }
+            public ConstantBufferSegment<MipGenerationParameters>[] MipGenerationCBuffers { get; private set; }
 
             void IShaderSpec.OnAfterDeserialize<T>(T specs)
             {
@@ -139,7 +139,9 @@ namespace Antares.Graphics
                 GenerateMipMapKernel = Shader.FindKernel("GenerateMipMap");
 
                 SDFGenerationCBuffer = specs.RegisterConstantBuffer<SDFGenerationParameters>();
-                MipGenerationCBuffer = specs.RegisterConstantBuffer<MipGenerationParameters>();
+                MipGenerationCBuffers = new ConstantBufferSegment<MipGenerationParameters>[SceneMipCount];
+                for (int i = 0; i < SceneMipCount; i++)
+                    MipGenerationCBuffers[i] = specs.RegisterConstantBuffer<MipGenerationParameters>();
             }
         }
     }

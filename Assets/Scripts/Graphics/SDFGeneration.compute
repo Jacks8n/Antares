@@ -427,7 +427,7 @@ float SmoothMin(float a, float b)
 {
     const float k = -16.0;
     const float invk = 1.0 / k;
-    return invk * log2(exp2(k * a) + exp2(k * b));
+    return invk * log2(exp2(k * a) + exp2(k * b)) - invk;
 }
 
 groupshared float GSM_SDFGrids[8 * 8 * 8];
@@ -499,25 +499,23 @@ float Eikonal2(float x, float y)
 {
     const float xy = x - y;
     const float d = 2.0 * SQR_GRID_SPACE_W - xy * xy;
-    return 0.5 * (xy + sqrt(d));
+    return 0.5 * (x + y + sqrt(d));
 }
 
 float Eikonal3(float x, float y, float z)
 {
     const float third = 1.0 / 3.0;
-    
     const float gridSpace = GRID_SPACE_W;
     const float3 xyz = float3(x, y, z);
-    const bool3 cond = abs(xyz - xyz.zxy) < gridSpace.xxx;
-    if (all(cond))
-    {
-        const float sum = dot(xyz, float(1.0).xxx);
-        const float sqsum = dot(xyz, xyz);
-        const float d = sum * sum - 3.0 * (sqsum - SQR_GRID_SPACE_W);
+    
+    const float sum = dot(xyz, float(1.0).xxx);
+    const float sqsum = dot(xyz, xyz);
+    const float d = sum * sum - 3.0 * (sqsum - SQR_GRID_SPACE_W);
+    if (false)
         return third * (sum + sqrt(d));
-    }
     else
     {
+        const bool3 cond = abs(xyz - xyz.zxy) < gridSpace.xxx;
         float res = cond.x ? Eikonal2(x, z) : Eikonal1(x, z);
         res = min(res, cond.y ? Eikonal2(y, x) : Eikonal1(y, x));
         res = min(res, cond.z ? Eikonal2(z, y) : Eikonal1(z, y));
@@ -525,11 +523,16 @@ float Eikonal3(float x, float y, float z)
     }
 }
 
+float AbsMin(float a, float b)
+{
+    return abs(a) < abs(b) ? a : b;
+}
+
 float MinNeighbor(uint index, uint stride)
 {
     const float a = GSM_SDFMips[index + stride];
     const float b = GSM_SDFMips[index - stride];
-    return abs(a) < abs(b) ? a : b;
+    return min(a, b);
 }
 
 float SampleAverage(uint3 coord)
@@ -557,18 +560,19 @@ void GenerateMipMap(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID)
     const uint3 prevMipCoord = coord * 2;
     
     const uint threadIndex = dot(tid, uint3(1, 8, 64));
-    GSM_SDFMips[threadIndex] = SampleAverage(prevMipCoord) * SDF_SUPREMUM_W;
+    float sdf = SampleAverage(prevMipCoord) * SDF_SUPREMUM_W;
+    GSM_SDFMips[threadIndex] = sdf;
     
     GroupMemoryBarrier();
     
-    float x, y, z, sdf;
+    float x, y, z;
     [unroll]
     for (uint i = 0; i < 3; i++)
     {
         x = MinNeighbor(threadIndex, 1);
         y = MinNeighbor(threadIndex, 8);
         z = MinNeighbor(threadIndex, 64);
-        sdf = Eikonal3(x, y, z);
+        sdf = AbsMin(Eikonal3(x, y, z), sdf);
         if (i < 2)
         {
             GSM_SDFMips[threadIndex] = sdf;

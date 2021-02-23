@@ -155,7 +155,8 @@ namespace Antares.Graphics
                 kernel = sdfGeneration.GenerateSceneVolumeKernel;
                 {
                     var parameters = new SDFGenerationCompute.MipGenerationParameters(_loadedScene, 0);
-                    sdfGeneration.MipGenerationCBuffer.UpdateCBuffer(cmd, _constantBuffer, parameters);
+                    sdfGeneration.MipGenerationCBuffers[0].UpdateCBuffer(cmd, _constantBuffer, parameters);
+                    sdfGeneration.MipGenerationCBuffers[0].BindCBuffer(cmd, shader, ID_MipGenerationParameters, _constantBuffer);
 
                     SetMaterialVolume(cmd, shader, kernel);
                     SetSceneVolume(cmd, shader, kernel);
@@ -171,8 +172,8 @@ namespace Antares.Graphics
                     for (int i = 0; i < SceneMipCount - 1; i++)
                     {
                         var parameters = new SDFGenerationCompute.MipGenerationParameters(_loadedScene, i + 1);
-                        sdfGeneration.MipGenerationCBuffer.UpdateCBuffer(cmd, _constantBuffer, parameters);
-                        sdfGeneration.MipGenerationCBuffer.BindCBuffer(cmd, shader, ID_MipGenerationParameters, _constantBuffer);
+                        sdfGeneration.MipGenerationCBuffers[i + 1].UpdateCBuffer(cmd, _constantBuffer, parameters);
+                        sdfGeneration.MipGenerationCBuffers[i + 1].BindCBuffer(cmd, shader, ID_MipGenerationParameters, _constantBuffer);
 
                         // generate material volume non-zero mips
                         kernel = sdfGeneration.GenerateMipDispatchKernel;
@@ -187,7 +188,8 @@ namespace Antares.Graphics
                         kernel = sdfGeneration.GenerateMipMapKernel;
                         SetSceneVolume(cmd, shader, kernel);
                         cmd.SetComputeTextureParam(shader, kernel, ID_MipVolume, _sceneVolume, i + 1);
-                        DispatchIndirect(cmd, shader, kernel, ID_MipDispatchesBuffer, mipDispatchesBuffers[i]);
+
+                        DispatchIndirect(cmd, shader, sdfGeneration.GenerateMipMapKernel, ID_MipDispatchesBuffer, mipDispatchesBuffers[i]);
                     }
                 }
             }
