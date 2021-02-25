@@ -199,13 +199,13 @@ Transform:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1073809479}
-  m_LocalRotation: {x: 0.067218594, y: -0.9001617, z: 0.1412964, w: 0.40648004}
+  m_LocalRotation: {x: 0.066452265, y: -0.9098438, z: 0.16042997, w: 0.37686962}
   m_LocalPosition: {x: 1, y: 1, z: 1}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_Children: []
   m_Father: {fileID: 0}
   m_RootOrder: 0
-  m_LocalEulerAnglesHint: {x: 18.001, y: -131.454, z: -0.37}
+  m_LocalEulerAnglesHint: {x: 20, y: -135, z: 0}
 --- !u!1 &1747338439
 GameObject:
   m_ObjectHideFlags: 0
@@ -297,7 +297,7 @@ MonoBehaviour:
       Data: 0|Antares.SDF.SDFShape+Sphere, Assembly-CSharp
     - Name: Radius
       Entry: 4
-      Data: 1
+      Data: 0
     - Name: 
       Entry: 8
       Data: 

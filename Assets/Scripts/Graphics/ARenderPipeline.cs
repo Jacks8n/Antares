@@ -1,7 +1,5 @@
 ﻿using Antares.SDF;
 using Unity.Collections;
-using UnityEditor;
-using UnityEditorInternal;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
@@ -84,7 +82,7 @@ namespace Antares.Graphics
             }
 
             if (_constantBuffer == null || !_constantBuffer.IsValid())
-                _constantBuffer = new ComputeBuffer(_shaderSpecs.ConstantBufferCount, _shaderSpecs.ConstantBufferStride, ComputeBufferType.Constant, ComputeBufferMode.Dynamic);
+                _constantBuffer = new ComputeBuffer(_shaderSpecs.ConstantBufferCount, _shaderSpecs.ConstantBufferStride, ComputeBufferType.Constant, ComputeBufferMode.SubUpdates);
 
             CommandBuffer cmd = CommandBufferPool.Get();
 
@@ -133,7 +131,7 @@ namespace Antares.Graphics
 
                 // set global params
                 {
-                    sdfGeneration.SDFGenerationCBuffer.UpdateCBuffer(cmd, _constantBuffer, new SDFGenerationCompute.SDFGenerationParameters(_loadedScene));
+                    sdfGeneration.SDFGenerationCBuffer.UpdateCBuffer(_constantBuffer, new SDFGenerationCompute.SDFGenerationParameters(_loadedScene));
                     sdfGeneration.SDFGenerationCBuffer.BindCBuffer(cmd, shader, ID_SDFGenerationParameters, _constantBuffer);
                 }
 
@@ -155,7 +153,7 @@ namespace Antares.Graphics
                 kernel = sdfGeneration.GenerateSceneVolumeKernel;
                 {
                     var parameters = new SDFGenerationCompute.MipGenerationParameters(_loadedScene, 0);
-                    sdfGeneration.MipGenerationCBuffers[0].UpdateCBuffer(cmd, _constantBuffer, parameters);
+                    sdfGeneration.MipGenerationCBuffers[0].UpdateCBuffer(_constantBuffer, parameters);
                     sdfGeneration.MipGenerationCBuffers[0].BindCBuffer(cmd, shader, ID_MipGenerationParameters, _constantBuffer);
 
                     SetMaterialVolume(cmd, shader, kernel);
@@ -172,7 +170,7 @@ namespace Antares.Graphics
                     for (int i = 0; i < SceneMipCount - 1; i++)
                     {
                         var parameters = new SDFGenerationCompute.MipGenerationParameters(_loadedScene, i + 1);
-                        sdfGeneration.MipGenerationCBuffers[i + 1].UpdateCBuffer(cmd, _constantBuffer, parameters);
+                        sdfGeneration.MipGenerationCBuffers[i + 1].UpdateCBuffer(_constantBuffer, parameters);
                         sdfGeneration.MipGenerationCBuffers[i + 1].BindCBuffer(cmd, shader, ID_MipGenerationParameters, _constantBuffer);
 
                         // generate material volume non-zero mips
@@ -210,14 +208,14 @@ namespace Antares.Graphics
             if (!_loadedScene)
                 return;
 
-            System.Reflection.Assembly assembly = typeof(EditorWindow).Assembly;
-            var type = assembly.GetType("UnityEditor.GameView");
-            var window = EditorWindow.GetWindow(type);
-            RenderDoc.BeginCaptureRenderDoc(window);
-            LoadScene(_loadedScene);
-            RenderDoc.EndCaptureRenderDoc(window);
-            _loadedScene = null;
-            return;
+            //System.Reflection.Assembly assembly = typeof(EditorWindow).Assembly;
+            //var type = assembly.GetType("UnityEditor.GameView");
+            //var window = EditorWindow.GetWindow(type);
+            //RenderDoc.BeginCaptureRenderDoc(window);
+            //LoadScene(_loadedScene);
+            //RenderDoc.EndCaptureRenderDoc(window);
+            //_loadedScene = null;
+            //return;
 
             CommandBuffer cmd = CommandBufferPool.Get();
             CommandBuffer cmdCompute = CommandBufferPool.Get();
@@ -247,20 +245,21 @@ namespace Antares.Graphics
                     ComputeShader shader = rayMarching.Shader;
 
                     // set cbuffer
-                    int tiledCountX = width / RayMarchingCompute.TiledMarchingGroupSizeX, tiledCountY = height / RayMarchingCompute.TiledMarchingGroupSizeY;
+                    int tileCountX = width / RayMarchingCompute.MarchingTileSize, tileCountY = height / RayMarchingCompute.MarchingTileSize;
+                    unsafe
                     {
-                        var parameters = new RayMarchingCompute.RayMarchingParameters(camera, _loadedScene, width, height, invWidth, invHeight);
-                        rayMarching.RayMarchingParametersCBuffer.UpdateCBuffer(cmd, _constantBuffer, parameters);
-                        rayMarching.RayMarchingParametersCBuffer.BindCBuffer(cmd, shader, ID_RayMarchingParameters, _constantBuffer);
+                        var parameters = new RayMarchingCompute.RayMarchingParameters(camera, _loadedScene, invWidth, invHeight);
+                        rayMarching.RayMarchingParametersCBuffer.UpdateCBuffer(_constantBuffer, parameters);
+                        rayMarching.RayMarchingParametersCBuffer.BindCBuffer(cmdCompute, shader, ID_RayMarchingParameters, _constantBuffer);
                     }
 
                     // tiled marching
                     int kernel = rayMarching.TiledMarchingKernel;
                     {
-                        cmdCompute.GetTemporaryRT(ID_TiledRM, new RenderTextureDescriptor(tiledCountX, tiledCountY, GraphicsFormat.R32G32_SFloat, depthBufferBits: 0) { enableRandomWrite = true });
+                        cmdCompute.GetTemporaryRT(ID_TiledRM, new RenderTextureDescriptor(tileCountX, tileCountY, GraphicsFormat.R32G32_SFloat, depthBufferBits: 0) { enableRandomWrite = true });
                         cmdCompute.SetComputeTextureParam(shader, kernel, ID_SceneVolume, _sceneVolume);
                         cmdCompute.SetComputeTextureParam(shader, kernel, ID_TiledRM, new RenderTargetIdentifier(ID_TiledRM));
-                        cmdCompute.DispatchCompute(shader, kernel, tiledCountX, tiledCountY, RayMarchingCompute.RayMarchingGroupSizeZ);
+                        cmdCompute.DispatchCompute(shader, kernel, tileCountX / RayMarchingCompute.TiledMarchingGroupSize, tileCountY / RayMarchingCompute.TiledMarchingGroupSize, 1);
                     }
 
                     // per pixel marching
@@ -273,10 +272,10 @@ namespace Antares.Graphics
                         cmdCompute.SetComputeTextureParam(shader, kernel, ID_TiledRM, new RenderTargetIdentifier(ID_TiledRM));
                         cmdCompute.SetComputeTextureParam(shader, kernel, ID_SceneRM0, new RenderTargetIdentifier(ID_SceneRM0));
                         cmdCompute.SetComputeTextureParam(shader, kernel, ID_SceneRM1, new RenderTargetIdentifier(ID_SceneRM1));
-                        cmdCompute.DispatchCompute(shader, kernel, width / RayMarchingCompute.RayMarchingGroupSizeX, height / RayMarchingCompute.RayMarchingGroupSizeY, 1);
+                        cmdCompute.DispatchCompute(shader, kernel, width / RayMarchingCompute.RayMarchingGroupSize, height / RayMarchingCompute.RayMarchingGroupSize, 1);
                     }
 
-                    rmFence = cmdCompute.CreateGraphicsFence(GraphicsFenceType.AsyncQueueSynchronisation, SynchronisationStageFlags.PixelProcessing);
+                    rmFence = cmdCompute.CreateGraphicsFence(GraphicsFenceType.AsyncQueueSynchronisation, SynchronisationStageFlags.ComputeProcessing);
 
                     context.ExecuteCommandBufferAsync(cmdCompute, ComputeQueueType.Default);
                     cmdCompute.Clear();

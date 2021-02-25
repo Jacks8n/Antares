@@ -511,7 +511,7 @@ float Eikonal3(float x, float y, float z)
     const float sum = dot(xyz, float(1.0).xxx);
     const float sqsum = dot(xyz, xyz);
     const float d = sum * sum - 3.0 * (sqsum - SQR_GRID_SPACE_W);
-    if (false)
+    if (d > 0.0)
         return third * (sum + sqrt(d));
     else
     {
@@ -581,7 +581,7 @@ void GenerateMipMap(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID)
     }
     
     if (all(tid >= uint3(2, 2, 2) && tid < uint3(6, 6, 6)))
-        MipVolume[coord] = GSM_SDFMips[threadIndex] * SDF_SUPREMUM_INV_W;
+        MipVolume[coord] = sdf * SDF_SUPREMUM_INV_W;
 }
 
 /// end generate mipmap

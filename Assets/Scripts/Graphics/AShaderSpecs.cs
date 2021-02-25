@@ -1,4 +1,5 @@
-﻿using Antares.Utility;
+﻿using Antares.SDF;
+using Antares.Utility;
 using Sirenix.OdinInspector;
 using Unity.Collections;
 using UnityEngine;
@@ -20,17 +21,21 @@ namespace Antares.Graphics
                 OffsetInBytes = offsetInBytes;
             }
 
-            public void UpdateCBuffer(CommandBuffer cmd, ComputeBuffer cbuffer, T data)
+            public void UpdateCBuffer(ComputeBuffer cbuffer, T data)
             {
-                var temp = new NativeArray<byte>(Size, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
-                temp.ReinterpretStore(0, data);
-                cmd.SetComputeBufferData(cbuffer, temp, 0, OffsetInBytes, Size);
-                temp.Dispose();
+                var mapped = cbuffer.BeginWrite<byte>(OffsetInBytes, Size);
+                mapped.ReinterpretStore(0, data);
+                cbuffer.EndWrite<byte>(Size);
             }
 
             public void BindCBuffer(CommandBuffer cmd, ComputeShader shader, int cbufferID, ComputeBuffer cbuffer)
             {
                 cmd.SetComputeConstantBufferParam(shader, cbufferID, cbuffer, OffsetInBytes, Size);
+            }
+
+            public void BindCBuffer(ComputeShader shader, int cbufferID, ComputeBuffer cbuffer)
+            {
+                shader.SetConstantBuffer(cbufferID, cbuffer, OffsetInBytes, Size);
             }
         }
 
@@ -107,8 +112,7 @@ namespace Antares.Graphics
                 ComputeShaderPostprocessor.SetImportHandler(computeShaderSpec.Shader, (_) =>
                 {
                     OnEnable();
-                    if (RenderPipelineManager.currentPipeline is ARenderPipeline pipeline)
-                        pipeline.LoadScene(null);
+                    SDFScene.Instance.enabled = false;
                 });
 #endif
         }

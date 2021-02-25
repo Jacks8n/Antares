@@ -24,7 +24,7 @@
       "url": "https://packages.unity.cn"
     },
     "com.unity.render-pipelines.core": {
-      "version": "10.2.2",
+      "version": "10.3.1",
       "depth": 0,
       "source": "registry",
       "dependencies": {

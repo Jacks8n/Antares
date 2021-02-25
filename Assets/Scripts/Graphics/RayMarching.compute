@@ -1,4 +1,6 @@
-﻿#define USE_MIP0_ONLY 1
+﻿#pragma enable_d3d11_debug_symbols
+
+#define USE_MIP0_ONLY 0
 
 #pragma kernel TiledMarching
 #pragma kernel RayMarching
@@ -10,7 +12,7 @@ CBUFFER_START(RayMarchingParameters)
 // column 2: left-bottom-near corner
 // column 3: position of camera
 float4x3 UVToScene;
-    
+
 // w: unused
 float4 SceneTexel;
 #define SCENE_TEXEL_SIZE SceneTexel.xyz
@@ -95,7 +97,7 @@ float3 SampleNormal(float3 p, float mip)
 
 float3 GetCameraPos()
 {
-    return UVToScene._31_32_33;
+    return UVToScene._41_42_43;
 }
 
 float3 GetRayDirectionUnnormalized(float2 uv)
@@ -148,7 +150,6 @@ void TiledMarching(uint3 id : SV_DispatchThreadID)
     const float2 supRange = float2(SDF_SUP_LOWEST_W, SDF_SUP_HIGHEST_W);
 
     float t = ClampRayToScene(o, d);
-    // todo: mip control
     float mip = SCENE_INITIAL_MIP;
     float supremum = SDF_SUP_INITIAL_W;
     float nsdf, sdf, r;
@@ -212,7 +213,7 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
     const float3 hit = d * t + o;
 
     const float3 color = SampleColor(hit);
-    SceneRM0[id.xy] = float4((1.0 - rcp(t)).xxx, 1.0);
+    SceneRM0[id.xy] = float4(abs(nsdf).xxx, 1.0);
     
     const float3 normal = SampleNormal(hit, 0.0);
     SceneRM1[id.xy] = float4(normal, 1.0);

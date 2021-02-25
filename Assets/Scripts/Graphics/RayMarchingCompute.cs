@@ -30,7 +30,7 @@ namespace Antares.Graphics
 
                 private readonly Vector4 TiledMarchingParams;
 
-                public RayMarchingParameters(Camera camera, SDFScene scene, float width, float height, float invW, float invH)
+                public RayMarchingParameters(Camera camera, SDFScene scene, float invW, float invH)
                 {
                     float near = camera.nearClipPlane;
                     float dydvHalf = Mathf.Tan(Mathf.Deg2Rad * .5f * camera.fieldOfView) * near;
@@ -81,13 +81,11 @@ namespace Antares.Graphics
                 }
             }
 
-            public const int TiledMarchingGroupSizeX = 1;
-            public const int TiledMarchingGroupSizeY = 1;
-            public const int TiledMarchingGroupSizeZ = 1;
+            public const int TiledMarchingGroupSize = 8;
 
-            public const int RayMarchingGroupSizeX = 8;
-            public const int RayMarchingGroupSizeY = 8;
-            public const int RayMarchingGroupSizeZ = 1;
+            public const int MarchingTileSize = 8;
+
+            public const int RayMarchingGroupSize = MarchingTileSize;
 
             private const int InitalSampleMip = (SceneMipCount + 1) / 2;
 

@@ -88,8 +88,18 @@ namespace Antares.Graphics
 
                 public MipGenerationParameters(SDFScene scene, int mip)
                 {
-                    float supremum = (1 << mip) * AShaderSpecs.SDFSupremum * scene.GridWorldSize;
-                    SDFSupremum = new Vector2(supremum, (mip > 0 ? .5f : 1f) / supremum);
+                    Debug.Assert(mip >= 0 && mip < SceneMipCount);
+
+                    if (mip == 0)
+                    {
+                        float supremum = AShaderSpecs.SDFSupremum * scene.GridWorldSize;
+                        SDFSupremum = new Vector2(0f, 1f / supremum);
+                    }
+                    else
+                    {
+                        float supremum = AShaderSpecs.SDFSupremum * (1 << (mip - 1)) * scene.GridWorldSize;
+                        SDFSupremum = new Vector2(supremum, .5f / supremum);
+                    }
 
                     VolumeMipLevel = mip;
                 }
