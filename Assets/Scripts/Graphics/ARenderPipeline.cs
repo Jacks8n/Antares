@@ -208,12 +208,12 @@ namespace Antares.Graphics
             if (!_loadedScene)
                 return;
 
-            //System.Reflection.Assembly assembly = typeof(EditorWindow).Assembly;
+            //System.Reflection.Assembly assembly = typeof(UnityEditor.EditorWindow).Assembly;
             //var type = assembly.GetType("UnityEditor.GameView");
-            //var window = EditorWindow.GetWindow(type);
-            //RenderDoc.BeginCaptureRenderDoc(window);
+            //var window = UnityEditor.EditorWindow.GetWindow(type);
+            //UnityEditorInternal.RenderDoc.BeginCaptureRenderDoc(window);
             //LoadScene(_loadedScene);
-            //RenderDoc.EndCaptureRenderDoc(window);
+            //UnityEditorInternal.RenderDoc.EndCaptureRenderDoc(window);
             //_loadedScene = null;
             //return;
 

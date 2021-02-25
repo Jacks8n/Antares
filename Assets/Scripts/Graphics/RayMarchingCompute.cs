@@ -74,10 +74,10 @@ namespace Antares.Graphics
                         supWorld,
                         InitalSampleMip);
 
-                    float pixelDiagSqr = pixel.sqrMagnitude;
-                    float pixelDiagHalf = .5f * Mathf.Sqrt(pixelDiagSqr);
-                    float apertue = pixelDiagHalf / Mathf.Sqrt(pixelDiagSqr + near * near);
-                    TiledMarchingParams = new Vector4(1f / (apertue + 1f), 0f, 0f, 0f);
+                    float pixelDiagHalfSqr = pixel.sqrMagnitude * .25f;
+                    float pixelDiagHalf = Mathf.Sqrt(pixelDiagHalfSqr);
+                    float aperture = pixelDiagHalf / Mathf.Sqrt(pixelDiagHalfSqr + near * near);
+                    TiledMarchingParams = new Vector4(aperture, 1f / (1f + aperture), 0f, 0f);
                 }
             }
 

@@ -40,8 +40,10 @@ float4 SDFSupremum;
 #define SCENE_INITIAL_MIP 0.0
 #endif
 
-// x: aperture, yzw: unused
+// zw: unused
 float4 TiledMarchingParams;
+#define TILE_APERTURE_W TiledMarchingParams.x
+#define TILE_SWEEP_FACTOR_W TiledMarchingParams.y
 CBUFFER_END
 
 extern RWTexture2D<float2> TiledRM;
@@ -140,12 +142,10 @@ void TiledMarching(uint3 id : SV_DispatchThreadID)
     const float2 uv = float2(id.xy) * tile;
     const float2 middle = uv + tileHalf;
     
-    const float3 co = GetRayDirectionUnnormalized(middle);
-    const float coNormInv = rcp(length(co));
-    
-    const float3 d = co * coNormInv;
+    const float3 d = GetRayDirection(middle);
     const float3 o = GetCameraPos();
-    const float k = TiledMarchingParams.x;
+    const float a = TILE_APERTURE_W;
+    const float k = TILE_SWEEP_FACTOR_W;
     const float maxMip = SCENE_MAX_MIP;
     const float2 supRange = float2(SDF_SUP_LOWEST_W, SDF_SUP_HIGHEST_W);
 
@@ -155,19 +155,18 @@ void TiledMarching(uint3 id : SV_DispatchThreadID)
     float nsdf, sdf, r;
     for (uint i = 0; i < 32; i++)
     {
-        r = k * t;
         nsdf = SampleSDF(d * t + o, mip);
         sdf = nsdf * supremum;
-        
         UpdateMip(nsdf, maxMip, supRange, mip, supremum);
-        
+
+        r = a * t;
         if (max(sdf, supremum) < r)
             break;
         
-        t = sdf * k + r;
+        t = (sdf + t) * k;
     }
     
-    TiledRM[id.xy] = float2(t * coNormInv, t * t - r * r);
+    TiledRM[id.xy] = float2(t, t * t - r * r);
 }
 
 [numthreads(MARCHING_TILE_SIZE_X, MARCHING_TILE_SIZE_Y, 1)]
@@ -178,7 +177,7 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
     const float2 sphere = TiledRM[id.xy / tile];
     const float2 middle = float2((id.xy - id.xy % tile) + tileHalf);
     
-    const float3 mray = GetRayDirectionUnnormalized(middle);
+    const float3 mray = GetRayDirection(middle);
     const float3 d = GetRayDirection(id.xy);
     
     const float od = dot(mray, d) * sphere.x;
@@ -186,6 +185,7 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
     float t = od + delta;
 
     const float3 o = GetCameraPos();
+    SceneRM0[id.xy] = float4(abs(SampleSDF(o + d * t, 0.0)).xxx, 1.0);
     
     const float maxMip = SCENE_MAX_MIP;
     const float2 supRange = float2(SDF_SUP_LOWEST_W, SDF_SUP_HIGHEST_W);
@@ -213,7 +213,6 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
     const float3 hit = d * t + o;
 
     const float3 color = SampleColor(hit);
-    SceneRM0[id.xy] = float4(abs(nsdf).xxx, 1.0);
     
     const float3 normal = SampleNormal(hit, 0.0);
     SceneRM1[id.xy] = float4(normal, 1.0);

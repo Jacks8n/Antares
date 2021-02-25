@@ -1,8 +1,7 @@
 ﻿using Unity.Collections;
-using UnityEngine.Experimental.Rendering;
 using UnityEngine;
+using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
-using UnityEditor;
 
 namespace Antares.Graphics
 {
