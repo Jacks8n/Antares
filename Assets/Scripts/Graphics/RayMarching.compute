@@ -1,6 +1,6 @@
 ﻿#pragma enable_d3d11_debug_symbols
 
-#define USE_MIP0_ONLY 0
+#define USE_MIP0_ONLY 1
 
 #pragma kernel TiledMarching
 #pragma kernel RayMarching
@@ -46,17 +46,20 @@ float4 TiledMarchingParams;
 #define TILE_SWEEP_FACTOR_W TiledMarchingParams.y
 CBUFFER_END
 
+SamplerState SamplerLinearClamp;
+#define SDFSampler SamplerLinearClamp
+
+extern Texture3D<snorm float> SceneVolume;
+
 extern RWTexture2D<float2> TiledRM;
 
-extern SamplerState SDFSampler_Linear_Clamp;
-extern Texture3D<snorm float> SceneVolume;
 extern RWTexture2D<float4> SceneRM0;
 extern RWTexture2D<float4> SceneRM1;
 
 bool IsHit(float sdf, float t)
 {
     // TODO: pixel-sized filter
-    return abs(sdf) < 0.001;
+    return abs(sdf) < 0.01;
 }
 
 void UpdateMip(float nsdf, float maxMip, float2 supRange, inout float mip, inout float supremum)
@@ -80,7 +83,7 @@ float SampleSDF(float3 pos, float mip)
 {
     const float3 texel = SCENE_TEXEL_SIZE;
     const float3 uvw = pos * texel;
-    return SceneVolume.SampleLevel(SDFSampler_Linear_Clamp, uvw, mip);
+    return SceneVolume.SampleLevel(SDFSampler, uvw, mip);
 }
 
 float3 SampleColor(float3 p)
@@ -91,10 +94,10 @@ float3 SampleColor(float3 p)
 float3 SampleNormal(float3 p, float mip)
 {
     const float2 offset = float2(1.0, -1.0);
-    return normalize(SampleSDF(p + offset.xxx, mip) +
-                     SampleSDF(p + offset.yyx, mip) +
-                     SampleSDF(p + offset.xyy, mip) +
-                     SampleSDF(p + offset.yxy, mip));
+    return normalize(SampleSDF(p + offset.xxx, mip) * offset.xxx +
+                     SampleSDF(p + offset.yyx, mip) * offset.yyx +
+                     SampleSDF(p + offset.xyy, mip) * offset.xyy +
+                     SampleSDF(p + offset.yxy, mip) * offset.yxy);
 }
 
 float3 GetCameraPos()
@@ -185,7 +188,6 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
     float t = od + delta;
 
     const float3 o = GetCameraPos();
-    SceneRM0[id.xy] = float4(abs(SampleSDF(o + d * t, 0.0)).xxx, 1.0);
     
     const float maxMip = SCENE_MAX_MIP;
     const float2 supRange = float2(SDF_SUP_LOWEST_W, SDF_SUP_HIGHEST_W);
@@ -215,5 +217,6 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
     const float3 color = SampleColor(hit);
     
     const float3 normal = SampleNormal(hit, 0.0);
+    SceneRM0[id.xy] = float4(abs(normal), 1.0);
     SceneRM1[id.xy] = float4(normal, 1.0);
 }

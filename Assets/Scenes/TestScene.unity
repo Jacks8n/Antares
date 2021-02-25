@@ -297,7 +297,7 @@ MonoBehaviour:
       Data: 0|Antares.SDF.SDFShape+Sphere, Assembly-CSharp
     - Name: Radius
       Entry: 4
-      Data: 10
+      Data: 1
     - Name: 
       Entry: 8
       Data: 

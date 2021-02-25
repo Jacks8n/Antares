@@ -101,7 +101,7 @@ namespace Antares.Graphics
                         SDFSupremum = new Vector2(supremum, .5f / supremum);
                     }
 
-                    VolumeMipLevel = mip;
+                    VolumeMipLevel = mip - 1;
                 }
             }
 

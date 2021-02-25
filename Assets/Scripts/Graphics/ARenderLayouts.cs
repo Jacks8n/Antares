@@ -167,7 +167,7 @@ namespace Antares.Graphics
                 useMipMap = mipCount > 1,
                 mipCount = mipCount,
                 autoGenerateMips = false,
-                enableRandomWrite = true
+                enableRandomWrite = true,
             };
             RenderTexture texture = new RenderTexture(volumeDesc);
             texture.Create();

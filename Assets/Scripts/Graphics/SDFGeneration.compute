@@ -353,51 +353,46 @@ groupshared uint GSM_MipDispatches[4 * 4 * 4];
 groupshared uint GSM_MipDispatchCount = 0;
 groupshared uint GSM_MipDispatchOffset = 0;
 
-uint3 Map4To6Cube(uint3 coord)
+uint GetMipMask(uint3 tid)
 {
-    if (coord.x > 2)
-        coord = uint3(coord.yz, 4);
-    else if (coord.y > 2)
-        coord = uint3(coord.xz, 5);
-    return uint3(coord.xy * 2, coord.z);
+    const uint index = dot(tid, uint3(1, 6, 36)) + 1 + 6 + 36;
+    
+    uint mask = 0;
+    [unroll]
+    for (uint i = 0; i < 3; i++)
+        [unroll]
+        for (uint j = 0; j < 3; j++)
+            [unroll]
+            for (uint k = 0; k < 3; k++)
+                mask |= GSM_PrevMip[index + k + 6 * j + 36 * k];
+    return mask;
 }
 
-uint GetMipMask3(uint index)
+void LoadMipMask(uint3 loadCoord, uint3 localLoadCoord, uint3 offset)
 {
-    return GSM_PrevMip[index] | GSM_PrevMip[index + 1] | GSM_PrevMip[index + 2];
-}
-
-uint GetMipMask9(uint index)
-{
-    return GetMipMask3(index) | GetMipMask3(index + 6) | GetMipMask3(index + 12);
-}
-
-uint GetMipMask(uint index)
-{
-    return GetMipMask9(index) | GetMipMask9(index + 36) | GetMipMask9(index + 72);
+    const uint loadIndex = dot((localLoadCoord + offset) / 2, uint3(1, 6, 36));
+    const uint mask = MaterialVolume.Load(int4(loadCoord + offset, VolumeMipLevel));
+    InterlockedOr(GSM_PrevMip[loadIndex], mask);
 }
 
 [numthreads(4, 4, 4)]
-void GenerateMipDispatch(uint3 tid : SV_GroupThreadID, uint3 id : SV_DispatchThreadID)
+void GenerateMipDispatch(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID, uint3 id : SV_DispatchThreadID)
 {
-    const uint2 one = uint2(1, 0);
-    const uint3 localLoadCoord = Map4To6Cube(tid);
-    const uint loadIndex = dot(localLoadCoord, uint3(1, 6, 36));
-    const uint3 tileCoord = (id & uint(~3).xxx) * 4;
-    const int3 loadCoord = int3(localLoadCoord + tileCoord) - int3(one.xxx);
+    const uint3 tileCoord = gid * 8;
+    const uint3 localLoadCoord = tid * 3;
+    const uint3 loadCoord = tileCoord + localLoadCoord - uint(2).xxx;
     
-    if (loadIndex < 6 * 6 * 6)
-    {
-        GSM_PrevMip[loadIndex] = MaterialVolume.Load(int4(loadCoord, VolumeMipLevel));
-        GSM_PrevMip[loadIndex + 1] = MaterialVolume.Load(int4(loadCoord + one.xyy, VolumeMipLevel));
-        GSM_PrevMip[loadIndex + 6] = MaterialVolume.Load(int4(loadCoord + one.yxy, VolumeMipLevel));
-        GSM_PrevMip[loadIndex + 7] = MaterialVolume.Load(int4(loadCoord + one.xxy, VolumeMipLevel));
-    }
+    [unroll]
+    for (uint i = 0; i < 3; i++)
+        [unroll]
+        for (uint j = 0; j < 3; j++)
+            [unroll]
+            for (uint k = 0; k < 3; k++)
+                LoadMipMask(loadCoord, localLoadCoord, uint3(k, j, i));
     
     GroupMemoryBarrierWithGroupSync();
     
-    const uint mask = GetMipMask(dot(tid, uint3(1, 6, 36)));
-
+    const uint mask = GetMipMask(tid);
     MipVolume[id] = mask;
     
     if (mask)
