@@ -1,6 +1,6 @@
 ﻿#pragma enable_d3d11_debug_symbols
 
-#define USE_MIP0_ONLY 1
+#define USE_MIP0_ONLY 0
 
 #pragma kernel TiledMarching
 #pragma kernel RayMarching
@@ -62,18 +62,18 @@ bool IsHit(float sdf, float t)
     return abs(sdf) < 0.01;
 }
 
-void UpdateMip(float nsdf, float maxMip, float2 supRange, inout float mip, inout float supremum)
+void UpdateMip(float nsdf, inout float mip, inout float supremum)
 {
 #if !USE_MIP0_ONLY
     if (nsdf == 1.0)
     {
-        mip = min(mip + 2.0, maxMip);
-        supremum = min(supremum * 4.0, supRange.y);
+        mip = min(mip + 2.0, SCENE_MAX_MIP);
+        supremum = min(supremum * 4.0, SDF_SUP_HIGHEST_W);
     }
     else if (nsdf < 0.25)
     {
         mip = max(mip - 2.0, 0);
-        supremum = max(supremum * 0.25, supRange.x);
+        supremum = max(supremum * 0.25, SDF_SUP_LOWEST_W);
     }
 #endif
 }
@@ -149,9 +149,7 @@ void TiledMarching(uint3 id : SV_DispatchThreadID)
     const float3 o = GetCameraPos();
     const float a = TILE_APERTURE_W;
     const float k = TILE_SWEEP_FACTOR_W;
-    const float maxMip = SCENE_MAX_MIP;
-    const float2 supRange = float2(SDF_SUP_LOWEST_W, SDF_SUP_HIGHEST_W);
-
+    
     float t = ClampRayToScene(o, d);
     float mip = SCENE_INITIAL_MIP;
     float supremum = SDF_SUP_INITIAL_W;
@@ -160,13 +158,13 @@ void TiledMarching(uint3 id : SV_DispatchThreadID)
     {
         nsdf = SampleSDF(d * t + o, mip);
         sdf = nsdf * supremum;
-        UpdateMip(nsdf, maxMip, supRange, mip, supremum);
-
         r = a * t;
-        if (max(sdf, supremum) < r)
+
+        if (sdf < r)
             break;
         
         t = (sdf + t) * k;
+        UpdateMip(nsdf, mip, supremum);
     }
     
     TiledRM[id.xy] = float2(t, t * t - r * r);
@@ -189,9 +187,6 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
 
     const float3 o = GetCameraPos();
     
-    const float maxMip = SCENE_MAX_MIP;
-    const float2 supRange = float2(SDF_SUP_LOWEST_W, SDF_SUP_HIGHEST_W);
-
     float nsdf, sdf;
     float mip = SCENE_INITIAL_MIP;
     float supremum = SDF_SUP_INITIAL_W;
@@ -204,19 +199,18 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
         if (IsHit(sdf, t))
             break;
         
-        UpdateMip(nsdf, maxMip, supRange, mip, supremum);
+        UpdateMip(nsdf, mip, supremum);
     }
 
     // remedy with linear interpolation, which requires infinite marching steps to converge
-    const float last = SampleSDF(d * t + o, 0.0) * supRange.x;
+    const float last = SampleSDF(d * t + o, 0.0) * SDF_SUP_LOWEST_W;
     const float bias = last * rcp(1.0 - (last - sdf));
-
     t += bias;
-    const float3 hit = d * t + o;
 
+    const float3 hit = d * t + o;
     const float3 color = SampleColor(hit);
-    
     const float3 normal = SampleNormal(hit, 0.0);
-    SceneRM0[id.xy] = float4(abs(normal), 1.0);
+    
+    SceneRM0[id.xy] = float4(abs(sphere.xxx) * 0.01, 1.0);
     SceneRM1[id.xy] = float4(normal, 1.0);
 }

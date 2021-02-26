@@ -20,8 +20,11 @@ namespace Antares.Graphics
         public const string Binding_SceneVolume = "SceneVolume";
         public static int ID_SceneVolume { get; } = Shader.PropertyToID(Binding_SceneVolume);
 
-        public const string Binding_MipVolume = "MipVolume";
-        public static int ID_MipVolume { get; } = Shader.PropertyToID(Binding_MipVolume);
+        public const string Binding_MaterialVolumeMip = "MaterialVolumeMip";
+        public static int ID_MaterialVolumeMip { get; } = Shader.PropertyToID(Binding_MaterialVolumeMip);
+
+        public const string Binding_SceneVolumeMip = "SceneVolumeMip";
+        public static int ID_SceneVolumeMip { get; } = Shader.PropertyToID(Binding_SceneVolumeMip);
 
         public const string Binding_VolumeMipLevel = "VolumeMipLevel";
         public static int ID_VolumeMipLevel { get; } = Shader.PropertyToID(Binding_VolumeMipLevel);

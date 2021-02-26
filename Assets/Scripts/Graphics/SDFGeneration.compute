@@ -30,14 +30,15 @@ float2 BrushCullRadius;
 #define MAT_TILE_CULL_RADIUS_W BrushCullRadius.x
 #define MAT_GRID_CULL_RADIUS_W BrushCullRadius.y
 
-float2 SceneGridSize;
-#define GRID_SPACE_W SceneGridSize.x
-#define SQR_GRID_SPACE_W SceneGridSize.y
-
 uint SDFBrushCount;
+
 CBUFFER_END
 
 CBUFFER_START(MipGenerationParameters)
+
+float2 SceneGridSize;
+#define GRID_SPACE_W SceneGridSize.x
+#define SQR_GRID_SPACE_W SceneGridSize.y
 
 float2 SDFSupremum;
 #define SDF_SUPREMUM_W SDFSupremum.x
@@ -45,6 +46,8 @@ float2 SDFSupremum;
 
 // while generating things related to n-th mipmap, n - 1 should be set
 uint VolumeMipLevel;
+
+uint3 SceneVolumeSize;
 CBUFFER_END
 
 /// end constant buffer
@@ -253,6 +256,7 @@ uint GroupIDToDispatchID(uint3 gid)
 
 /// begin generate material volume
 
+// todo take care of this special value
 #define MATERIAL_GRID_NULL 0u
 
 extern StructuredBuffer<SDFBrush> SDFBrushes;
@@ -346,7 +350,7 @@ void GenerateMatVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID, uin
 
 /// begin generate mipmap dispatch
 
-extern RWTexture3D<float> MipVolume;
+extern RWTexture3D<uint> MaterialVolumeMip;
 
 groupshared uint GSM_PrevMip[6 * 6 * 6];
 groupshared uint GSM_MipDispatches[4 * 4 * 4];
@@ -355,16 +359,20 @@ groupshared uint GSM_MipDispatchOffset = 0;
 
 uint GetMipMask(uint3 tid)
 {
-    const uint index = dot(tid, uint3(1, 6, 36)) + 1 + 6 + 36;
+    const uint offset = dot(tid, uint3(1, 6, 36));
     
-    uint mask = 0;
+    uint mask = 0, index;
     [unroll]
     for (uint i = 0; i < 3; i++)
         [unroll]
         for (uint j = 0; j < 3; j++)
             [unroll]
             for (uint k = 0; k < 3; k++)
-                mask |= GSM_PrevMip[index + k + 6 * j + 36 * k];
+            {
+                index = offset + k + 6 * j + 36 * i;
+                if (index < 6 * 6 * 6)
+                    mask |= GSM_PrevMip[index];
+            }
     return mask;
 }
 
@@ -376,14 +384,20 @@ void LoadMipMask(uint3 loadCoord, uint3 localLoadCoord, uint3 offset)
 }
 
 [numthreads(4, 4, 4)]
-void GenerateMipDispatch(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID, uint3 id : SV_DispatchThreadID)
+void GenerateMipDispatch(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID, uint gi : SV_GroupIndex, uint3 id : SV_DispatchThreadID)
 {
+    uint i;
+    for (i = gi; i < 6 * 6 * 6; i += 64)
+        GSM_PrevMip[i] = 0;
+
+    GroupMemoryBarrierWithGroupSync();
+    
     const uint3 tileCoord = gid * 8;
     const uint3 localLoadCoord = tid * 3;
     const uint3 loadCoord = tileCoord + localLoadCoord - uint(2).xxx;
     
     [unroll]
-    for (uint i = 0; i < 3; i++)
+    for (i = 0; i < 3; i++)
         [unroll]
         for (uint j = 0; j < 3; j++)
             [unroll]
@@ -393,7 +407,7 @@ void GenerateMipDispatch(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID, u
     GroupMemoryBarrierWithGroupSync();
     
     const uint mask = GetMipMask(tid);
-    MipVolume[id] = mask;
+    MaterialVolumeMip[id] = mask;
     
     if (mask)
     {
@@ -404,14 +418,13 @@ void GenerateMipDispatch(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID, u
     
     GroupMemoryBarrierWithGroupSync();
     
-    const uint threadIndex = dot(tid, uint3(1, 4, 16));
-    if (!threadIndex)
+    if (!gi)
         AllocateRange(MipDispatches, GSM_MipDispatchCount, GSM_MipDispatchOffset);
     
     GroupMemoryBarrierWithGroupSync();
     
-    if (threadIndex < GSM_MipDispatchCount)
-        MipDispatches[GSM_MipDispatchOffset + threadIndex] = GSM_MipDispatches[threadIndex];
+    if (gi < GSM_MipDispatchCount)
+        MipDispatches[GSM_MipDispatchOffset + gi] = GSM_MipDispatches[gi];
 }
 
 /// end generate mipmap dispatch
@@ -432,24 +445,33 @@ groupshared float GSM_SDFGrids[8 * 8 * 8];
 void GenerateSceneVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID)
 {
     const uint dispatchID = GroupIDToDispatchID(gid);
-    if (dispatchID >= GetDispatchCount(DispatchCoords))
-        return;
-    
-    const uint3 tileCoord = UnpackGridCoord(DispatchCoords[dispatchID]);
-    const uint brushOffset = MaterialVolume[tileCoord] + 1;
-    const uint brushCount = BrushIndices[brushOffset - 1];
+    const bool isValid = dispatchID < GetDispatchCount(DispatchCoords);
+
+    uint3 tileCoord;
+    uint brushCount;
+    uint threadOffset;
+    uint threadIndex;
+    if (isValid)
+    {
+        tileCoord = UnpackGridCoord(DispatchCoords[dispatchID]);
+        const uint brushOffset = MaterialVolume[tileCoord] + 1;
+        brushCount = BrushIndices[brushOffset - 1];
 
     // read brushes into gsm
     // todo: it assumes the numeber of brushes that coincide with a grid of
     // material volume doesn't exceed 8^3(numthreads), which should be expl-
     // ictly defined
-    const uint threadOffset = dot(tid % 2, uint3(1, 2, 4));
-    const uint threadIndex = dot(tid / 2, uint3(1, 4, 16) * 8) + threadOffset;
-    if (threadIndex < brushCount)
-        LoadBrushToGSMUnchecked(SDFBrushes[BrushIndices[brushOffset + threadIndex]], threadIndex);
+        threadOffset = dot(tid % 2, uint3(1, 2, 4));
+        threadIndex = dot(tid / 2, uint3(1, 4, 16) * 8) + threadOffset;
+        if (threadIndex < brushCount)
+            LoadBrushToGSMUnchecked(SDFBrushes[BrushIndices[brushOffset + threadIndex]], threadIndex);
+    }
     
-    GroupMemoryBarrier();
+    GroupMemoryBarrierWithGroupSync();
 
+    if (!isValid)
+        return;
+        
     // generate smooth union of sdfs
     const uint3 alignedCoord = tileCoord * 4;
     const uint3 gridCoord = alignedCoord + tid / 2;
@@ -483,6 +505,8 @@ void GenerateSceneVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID)
 
 /// begin generate mipmap
 
+extern RWTexture3D<snorm float> SceneVolumeMip;
+
 groupshared float GSM_SDFMips[8 * 8 * 8];
 
 float Eikonal1(float x, float y)
@@ -492,9 +516,10 @@ float Eikonal1(float x, float y)
 
 float Eikonal2(float x, float y)
 {
-    const float xy = x - y;
-    const float d = 2.0 * SQR_GRID_SPACE_W - xy * xy;
-    return 0.5 * (x + y + sqrt(d));
+    const float sub = x - y;
+    const float sum = x + y;
+    const float d = 2.0 * SQR_GRID_SPACE_W - sub * sub;
+    return 0.5 * (sum + sqrt(d));
 }
 
 float Eikonal3(float x, float y, float z)
@@ -518,65 +543,72 @@ float Eikonal3(float x, float y, float z)
     }
 }
 
-float AbsMin(float a, float b)
+float MinNeighbor(int index, int stride, int2 range)
 {
-    return abs(a) < abs(b) ? a : b;
-}
-
-float MinNeighbor(uint index, uint stride)
-{
-    const float a = GSM_SDFMips[index + stride];
-    const float b = GSM_SDFMips[index - stride];
+    const float a = GSM_SDFMips[clamp(index + stride, range.x, range.y)];
+    const float b = GSM_SDFMips[clamp(index - stride, range.x, range.y)];
     return min(a, b);
 }
 
 float SampleAverage(uint3 coord)
 {
-    const uint2 one = uint2(1, 0);
-    float avg = SceneVolume.Load(int4(coord, VolumeMipLevel));
-    avg += SceneVolume.Load(int4(coord + one.xyy, VolumeMipLevel));
-    avg += SceneVolume.Load(int4(coord + one.yxy, VolumeMipLevel));
-    avg += SceneVolume.Load(int4(coord + one.xxy, VolumeMipLevel));
-    avg += SceneVolume.Load(int4(coord + one.yyx, VolumeMipLevel));
-    avg += SceneVolume.Load(int4(coord + one.xyx, VolumeMipLevel));
-    avg += SceneVolume.Load(int4(coord + one.yxx, VolumeMipLevel));
-    avg += SceneVolume.Load(int4(coord + one.xxx, VolumeMipLevel));
-    return avg * 0.125;
+    if (all(coord < SceneVolumeSize))
+    {
+        const uint2 one = uint2(1, 0);
+        float avg = SceneVolume.Load(int4(coord, VolumeMipLevel));
+        avg += SceneVolume.Load(int4(coord + one.xyy, VolumeMipLevel));
+        avg += SceneVolume.Load(int4(coord + one.yxy, VolumeMipLevel));
+        avg += SceneVolume.Load(int4(coord + one.xxy, VolumeMipLevel));
+        avg += SceneVolume.Load(int4(coord + one.yyx, VolumeMipLevel));
+        avg += SceneVolume.Load(int4(coord + one.xyx, VolumeMipLevel));
+        avg += SceneVolume.Load(int4(coord + one.yxx, VolumeMipLevel));
+        avg += SceneVolume.Load(int4(coord + one.xxx, VolumeMipLevel));
+        return avg * 0.125;
+    }
+    else
+        return SDF_SUPREMUM_W;
 }
 
 [numthreads(8, 8, 8)]
-void GenerateMipMap(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID)
+void GenerateMipMap(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex, uint3 tid : SV_GroupThreadID)
 {
     const uint dispatchID = GroupIDToDispatchID(gid);
-    if (dispatchID >= GetDispatchCount(MipDispatches))
-        return;
+    const bool isValid = dispatchID < GetDispatchCount(MipDispatches);
     
-    const uint3 coord = UnpackGridCoord(MipDispatches[dispatchID]) + tid - uint3(2, 2, 2);
-    const uint3 prevMipCoord = coord * 2;
+    uint3 coord;
+    if (isValid)
+    {
+        coord = UnpackGridCoord(MipDispatches[dispatchID]) * 4 + tid - uint3(2, 2, 2);
+        const uint3 prevMipCoord = coord * 2;
     
-    const uint threadIndex = dot(tid, uint3(1, 8, 64));
-    float sdf = SampleAverage(prevMipCoord) * SDF_SUPREMUM_W;
-    GSM_SDFMips[threadIndex] = sdf;
+        GSM_SDFMips[gi] = SampleAverage(prevMipCoord) * SDF_SUPREMUM_W;
+    }
     
-    GroupMemoryBarrier();
+    GroupMemoryBarrierWithGroupSync();
     
-    float x, y, z;
+    const uint2 xrange = (gi & ~7).xx + uint2(0, 7);
+    // ((gi & ~63) + (gi % 8)).xx + uint2(0, 8 * 7)
+    const uint2 yrange = (gi & ~56).xx + uint2(0, 8 * 7);
+    const uint2 zrange = (gi % 64).xx + uint2(0, 64 * 7);
+    
+    float x, y, z, sdf;
     [unroll]
     for (uint i = 0; i < 3; i++)
     {
-        x = MinNeighbor(threadIndex, 1);
-        y = MinNeighbor(threadIndex, 8);
-        z = MinNeighbor(threadIndex, 64);
-        sdf = AbsMin(Eikonal3(x, y, z), sdf);
+        x = MinNeighbor(gi, 1, xrange);
+        y = MinNeighbor(gi, 8, yrange);
+        z = MinNeighbor(gi, 64, zrange);
+        sdf = Eikonal3(x, y, z);
+        
         if (i < 2)
         {
-            GSM_SDFMips[threadIndex] = sdf;
-            GroupMemoryBarrier();
+            GSM_SDFMips[gi] = sdf;
+            GroupMemoryBarrierWithGroupSync();
         }
     }
     
     if (all(tid >= uint3(2, 2, 2) && tid < uint3(6, 6, 6)))
-        MipVolume[coord] = sdf * SDF_SUPREMUM_INV_W;
+        SceneVolumeMip[coord] = sdf * SDF_SUPREMUM_INV_W;
 }
 
 /// end generate mipmap

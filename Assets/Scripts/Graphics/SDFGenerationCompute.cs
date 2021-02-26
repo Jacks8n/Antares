@@ -52,8 +52,6 @@ namespace Antares.Graphics
 
                 private readonly Vector2 BrushCullRadius;
 
-                private readonly Vector2 SceneGridSize;
-
                 private readonly int SDFBrushCount;
 
                 public SDFGenerationParameters(SDFScene scene)
@@ -75,33 +73,45 @@ namespace Antares.Graphics
 
                     SDFBrushCount = scene.BrusheCollection.Brushes.Length;
 
-                    SceneGridSize = new Vector2(gridSize, gridSize * gridSize);
                 }
             }
 
             [StructLayout(LayoutKind.Sequential, Pack = 1)]
             public struct MipGenerationParameters
             {
+                private readonly Vector2 SceneGridSize;
+
                 private readonly Vector2 SDFSupremum;
 
                 private readonly int VolumeMipLevel;
+
+                private readonly Vector3Int SceneVolumeSize;
 
                 public MipGenerationParameters(SDFScene scene, int mip)
                 {
                     Debug.Assert(mip >= 0 && mip < SceneMipCount);
 
+                    float gridSize = scene.GridWorldSize;
                     if (mip == 0)
                     {
-                        float supremum = AShaderSpecs.SDFSupremum * scene.GridWorldSize;
+                        float supremum = AShaderSpecs.SDFSupremum * gridSize;
+                        SceneGridSize = new Vector2(0f, 0f);
                         SDFSupremum = new Vector2(0f, 1f / supremum);
                     }
                     else
                     {
-                        float supremum = AShaderSpecs.SDFSupremum * (1 << (mip - 1)) * scene.GridWorldSize;
+                        gridSize *= 1 << mip;
+                        float supremum = .5f * AShaderSpecs.SDFSupremum * gridSize;
+                        SceneGridSize = new Vector2(gridSize, gridSize * gridSize);
                         SDFSupremum = new Vector2(supremum, .5f / supremum);
                     }
 
                     VolumeMipLevel = mip - 1;
+
+                    SceneVolumeSize = scene.Size;
+                    SceneVolumeSize.x >>= VolumeMipLevel;
+                    SceneVolumeSize.y >>= VolumeMipLevel;
+                    SceneVolumeSize.z >>= VolumeMipLevel;
                 }
             }
 

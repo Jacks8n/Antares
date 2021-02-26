@@ -176,7 +176,7 @@ namespace Antares.Graphics
                         // generate material volume non-zero mips
                         kernel = sdfGeneration.GenerateMipDispatchKernel;
                         SetMaterialVolume(cmd, shader, kernel);
-                        cmd.SetComputeTextureParam(shader, kernel, ID_MipVolume, _materialVolume, i + 1);
+                        cmd.SetComputeTextureParam(shader, kernel, ID_MaterialVolumeMip, _materialVolume, i + 1);
                         cmd.SetComputeBufferParam(shader, kernel, ID_MipDispatchesBuffer, mipDispatchesBuffers[i]);
 
                         dispatchSize /= 2;
@@ -185,7 +185,7 @@ namespace Antares.Graphics
                         // generate scene volume non-zero mips
                         kernel = sdfGeneration.GenerateMipMapKernel;
                         SetSceneVolume(cmd, shader, kernel);
-                        cmd.SetComputeTextureParam(shader, kernel, ID_MipVolume, _sceneVolume, i + 1);
+                        cmd.SetComputeTextureParam(shader, kernel, ID_SceneVolumeMip, _sceneVolume, i + 1);
 
                         DispatchIndirect(cmd, shader, sdfGeneration.GenerateMipMapKernel, ID_MipDispatchesBuffer, mipDispatchesBuffers[i]);
                     }
@@ -210,7 +210,7 @@ namespace Antares.Graphics
 
             //System.Reflection.Assembly assembly = typeof(UnityEditor.EditorWindow).Assembly;
             //var type = assembly.GetType("UnityEditor.GameView");
-            //var window = UnityEditor.EditorWindow.GetWindow(type);
+            //var window = UnityEditor.EditorWindow.GetWindow<UnityEditor.SceneView>();
             //UnityEditorInternal.RenderDoc.BeginCaptureRenderDoc(window);
             //LoadScene(_loadedScene);
             //UnityEditorInternal.RenderDoc.EndCaptureRenderDoc(window);
