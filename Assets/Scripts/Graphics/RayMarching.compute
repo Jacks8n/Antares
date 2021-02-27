@@ -183,7 +183,7 @@ void TiledMarching(uint3 id : SV_DispatchThreadID)
         UpdateMip(nsdf, mip, supremum);
     }
     
-    TiledRM[id.xy] = float2(t, t * t - r * r);
+    TiledRM[id.xy] = sdf <= r + 0.1 ? float2(t, t * t - r * r) : float2(end, 0.0);
 }
 
 [numthreads(MARCHING_TILE_SIZE_X, MARCHING_TILE_SIZE_Y, 1)]
@@ -205,10 +205,9 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
     const float end = GetRaySupInScene(o, d);
     
     float nsdf, sdf;
-    float mip = SCENE_INITIAL_MIP;
+    float mip = 0.0;
     float supremum = SDF_SUP_INITIAL_W;
-    uint i;
-    for (i = 0; i < 64; i++)
+    for (uint i = 0; i < 64; i++)
     {
         nsdf = SampleSDF(d * t + o, mip);
         sdf = nsdf * supremum;
@@ -221,14 +220,15 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
     }
 
     // remedy with linear interpolation, which requires infinite marching steps to converge
-    //const float last = SampleSDF(d * t + o, 0.0) * SDF_SUP_LOWEST_W;
-    //const float bias = last * rcp(1.0 - (last - sdf));
-    //t += bias;
+    const float last = SampleSDF(d * t + o, 0.0) * SDF_SUP_LOWEST_W;
+    const float bias = last * rcp(1.0 - (last - sdf));
+    t += bias;
 
     const float3 hit = d * t + o;
     const float3 color = SampleColor(hit);
     const float3 normal = SampleNormal(hit, 0.0);
     
-    SceneRM0[id.xy] = float4(abs(normal), 1.0);
+    //SceneRM0[id.xy] = float4(abs(t.xxx) * 0.01, 1.0);
+    SceneRM0[id.xy] = float4(abs(normal), IsHit(sdf, t));
     SceneRM1[id.xy] = float4(normal, 1.0);
 }

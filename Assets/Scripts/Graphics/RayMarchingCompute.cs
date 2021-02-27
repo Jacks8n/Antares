@@ -81,9 +81,11 @@ namespace Antares.Graphics
                         supWorld * (1 << InitalSampleMip),
                         InitalSampleMip);
 
+                    // relaxation for numerical stability
+                    const float tileApertureRelax = 2f;
                     float tileDiagHalfSqr = pixelDiagHalfSqr * (MarchingTileSize * MarchingTileSize);
                     float tileDiagHalf = pixelDiagHalf * (MarchingTileSize * .5f);
-                    float tileAperture = tileDiagHalf / Mathf.Sqrt(tileDiagHalfSqr + near * near);
+                    float tileAperture = tileApertureRelax * tileDiagHalf / Mathf.Sqrt(tileDiagHalfSqr + near * near);
                     TiledMarchingParams = new Vector4(tileAperture, 1f / (1f + tileAperture), 0f, 0f);
                 }
             }
