@@ -472,35 +472,39 @@ void GenerateSceneVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID)
     
     GroupMemoryBarrierWithGroupSync();
 
-    if (!isValid)
-        return;
-        
-    // generate smooth union of sdfs
-    const uint3 alignedCoord = tileCoord * 4;
-    const uint3 gridCoord = alignedCoord + tid / 2;
-    const float3 coord = VolumeIndexToWorldPos(gridCoord);
-
-    float sdf = SDF_MAX;
-    for (uint i = threadOffset; i < brushCount; i += 8)
-        sdf = SmoothMin(sdf, GSM_Brushes[i].Sample(coord));
-    
-    GSM_SDFGrids[threadIndex] = sdf;
-    
-    GroupMemoryBarrier();
-    
-    // parallel sdf union
-    [unroll]
-    for (i = 4; i; i /= 2)
+    uint3 gridCoord;
+    if (isValid)
     {
-        if (threadOffset < i)
-            GSM_SDFGrids[threadIndex] = SmoothMin(GSM_SDFGrids[threadIndex], GSM_SDFGrids[threadIndex + i]);
-        GroupMemoryBarrier();
+        // generate smooth union of sdfs
+        const uint3 alignedCoord = tileCoord * 4;
+        gridCoord = alignedCoord + tid / 2;
+        const float3 coord = VolumeIndexToWorldPos(gridCoord);
+
+        float sdf = SDF_MAX;
+        for (uint i = threadOffset; i < brushCount; i += 8)
+            sdf = SmoothMin(sdf, GSM_Brushes[i].Sample(coord));
+    
+        GSM_SDFGrids[threadIndex] = sdf;
     }
     
-    if (!threadOffset)
+    GroupMemoryBarrierWithGroupSync();
+    
+    if (isValid)
     {
-        SceneVolume[gridCoord] = GSM_SDFGrids[threadIndex] * SDF_SUPREMUM_INV_W;
-        MaterialVolume[tileCoord] = GSM_Brushes[0].GetMaterialID();
+        // parallel sdf union
+        [unroll]
+        for (uint i = 4; i; i /= 2)
+        {
+            if (threadOffset < i)
+                GSM_SDFGrids[threadIndex] = SmoothMin(GSM_SDFGrids[threadIndex], GSM_SDFGrids[threadIndex + i]);
+            GroupMemoryBarrier();
+        }
+    
+        if (!threadOffset)
+        {
+            SceneVolume[gridCoord] = GSM_SDFGrids[threadIndex] * SDF_SUPREMUM_INV_W;
+            MaterialVolume[tileCoord] = GSM_Brushes[0].GetMaterialID();
+        }
     }
 }
 

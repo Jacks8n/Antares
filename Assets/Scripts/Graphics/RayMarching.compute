@@ -170,7 +170,7 @@ void TiledMarching(uint3 id : SV_DispatchThreadID)
     float mip = SCENE_INITIAL_MIP;
     float supremum = SDF_SUP_INITIAL_W;
     float nsdf, sdf, r;
-    for (uint i = 0; i < 32; i++)
+    for (uint i = 0; i < 64; i++)
     {
         nsdf = SampleSDF(d * t + o, mip);
         sdf = nsdf * supremum;
@@ -207,7 +207,8 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
     float nsdf, sdf;
     float mip = SCENE_INITIAL_MIP;
     float supremum = SDF_SUP_INITIAL_W;
-    for (int i = 0; i < 32; i++)
+    uint i;
+    for (i = 0; i < 64; i++)
     {
         nsdf = SampleSDF(d * t + o, mip);
         sdf = nsdf * supremum;
@@ -220,9 +221,9 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
     }
 
     // remedy with linear interpolation, which requires infinite marching steps to converge
-    const float last = SampleSDF(d * t + o, 0.0) * SDF_SUP_LOWEST_W;
-    const float bias = last * rcp(1.0 - (last - sdf));
-    t += bias;
+    //const float last = SampleSDF(d * t + o, 0.0) * SDF_SUP_LOWEST_W;
+    //const float bias = last * rcp(1.0 - (last - sdf));
+    //t += bias;
 
     const float3 hit = d * t + o;
     const float3 color = SampleColor(hit);
