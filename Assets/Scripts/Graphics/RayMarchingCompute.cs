@@ -26,7 +26,7 @@ namespace Antares.Graphics
 
                 private readonly Vector4 SceneSize;
 
-                private readonly Vector4 SDFSupremum;
+                private readonly Vector4 SDFBands;
 
                 private readonly Vector4 TiledMarchingParams;
 
@@ -56,7 +56,7 @@ namespace Antares.Graphics
                     UVToSceneRow2 = new Vector4(right.z, up.z, lbn.z, cameraPos.z);
 
                     Vector3 texel = scene.SizeInv;
-                    SceneTexel = new Vector4(texel.x, texel.y, texel.z, AShaderSpecs.SDFSupremum);
+                    SceneTexel = new Vector4(texel.x, texel.y, texel.z, 0f);
 
                     Transform sceneTrans = scene.transform;
                     Matrix4x4 worldToScene = sceneTrans.worldToLocalMatrix;
@@ -65,13 +65,13 @@ namespace Antares.Graphics
                     WorldToSceneTRow2 = worldToScene.GetRow(2);
 
                     Vector3 size = scene.Size;
-                    SceneSize = new Vector4(size.x, size.y, size.z, 0f);
+                    SceneSize = new Vector4(size.x, size.y, size.z, SceneMipCount - 1);
 
                     float supWorld = AShaderSpecs.SDFSupremum * scene.GridWorldSize;
-                    SDFSupremum = new Vector4(
-                        supWorld * (1 << (InitalSampleMip - 1)),
-                        supWorld * (1 << (SceneMipCount - 1)),
+                    SDFBands = new Vector4(
                         supWorld,
+                        supWorld * (1 << (SceneMipCount - 1)),
+                        supWorld * (1 << InitalSampleMip),
                         InitalSampleMip);
 
                     float pixelDiagHalfSqr = pixel.sqrMagnitude * .25f;
@@ -87,7 +87,7 @@ namespace Antares.Graphics
 
             public const int RayMarchingGroupSize = MarchingTileSize;
 
-            private const int InitalSampleMip = (SceneMipCount + 1) / 2;
+            private const int InitalSampleMip = SceneMipCount / 2;
 
             [field: SerializeField, LabelText(nameof(Shader))]
             public ComputeShader Shader { get; private set; }
