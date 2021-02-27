@@ -18,7 +18,9 @@ namespace Antares.Graphics
                 private readonly Vector4 UVToSceneRow1;
                 private readonly Vector4 UVToSceneRow2;
 
-                private readonly Vector4 SceneTexel;
+                private readonly Vector3 SceneTexel;
+
+                private readonly float RayMarchingParams;
 
                 private readonly Vector4 WorldToSceneTRow0;
                 private readonly Vector4 WorldToSceneTRow1;
@@ -56,7 +58,12 @@ namespace Antares.Graphics
                     UVToSceneRow2 = new Vector4(right.z, up.z, lbn.z, cameraPos.z);
 
                     Vector3 texel = scene.SizeInv;
-                    SceneTexel = new Vector4(texel.x, texel.y, texel.z, 0f);
+                    SceneTexel = new Vector4(texel.x, texel.y, texel.z);
+
+                    float pixelDiagHalfSqr = pixel.sqrMagnitude * .25f;
+                    float pixelDiagHalf = Mathf.Sqrt(pixelDiagHalfSqr);
+                    float pixelAperture = pixelDiagHalf / Mathf.Sqrt(pixelDiagHalfSqr + near * near);
+                    RayMarchingParams = pixelAperture;
 
                     Transform sceneTrans = scene.transform;
                     Matrix4x4 worldToScene = sceneTrans.worldToLocalMatrix;
@@ -74,10 +81,10 @@ namespace Antares.Graphics
                         supWorld * (1 << InitalSampleMip),
                         InitalSampleMip);
 
-                    float pixelDiagHalfSqr = pixel.sqrMagnitude * .25f;
-                    float pixelDiagHalf = Mathf.Sqrt(pixelDiagHalfSqr);
-                    float aperture = pixelDiagHalf / Mathf.Sqrt(pixelDiagHalfSqr + near * near);
-                    TiledMarchingParams = new Vector4(aperture, 1f / (1f + aperture), 0f, 0f);
+                    float tileDiagHalfSqr = pixelDiagHalfSqr * (MarchingTileSize * MarchingTileSize);
+                    float tileDiagHalf = pixelDiagHalf * (MarchingTileSize * .5f);
+                    float tileAperture = tileDiagHalf / Mathf.Sqrt(tileDiagHalfSqr + near * near);
+                    TiledMarchingParams = new Vector4(tileAperture, 1f / (1f + tileAperture), 0f, 0f);
                 }
             }
 

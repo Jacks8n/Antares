@@ -175,7 +175,7 @@ namespace Antares.Graphics
 
                         // generate material volume non-zero mips
                         kernel = sdfGeneration.GenerateMipDispatchKernel;
-                        SetMaterialVolume(cmd, shader, kernel);
+                        SetMaterialVolume(cmd, shader, kernel, i);
                         cmd.SetComputeTextureParam(shader, kernel, ID_MaterialVolumeMip, _materialVolume, i + 1);
                         cmd.SetComputeBufferParam(shader, kernel, ID_MipDispatchesBuffer, mipDispatchesBuffers[i]);
 
@@ -184,7 +184,7 @@ namespace Antares.Graphics
 
                         // generate scene volume non-zero mips
                         kernel = sdfGeneration.GenerateMipMapKernel;
-                        SetSceneVolume(cmd, shader, kernel);
+                        SetSceneVolume(cmd, shader, kernel, i);
                         cmd.SetComputeTextureParam(shader, kernel, ID_SceneVolumeMip, _sceneVolume, i + 1);
 
                         DispatchIndirect(cmd, shader, sdfGeneration.GenerateMipMapKernel, ID_MipDispatchesBuffer, mipDispatchesBuffers[i]);
@@ -208,14 +208,14 @@ namespace Antares.Graphics
             if (!_loadedScene)
                 return;
 
-            System.Reflection.Assembly assembly = typeof(UnityEditor.EditorWindow).Assembly;
-            var type = assembly.GetType("UnityEditor.GameView");
-            var window = UnityEditor.EditorWindow.GetWindow<UnityEditor.SceneView>();
-            UnityEditorInternal.RenderDoc.BeginCaptureRenderDoc(window);
-            LoadScene(_loadedScene);
-            UnityEditorInternal.RenderDoc.EndCaptureRenderDoc(window);
-            _loadedScene = null;
-            return;
+            //System.Reflection.Assembly assembly = typeof(UnityEditor.EditorWindow).Assembly;
+            //var type = assembly.GetType("UnityEditor.GameView");
+            //var window = UnityEditor.EditorWindow.GetWindow<UnityEditor.SceneView>();
+            //UnityEditorInternal.RenderDoc.BeginCaptureRenderDoc(window);
+            //LoadScene(_loadedScene);
+            //UnityEditorInternal.RenderDoc.EndCaptureRenderDoc(window);
+            //_loadedScene = null;
+            //return;
 
             CommandBuffer cmd = CommandBufferPool.Get();
             CommandBuffer cmdCompute = CommandBufferPool.Get();

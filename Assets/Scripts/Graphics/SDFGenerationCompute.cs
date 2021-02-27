@@ -83,8 +83,6 @@ namespace Antares.Graphics
 
                 private readonly Vector2 SDFSupremum;
 
-                private readonly int VolumeMipLevel;
-
                 private readonly Vector3Int SceneVolumeSize;
 
                 public MipGenerationParameters(SDFScene scene, int mip)
@@ -106,12 +104,11 @@ namespace Antares.Graphics
                         SDFSupremum = new Vector2(supremum, .5f / supremum);
                     }
 
-                    VolumeMipLevel = mip - 1;
-
+                    int scale = mip - 1;
                     SceneVolumeSize = scene.Size;
-                    SceneVolumeSize.x >>= VolumeMipLevel;
-                    SceneVolumeSize.y >>= VolumeMipLevel;
-                    SceneVolumeSize.z >>= VolumeMipLevel;
+                    SceneVolumeSize.x >>= scale;
+                    SceneVolumeSize.y >>= scale;
+                    SceneVolumeSize.z >>= scale;
                 }
             }
 

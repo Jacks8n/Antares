@@ -15,9 +15,11 @@ CBUFFER_START(RayMarchingParameters)
 // column 3: position of camera
 float4x3 UVToScene;
 
-// w: unused
-float4 SceneTexel;
+float3 SceneTexel;
 #define SCENE_TEXEL_SIZE SceneTexel.xyz
+
+float RayMarchingParams;
+#define PIXEL_APERTURE_W RayMarchingParams
     
 float4x3 WorldToSceneT;
     
@@ -61,7 +63,7 @@ extern RWTexture2D<float4> SceneRM1;
 bool IsHit(float sdf, float t)
 {
     // TODO: pixel-sized filter
-    return abs(sdf) < 0.01;
+    return abs(sdf) <= t * PIXEL_APERTURE_W;
 }
 
 void UpdateMip(float nsdf, inout float mip, inout float supremum)
@@ -70,7 +72,7 @@ void UpdateMip(float nsdf, inout float mip, inout float supremum)
     if (nsdf == 1.0)
     {
         mip = min(mip + 2.0, SCENE_MAX_MIP);
-        supremum = min(supremum * 4.0, SDF_SUP_HIGHEST_W);
+        supremum = min(supremum * 4.0, SDF_SUP_LOWEST_W);
     }
     else if (nsdf <= 0.25)
     {
@@ -127,6 +129,16 @@ float ClampRayToScene(float3 o, float3 d)
     return max(max(t0.x, t0.y), max(t0.z, 0.0));
 }
 
+float GetRaySupInScene(float3 o, float3 d)
+{
+    float3 invd = 1.0 / d;
+    float3 t0 = -o * invd;
+    float3 t1 = (SCENE_SIZE - o) * invd;
+    t0 = max(t0, t1);
+    
+    return min(min(t0.x, t0.y), min(t0.z, 1000.0));
+}
+
 /// begin tiled marching
 
 #define MARCHING_TILE_SIZE_X 8
@@ -152,7 +164,9 @@ void TiledMarching(uint3 id : SV_DispatchThreadID)
     const float a = TILE_APERTURE_W;
     const float k = TILE_SWEEP_FACTOR_W;
     
+    const float end = GetRaySupInScene(o, d);
     float t = ClampRayToScene(o, d);
+    
     float mip = SCENE_INITIAL_MIP;
     float supremum = SDF_SUP_INITIAL_W;
     float nsdf, sdf, r;
@@ -162,7 +176,7 @@ void TiledMarching(uint3 id : SV_DispatchThreadID)
         sdf = nsdf * supremum;
         r = a * t;
 
-        if (sdf <= r)
+        if (sdf <= r || t >= end)
             break;
         
         t = (sdf + t) * k;
@@ -188,6 +202,7 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
     float t = od + delta;
 
     const float3 o = GetCameraPos();
+    const float end = GetRaySupInScene(o, d);
     
     float nsdf, sdf;
     float mip = SCENE_INITIAL_MIP;
@@ -198,7 +213,7 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
         sdf = nsdf * supremum;
         t += sdf;
         
-        if (IsHit(sdf, t))
+        if (IsHit(sdf, t) || t >= end)
             break;
         
         UpdateMip(nsdf, mip, supremum);
@@ -213,6 +228,6 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
     const float3 color = SampleColor(hit);
     const float3 normal = SampleNormal(hit, 0.0);
     
-    SceneRM0[id.xy] = float4(abs(t.xxx) * 0.01, 1.0);
+    SceneRM0[id.xy] = float4(abs(normal), 1.0);
     SceneRM1[id.xy] = float4(normal, 1.0);
 }

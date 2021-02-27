@@ -46,9 +46,6 @@ float2 SDFSupremum;
 #define SDF_SUPREMUM_W SDFSupremum.x
 #define SDF_SUPREMUM_INV_W SDFSupremum.y
 
-// while generating things related to n-th mipmap, n - 1 should be set
-uint VolumeMipLevel;
-
 uint3 SceneVolumeSize;
 CBUFFER_END
 
@@ -383,7 +380,7 @@ void LoadMipMask(uint3 loadCoord, uint3 localLoadCoord, uint3 offset)
     if (all(coord * MAT_VOLUME_SCALE < SceneVolumeSize))
     {
         const uint loadIndex = dot((localLoadCoord + offset) / 2, uint3(1, 6, 36));
-        const uint mask = MaterialVolume.Load(int4(coord, VolumeMipLevel));
+        const uint mask = MaterialVolume.Load(int4(coord, 0));
         InterlockedOr(GSM_PrevMip[loadIndex], mask);
     }
 }
@@ -463,10 +460,10 @@ void GenerateSceneVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID)
         const uint brushOffset = MaterialVolume[tileCoord] + 1;
         brushCount = BrushIndices[brushOffset - 1];
 
-    // read brushes into gsm
-    // todo: it assumes the numeber of brushes that coincide with a grid of
-    // material volume doesn't exceed 8^3(numthreads), which should be expl-
-    // ictly defined
+        // read brushes into gsm
+        // todo: it assumes the numeber of brushes that coincide with a grid of
+        // material volume doesn't exceed 8^3(numthreads), which should be expl-
+        // ictly defined
         threadOffset = dot(tid % 2, uint3(1, 2, 4));
         threadIndex = dot(tid / 2, uint3(1, 4, 16) * 8) + threadOffset;
         if (threadIndex < brushCount)
@@ -515,20 +512,20 @@ extern RWTexture3D<snorm float> SceneVolumeMip;
 
 groupshared float GSM_SDFMips[8 * 8 * 8];
 
-float Eikonal1(float x, float y, float sign)
+float Eikonal1(float x, float y)
 {
-    return min(x, y) + GRID_SPACE_W * sign;
+    return min(x, y) + GRID_SPACE_W;
 }
 
-float Eikonal2(float x, float y, float sign)
+float Eikonal2(float x, float y)
 {
     const float sub = x - y;
     const float sum = x + y;
     const float d = 2.0 * SQR_GRID_SPACE_W - sub * sub;
-    return 0.5 * (sum + sqrt(d) * sign);
+    return 0.5 * (sum + sqrt(d));
 }
 
-float Eikonal3(float x, float y, float z, float sign)
+float Eikonal3(float x, float y, float z, float sdf)
 {
     const float third = 1.0 / 3.0;
     const float gridSpace = GRID_SPACE_W;
@@ -537,16 +534,19 @@ float Eikonal3(float x, float y, float z, float sign)
     const float sum = dot(xyz, float(1.0).xxx);
     const float sqsum = dot(xyz, xyz);
     const float d = sum * sum - 3.0 * (sqsum - SQR_GRID_SPACE_W);
+
+    float res;
     if (d > 0.0)
-        return third * (sum + sqrt(d) * sign);
+        res = third * (sum + sqrt(d));
     else
     {
         const bool3 cond = abs(xyz - xyz.zxy) < gridSpace.xxx;
-        float res = cond.x ? Eikonal2(x, z, sign) : Eikonal1(x, z, sign);
-        res = min(res, cond.y ? Eikonal2(y, x, sign) : Eikonal1(y, x, sign));
-        res = min(res, cond.z ? Eikonal2(z, y, sign) : Eikonal1(z, y, sign));
-        return res;
+        res = cond.x ? Eikonal2(x, z) : Eikonal1(x, z);
+        res = min(res, cond.y ? Eikonal2(y, x) : Eikonal1(y, x));
+        res = min(res, cond.z ? Eikonal2(z, y) : Eikonal1(z, y));
     }
+    
+    return abs(res) * sign(sdf);
 }
 
 float MinNeighbor(int index, int stride, int2 range)
@@ -561,18 +561,18 @@ float SampleAverage(uint3 coord)
     if (all(coord < SceneVolumeSize))
     {
         const uint2 one = uint2(1, 0);
-        float avg = SceneVolume.Load(int4(coord, VolumeMipLevel));
-        avg += SceneVolume.Load(int4(coord + one.xyy, VolumeMipLevel));
-        avg += SceneVolume.Load(int4(coord + one.yxy, VolumeMipLevel));
-        avg += SceneVolume.Load(int4(coord + one.xxy, VolumeMipLevel));
-        avg += SceneVolume.Load(int4(coord + one.yyx, VolumeMipLevel));
-        avg += SceneVolume.Load(int4(coord + one.xyx, VolumeMipLevel));
-        avg += SceneVolume.Load(int4(coord + one.yxx, VolumeMipLevel));
-        avg += SceneVolume.Load(int4(coord + one.xxx, VolumeMipLevel));
+        float avg = SceneVolume.Load(int4(coord, 0));
+        avg += SceneVolume.Load(int4(coord + one.xyy, 0));
+        avg += SceneVolume.Load(int4(coord + one.yxy, 0));
+        avg += SceneVolume.Load(int4(coord + one.xxy, 0));
+        avg += SceneVolume.Load(int4(coord + one.yyx, 0));
+        avg += SceneVolume.Load(int4(coord + one.xyx, 0));
+        avg += SceneVolume.Load(int4(coord + one.yxx, 0));
+        avg += SceneVolume.Load(int4(coord + one.xxx, 0));
         return avg * 0.125;
     }
     else
-        return SDF_SUPREMUM_W;
+        return 1.0;
 }
 
 [numthreads(8, 8, 8)]
@@ -585,10 +585,10 @@ void GenerateMipMap(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex, uint3 tid :
     float sdf;
     if (isValid)
     {
-        coord = UnpackGridCoord(MipDispatches[dispatchID]) * 4 + tid - uint3(2, 2, 2);
+        coord = UnpackGridCoord(MipDispatches[dispatchID]) * MAT_VOLUME_SCALE + tid - uint(MAT_VOLUME_SCALE / 2).xxx;
         const uint3 prevMipCoord = coord * 2;
-    
-        sdf = SampleAverage(prevMipCoord) * SDF_SUPREMUM_W + SDF_SUPREMUM_W;
+        
+        sdf = SampleAverage(prevMipCoord) * SDF_SUPREMUM_W;
         GSM_SDFMips[gi] = sdf;
     }
     
@@ -606,7 +606,7 @@ void GenerateMipMap(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex, uint3 tid :
         x = MinNeighbor(gi, 1, xrange);
         y = MinNeighbor(gi, 8, yrange);
         z = MinNeighbor(gi, 64, zrange);
-        sdf = Eikonal3(x, y, z, sign(sdf));
+        sdf = Eikonal3(x, y, z, sdf);
         
         if (i < 2)
         {
@@ -616,7 +616,7 @@ void GenerateMipMap(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex, uint3 tid :
     }
     
     if (all(tid >= uint3(2, 2, 2) && tid < uint3(6, 6, 6)))
-        SceneVolumeMip[coord] = sdf * SDF_SUPREMUM_INV_W - 0.5;
+        SceneVolumeMip[coord] = sdf * SDF_SUPREMUM_INV_W;
 }
 
 /// end generate mipmap
