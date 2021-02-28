@@ -17,12 +17,24 @@ MonoBehaviour:
   <Brushes>k__BackingField:
   - Property:
       Transform:
-        Translation: {x: -12, y: -12, z: -12}
+        Translation: {x: -8, y: -8, z: -8}
+        Scale: 1
+        Rotation: {x: -0, y: -0, z: -0, w: 1}
+      <BrushType>k__BackingField: 2
+      MaterialID: 0
+    ParameterCount: 3
+    ParameterOffset: 0
+  - Property:
+      Transform:
+        Translation: {x: -18, y: -18, z: -18}
         Scale: 1
         Rotation: {x: -0, y: -0, z: -0, w: 1}
       <BrushType>k__BackingField: 1
       MaterialID: 0
     ParameterCount: 1
-    ParameterOffset: 0
+    ParameterOffset: 3
   <BrushParameters>k__BackingField:
+  - 7
+  - 7
+  - 7
   - 10

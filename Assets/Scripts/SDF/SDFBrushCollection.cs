@@ -39,7 +39,7 @@ namespace Antares.SDF
         [field: SerializeField, LabelText(nameof(NumericalBrushAtlas))]
         public RenderTexture NumericalBrushAtlas { get; private set; }
 
-        [field: SerializeField, LabelText(nameof(Brushes))]
+        [field: SerializeField, LabelText(nameof(Brushes)), ListDrawerSettings(HideAddButton = true, HideRemoveButton = true)]
         public Brush[] Brushes { get; private set; }
 
         [field: SerializeField, LabelText(nameof(BrushParameters)), ReadOnly]
@@ -53,7 +53,7 @@ namespace Antares.SDF
 
             var numericalBrushes = new List<Texture3D>();
             var numericalBrushIndices = new List<int>();
-            using var paramBuffer = new NativeArray<float>(SDFShape.MaxParameterCount, Allocator.Temp);
+            var paramBuffer = new NativeArray<float>(16, Allocator.Temp);
 
             // store brushes
             {
@@ -89,7 +89,14 @@ namespace Antares.SDF
                     parameterCount = Brushes[i].ParameterCount;
                     parameterOffset = Brushes[i].ParameterOffset;
 
-                    brushHelpers[i].GetShapeParameters(paramBuffer);
+                    if (paramBuffer.Length < parameterCount)
+                    {
+                        paramBuffer.Dispose();
+                        paramBuffer = new NativeArray<float>(parameterCount, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
+                    }
+
+                    brushHelpers[i].GetShapeParameters(paramBuffer.Slice(0, parameterCount));
+
                     for (int j = 0; j < parameterCount; j++)
                         BrushParameters[parameterOffset + j] = paramBuffer[j];
                 }

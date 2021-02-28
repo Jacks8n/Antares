@@ -210,6 +210,7 @@ namespace Antares.Graphics
 
             //System.Reflection.Assembly assembly = typeof(UnityEditor.EditorWindow).Assembly;
             //var type = assembly.GetType("UnityEditor.GameView");
+            //var window = UnityEditor.EditorWindow.GetWindow(type);
             //var window = UnityEditor.EditorWindow.GetWindow<UnityEditor.SceneView>();
             //UnityEditorInternal.RenderDoc.BeginCaptureRenderDoc(window);
             //LoadScene(_loadedScene);
