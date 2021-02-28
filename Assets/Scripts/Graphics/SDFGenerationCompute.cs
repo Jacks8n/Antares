@@ -61,18 +61,21 @@ namespace Antares.Graphics
                     SceneToWorldRow1 = sceneToWorld.GetRow(1);
                     SceneToWorldRow2 = sceneToWorld.GetRow(2);
 
+                    const float sqrt3Half = 0.8660254037844386f;
+                    const int tileSizeInt = MatVolumeScale * MatVolumeTileSize;
+
+                    // the width of one grid of scene volume is subtracted to get tighter bound
+                    //const float tileRadiusFactor = tileSizeInt * sqrt3Half + 0.48f;
+                    const float tileRadiusFactor = tileSizeInt * sqrt3Half + 0.1f;
+                    const float gridRadiusFactor = (MatVolumeScale - 1) * sqrt3Half + 0.1f;
+
                     float gridSize = scene.GridWorldSize;
                     float sdfBand = gridSize * SDFSupremum;
-                    const float cubert3Half = 0.7211247851537f;
-                    const int tileSizeInt = MatVolumeScale * MatVolumeTileSize;
-                    const float tileRadiusFactor = tileSizeInt * cubert3Half;
-                    const float gridRadiusFactor = MatVolumeScale * cubert3Half;
                     BrushCullRadius = new Vector2(
                         gridSize * tileRadiusFactor + sdfBand,
                         gridSize * gridRadiusFactor + sdfBand);
 
                     SDFBrushCount = scene.BrusheCollection.Brushes.Length;
-
                 }
             }
 

@@ -116,13 +116,13 @@ namespace Antares.Graphics
             ComputeBuffer[] mipDispatchesBuffers;
             {
                 int matVolumeGridCount = matVolumeSize.x * matVolumeSize.y * matVolumeSize.z;
-                dispatchCoordsBuffer = GetIndirectBuffer(cmd, matVolumeGridCount);
-                brushIndicesBuffer = GetUShortAppendBuffer(cmd, matVolumeGridCount * SDFGenerationCompute.MaxBrushCountFactor);
+                dispatchCoordsBuffer = GetIndirectBuffer(matVolumeGridCount);
+                brushIndicesBuffer = GetAppendBuffer(matVolumeGridCount * SDFGenerationCompute.MaxBrushCountFactor);
 
                 mipDispatchesBuffers = new ComputeBuffer[SceneMipCount - 1];
                 int mipDispatchCount = matVolumeGridCount;
                 for (int i = 0; i < SceneMipCount - 1; i++)
-                    mipDispatchesBuffers[i] = GetIndirectBuffer(cmd, mipDispatchCount /= 8);
+                    mipDispatchesBuffers[i] = GetIndirectBuffer(mipDispatchCount /= 8);
             }
 
             {
@@ -377,21 +377,20 @@ namespace Antares.Graphics
 
         private void SetMaterialVolume(CommandBuffer cmd, ComputeShader shader, int kernel, int mipLevel = 0) => cmd.SetComputeTextureParam(shader, kernel, ID_MaterialVolume, _materialVolume, mipLevel);
 
-        private ComputeBuffer GetIndirectBuffer(CommandBuffer cmd, int count)
+        private ComputeBuffer GetIndirectBuffer(int count)
         {
             ComputeBuffer buffer = new ComputeBuffer(count + 4, sizeof(uint), ComputeBufferType.Structured | ComputeBufferType.IndirectArguments, ComputeBufferMode.Immutable);
-            cmd.SetComputeBufferData(buffer, new uint[] { 4, 8192, 0, 1 });
+
+            buffer.SetData(new uint[] { 4, 8192, 0, 1 }, 0, 0, 4);
+
             return buffer;
         }
 
-        private ComputeBuffer GetUShortAppendBuffer(CommandBuffer cmd, int count)
+        private ComputeBuffer GetAppendBuffer(int count)
         {
-            ComputeBuffer buffer = new ComputeBuffer(count / 2 + 1, sizeof(uint), ComputeBufferType.Structured, ComputeBufferMode.Immutable);
+            ComputeBuffer buffer = new ComputeBuffer(count + 1, sizeof(uint), ComputeBufferType.Structured, ComputeBufferMode.Immutable);
 
-            // not using `new uint[] { 1 << 16 }` due to endian compatibility
-            using var header = new NativeArray<uint>(1, Allocator.Temp, NativeArrayOptions.UninitializedMemory);
-            header.ReinterpretStore(0, (ushort)1);
-            cmd.SetComputeBufferData(buffer, header);
+            buffer.SetData(new uint[] { 1 }, 0, 0, 1);
 
             return buffer;
         }

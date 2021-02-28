@@ -143,8 +143,11 @@ struct SDFBrush
     {
         const float3 size = GetParameter3(0);
         
-        const float3 nearest = clamp(p, float(0.0).xxx, size);
-        return distance(nearest, p);
+        const float3 local = abs(p) - size;
+        const float inside = min(max(max(local.x, local.y), local.z), 0.0);
+        const float outside = length(max(local, float(0.0).xxx));
+
+        return inside + outside;
     }
     
     float Sample(float3 wpos)
@@ -276,16 +279,15 @@ uint3 UnpackGridCoord(uint id)
 }
 
 [numthreads(4, 4, 4)]
-void GenerateMatVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID, uint3 id : SV_DispatchThreadID)
+void GenerateMatVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID, uint gi : SV_GroupIndex, uint3 id : SV_DispatchThreadID)
 {
     uint index, gsmIndex;
     
     // cull brushes that are guaranteed to be apart from 16^3 tile
     const float tileRadius = MAT_TILE_CULL_RADIUS_W;
-    const float3 tileCenter = VolumeIndexToWorldPos(gid * 16 + uint3(4, 4, 4));
-    const uint threadIndex = dot(tid, uint3(1, 4, 16));
+    const float3 tileCenter = VolumeIndexToWorldPos((gid * (4 * MAT_VOLUME_SCALE) + float(1.5 * MAT_VOLUME_SCALE).xxx));
     
-    for (index = threadIndex; index < SDFBrushCount; index += 64)
+    for (index = gi; index < SDFBrushCount; index += 64)
     {
         SDFBrush brush = SDFBrushes[index];
         uint brushIndex;
@@ -302,12 +304,12 @@ void GenerateMatVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID, uin
     
     // traversal brushes that coincide with 16^3 tile and cull per grid
     const float gridRadius = MAT_GRID_CULL_RADIUS_W;
-    const float3 gridPos = VolumeIndexToWorldPos(id * 4);
+    const float3 gridPos = VolumeIndexToWorldPos(id * MAT_VOLUME_SCALE);
     uint brushIndices[MAX_THREAD_BRUSH_COUNT], brushCount = 0;
 
     // store brushes(local)
-    const uint tileBrushCount = min(GSM_BrushCount, MAX_THREAD_BRUSH_COUNT);
-    for (index = 0; index < tileBrushCount; index++)
+    const uint tileBrushCount = min(GSM_BrushCount, MAX_GROUP_BRUSH_COUNT);
+    for (index = 0; index < tileBrushCount && brushCount < MAX_THREAD_BRUSH_COUNT; index++)
         if (GSM_Brushes[index].Cull(gridPos, gridRadius))
             brushIndices[brushCount++] = GSM_BrushIndices[index];
     
@@ -335,13 +337,13 @@ void GenerateMatVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID, uin
     // store dispatch coordinates(uav)
     if (GSM_DispatchCoordCount)
     {
-        if (!threadIndex)
+        if (!gi)
             AllocateRange(DispatchCoords, GSM_DispatchCoordCount, GSM_DispatchCoordOffset);
         
         GroupMemoryBarrierWithGroupSync();
     
-        if (threadIndex < GSM_DispatchCoordCount)
-            DispatchCoords[GSM_DispatchCoordOffset + threadIndex] = GSM_DispatchCoords[threadIndex];
+        if (gi < GSM_DispatchCoordCount)
+            DispatchCoords[GSM_DispatchCoordOffset + gi] = GSM_DispatchCoords[gi];
     }
 }
 
