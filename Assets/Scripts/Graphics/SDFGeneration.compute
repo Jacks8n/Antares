@@ -89,29 +89,51 @@ struct SDFBrush
     }
     
     // only used when loading from global memory, it will be overwritten after loading
-    uint GetParameterCount()
+    uint GetParameterCount_UAV()
     {
         return ParameterOffsetCount >> 24;
     }
     
-    uint GetParameterOffset()
+    uint GetParameterOffset_UAV()
     {
         return ParameterOffsetCount & 0xffffff;
     }
     
-    void SetParameterOffset(uint offset)
+    void SetParameterOffset_GSM(uint offset)
     {
         ParameterOffsetCount = offset;
     }
     
-#define Declare_GetParameter(dim)                                           \
-    float##dim GetParameter##dim(uint offset)                               \
-    {                                                                       \
-        float##dim value;                                                   \
-        [unroll]                                                            \
-        for (uint i = 0; i < dim; i++)                                      \
-            value[i] = GSM_BrushParams[ParameterOffsetCount + offset + i];  \
-        return value;                                                       \
+    uint GetParameterOffset_GSM()
+    {
+        return ParameterOffsetCount;
+    }
+    
+    bool IsLoadedToGSM()
+    {
+        return GetParameterCount_UAV() == 0;
+    }
+    
+#define Declare_GetParameter(dim)                                               \
+    float##dim GetParameter##dim(uint offset)                                           \
+    {                                                                           \
+        float##dim value;                                                           \
+                                                                                \
+        if (IsLoadedToGSM())                                                    \
+        {                                                                       \
+            [unroll]                                                            \
+            for (uint i = 0; i < dim; i++)                                        \
+                value[i] = GSM_BrushParams[ParameterOffsetCount + offset + i];  \
+        }                                                                       \
+        else                                                                    \
+        {                                                                       \
+            uint offset = GetParameterOffset_UAV();                             \
+            [unroll]                                                            \
+            for (uint i = 0; i < dim; i++)                                        \
+                value[i] = BrushParameters[offset + i];                         \
+        }                                                                       \
+                                                                                \
+        return value;                                                           \
     }
 
     Declare_GetParameter(1)
@@ -186,8 +208,8 @@ groupshared uint GSM_BrushCount = 0;
 
 bool LoadBrushToGSM(SDFBrush brush, out uint writtenIndex)
 {
-    const uint paramCount = brush.GetParameterCount();
-    const uint paramOffset = brush.GetParameterOffset();
+    const uint paramCount = brush.GetParameterCount_UAV();
+    const uint paramOffset = brush.GetParameterOffset_UAV();
     uint gsmParamOffset;
     
     InterlockedAdd(GSM_BrushCount, 1, writtenIndex);
@@ -197,7 +219,7 @@ bool LoadBrushToGSM(SDFBrush brush, out uint writtenIndex)
         for (uint i = 0; i < paramCount; i++)
             GSM_BrushParams[gsmParamOffset + i] = BrushParameters[paramOffset + i];
         
-        brush.SetParameterOffset(gsmParamOffset);
+        brush.SetParameterOffset_GSM(gsmParamOffset);
         GSM_Brushes[writtenIndex] = brush;
         return true;
     }
@@ -207,8 +229,8 @@ bool LoadBrushToGSM(SDFBrush brush, out uint writtenIndex)
 
 void LoadBrushToGSMUnchecked(SDFBrush brush, uint dest)
 {
-    const uint paramCount = brush.GetParameterCount();
-    const uint paramOffset = brush.GetParameterOffset();
+    const uint paramCount = brush.GetParameterCount_UAV();
+    const uint paramOffset = brush.GetParameterOffset_UAV();
     
     uint gsmParamOffset;
     InterlockedAdd(GSM_BrushParamCount, paramCount, gsmParamOffset);
@@ -216,7 +238,7 @@ void LoadBrushToGSMUnchecked(SDFBrush brush, uint dest)
     for (uint i = 0; i < paramCount; i++)
         GSM_BrushParams[gsmParamOffset + i] = BrushParameters[paramOffset + i];
     
-    brush.SetParameterOffset(gsmParamOffset);
+    brush.SetParameterOffset_GSM(gsmParamOffset);
     GSM_Brushes[dest] = brush;
 }
 
@@ -258,7 +280,6 @@ uint GroupIDToDispatchID(uint3 gid)
 
 /// begin generate material volume
 
-// todo take care of this special value
 #define MATERIAL_GRID_NULL 0u
 
 extern StructuredBuffer<SDFBrush> SDFBrushes;
@@ -285,7 +306,7 @@ void GenerateMatVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID, uin
     
     // cull brushes that are guaranteed to be apart from 16^3 tile
     const float tileRadius = MAT_TILE_CULL_RADIUS_W;
-    const float3 tileCenter = VolumeIndexToWorldPos((gid * (4 * MAT_VOLUME_SCALE) + float(1.5 * MAT_VOLUME_SCALE).xxx));
+    const float3 tileCenter = VolumeIndexToWorldPos((gid * (4 * MAT_VOLUME_SCALE) + float(2 * MAT_VOLUME_SCALE - 0.5).xxx));
     
     for (index = gi; index < SDFBrushCount; index += 64)
     {
@@ -304,7 +325,7 @@ void GenerateMatVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID, uin
     
     // traversal brushes that coincide with 16^3 tile and cull per grid
     const float gridRadius = MAT_GRID_CULL_RADIUS_W;
-    const float3 gridPos = VolumeIndexToWorldPos(id * MAT_VOLUME_SCALE);
+    const float3 gridPos = VolumeIndexToWorldPos(id * MAT_VOLUME_SCALE + float(0.5 * MAT_VOLUME_SCALE - 0.5).xxx);
     uint brushIndices[MAX_THREAD_BRUSH_COUNT], brushCount = 0;
 
     // store brushes(local)
@@ -317,7 +338,7 @@ void GenerateMatVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID, uin
     if (brushCount)
     {
         // brush count | brush0 | brush1 | ...
-        
+        // first element is used as global counter, thus non-empty grid must be greater than 0
         InterlockedAdd(BrushIndices[0], brushCount + 1, index);
         
         MaterialVolume[id] = index;
