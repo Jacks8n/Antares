@@ -643,7 +643,7 @@ void GenerateMipMap(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex, uint3 tid :
     }
     
     if (all(tid >= uint3(2, 2, 2) && tid < uint3(6, 6, 6)))
-        SceneVolumeMip[coord] = sdf * SDF_SUPREMUM_INV_W;
+        SceneVolumeMip[coord] = trunc(sdf) * SDF_SUPREMUM_INV_W;
 }
 
 /// end generate mipmap

@@ -63,7 +63,7 @@ namespace Antares.Graphics
                     float pixelDiagHalfSqr = pixel.sqrMagnitude * .25f;
                     float pixelDiagHalf = Mathf.Sqrt(pixelDiagHalfSqr);
                     float pixelAperture = pixelDiagHalf / Mathf.Sqrt(pixelDiagHalfSqr + near * near);
-                    RayMarchingParams = pixelAperture;
+                    RayMarchingParams = pixelAperture * 5f;
 
                     Transform sceneTrans = scene.transform;
                     Matrix4x4 worldToScene = sceneTrans.worldToLocalMatrix;
@@ -74,18 +74,16 @@ namespace Antares.Graphics
                     Vector3 size = scene.Size;
                     SceneSize = new Vector4(size.x, size.y, size.z, SceneMipCount - 1);
 
-                    float supWorld = AShaderSpecs.SDFSupremum * scene.GridWorldSize;
+                    float supWorld = SDFSupremum * scene.GridWorldSize;
                     SDFBands = new Vector4(
                         supWorld,
                         supWorld * (1 << (SceneMipCount - 1)),
                         supWorld * (1 << InitalSampleMip),
                         InitalSampleMip);
 
-                    // relaxation for numerical stability
-                    const float tileApertureRelax = 2f;
                     float tileDiagHalfSqr = pixelDiagHalfSqr * (MarchingTileSize * MarchingTileSize);
-                    float tileDiagHalf = pixelDiagHalf * (MarchingTileSize * .5f);
-                    float tileAperture = tileApertureRelax * tileDiagHalf / Mathf.Sqrt(tileDiagHalfSqr + near * near);
+                    float tileDiagHalf = pixelDiagHalf * MarchingTileSize;
+                    float tileAperture = tileDiagHalf / Mathf.Sqrt(tileDiagHalfSqr + near * near);
                     TiledMarchingParams = new Vector4(tileAperture, 1f / (1f + tileAperture), 0f, 0f);
                 }
             }

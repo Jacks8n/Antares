@@ -1,8 +1,29 @@
 ﻿#pragma enable_d3d11_debug_symbols
 
+// todo: known artifacts
+// mip 0 + tiled        : correct result, with slow convergent
+// all mips + tiled     : some silhouette tiles miss intersection, more conservative mips might help
+// mip 0 + rm only      : silhouette is warped, more information is needed
+// all mips + rm only   : corners are rounded, more information is needed
+
+/// begin debug macro
+
 // 0: use every mips
 // n: use n - 1 mip only
-#define USE_MIP_N_ONLY 0
+#define USE_MIP_N_ONLY 1
+#define DISABLE_TILED_MARCHING 0
+#define DEBUG_RAY_MARCHING_STEP 0
+#define DEBUG_DEPTH 0
+
+#if DISABLE_TILED_MARCHING
+#define MAX_TILED_MARCHING_STEP 1
+#define MAX_RAY_MARCHING_STEP 128
+#else
+#define MAX_TILED_MARCHING_STEP 64
+#define MAX_RAY_MARCHING_STEP 64
+#endif
+
+/// end debug macro
 
 #pragma kernel TiledMarching
 #pragma kernel RayMarching
@@ -147,12 +168,6 @@ float GetRaySupInScene(float3 o, float3 d)
 [numthreads(8, 8, 1)]
 void TiledMarching(uint3 id : SV_DispatchThreadID)
 {
-    // analytical aperture:
-    // 0.5 * tile diagonal * near / (distance(tile corner, origin) * distance(center, origin))
-    // numerator is a constant determined by camera and size of tile
-    // for divisor a relaxed approximation is taken:
-    // dot(nearest corner - origin, center - origin)
-    
     const float2 tile = float2(MARCHING_TILE_SIZE_X, MARCHING_TILE_SIZE_Y);
     const float2 tileHalf = tile * 0.5;
 
@@ -170,20 +185,24 @@ void TiledMarching(uint3 id : SV_DispatchThreadID)
     float mip = SCENE_INITIAL_MIP;
     float supremum = SDF_SUP_INITIAL_W;
     float nsdf, sdf, r;
-    for (uint i = 0; i < 64; i++)
+    for (uint i = 0; i < MAX_TILED_MARCHING_STEP; i++)
     {
         nsdf = SampleSDF(d * t + o, mip);
         sdf = nsdf * supremum;
         r = a * t;
 
-        if (sdf <= r || t >= end)
+        // todo
+        // the original criteria won't stop before intersection as expected when using non-zero mips
+        //if (sdf <= r || t >= end)
+        
+        if (nsdf <= 0.25 || t >= end)
             break;
         
         t = (sdf + t) * k;
         UpdateMip(nsdf, mip, supremum);
     }
     
-    TiledRM[id.xy] = sdf <= r + 0.1 ? float2(t, t * t - r * r) : float2(end, 0.0);
+    TiledRM[id.xy] = float2(t, t * t - r * r);
 }
 
 [numthreads(MARCHING_TILE_SIZE_X, MARCHING_TILE_SIZE_Y, 1)]
@@ -196,18 +215,23 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
     
     const float3 mray = GetRayDirection(middle);
     const float3 d = GetRayDirection(id.xy);
+    const float3 o = GetCameraPos();
     
+#if DISABLE_TILED_MARCHING
+    float t = ClampRayToScene(o, d);
+#else
     const float od = dot(mray, d) * sphere.x;
     const float delta = sqrt(max(0.0, od * od - sphere.y));
     float t = od + delta;
-
-    const float3 o = GetCameraPos();
+#endif
+    
     const float end = GetRaySupInScene(o, d);
     
     float nsdf, sdf;
     float mip = 0.0;
     float supremum = SDF_SUP_INITIAL_W;
-    for (uint i = 0; i < 64; i++)
+    uint i;
+    for (i = 0; i < MAX_RAY_MARCHING_STEP; i++)
     {
         nsdf = SampleSDF(d * t + o, mip);
         sdf = nsdf * supremum;
@@ -228,7 +252,14 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
     const float3 color = SampleColor(hit);
     const float3 normal = SampleNormal(hit, 0.0);
     
-    //SceneRM0[id.xy] = float4(abs(t.xxx) * 0.01, 1.0);
+    //SceneRM0[id.xy] = float4(abs(sphere.xxx) * 0.01, 1.0);
+#if DEBUG_RAY_MARCHING_STEP
+    SceneRM0[id.xy] = float4(float(i).xxx / MAX_RAY_MARCHING_STEP, 1.0);
+#elif DEBUG_DEPTH
+    SceneRM0[id.xy] = float4(abs(t * 0.01).xxx, 1.0);
+#else
     SceneRM0[id.xy] = float4(abs(normal), IsHit(sdf, t));
+#endif
+    
     SceneRM1[id.xy] = float4(normal, 1.0);
 }

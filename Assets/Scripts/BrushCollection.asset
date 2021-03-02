@@ -17,12 +17,100 @@ MonoBehaviour:
   <Brushes>k__BackingField:
   - Property:
       Transform:
+        Translation: {x: -30.7, y: -30.3, z: -45.8}
+        Scale: 1
+        Rotation: {x: -0, y: -0, z: -0, w: 1}
+      <BrushType>k__BackingField: 2
+      MaterialID: 0
+    ParameterCount: 3
+    ParameterOffset: 0
+  - Property:
+      Transform:
+        Translation: {x: -29.3, y: -15.5, z: -46.2}
+        Scale: 1
+        Rotation: {x: -0, y: -0, z: -0, w: 1}
+      <BrushType>k__BackingField: 2
+      MaterialID: 0
+    ParameterCount: 3
+    ParameterOffset: 3
+  - Property:
+      Transform:
+        Translation: {x: -50.4, y: -15.5, z: -33.8}
+        Scale: 1
+        Rotation: {x: -0, y: -0, z: -0, w: 1}
+      <BrushType>k__BackingField: 2
+      MaterialID: 0
+    ParameterCount: 3
+    ParameterOffset: 6
+  - Property:
+      Transform:
+        Translation: {x: -38.63, y: -15.87, z: -11.5}
+        Scale: 1
+        Rotation: {x: -0, y: -0, z: -0, w: 1}
+      <BrushType>k__BackingField: 2
+      MaterialID: 0
+    ParameterCount: 3
+    ParameterOffset: 9
+  - Property:
+      Transform:
+        Translation: {x: -18, y: -32.2, z: -18}
+        Scale: 1
+        Rotation: {x: -0, y: -0, z: -0, w: 1}
+      <BrushType>k__BackingField: 1
+      MaterialID: 0
+    ParameterCount: 1
+    ParameterOffset: 12
+  - Property:
+      Transform:
+        Translation: {x: -32.7, y: -18, z: -30.1}
+        Scale: 1
+        Rotation: {x: -0, y: -0, z: -0, w: 1}
+      <BrushType>k__BackingField: 1
+      MaterialID: 0
+    ParameterCount: 1
+    ParameterOffset: 13
+  - Property:
+      Transform:
+        Translation: {x: -27.02, y: -24.6, z: -33.51}
+        Scale: 1
+        Rotation: {x: -0, y: -0, z: -0, w: 1}
+      <BrushType>k__BackingField: 1
+      MaterialID: 0
+    ParameterCount: 1
+    ParameterOffset: 14
+  - Property:
+      Transform:
+        Translation: {x: -14.09, y: -18, z: -36.54}
+        Scale: 1
+        Rotation: {x: -0, y: -0, z: -0, w: 1}
+      <BrushType>k__BackingField: 1
+      MaterialID: 0
+    ParameterCount: 1
+    ParameterOffset: 15
+  - Property:
+      Transform:
         Translation: {x: -18, y: -18, z: -18}
         Scale: 1
         Rotation: {x: -0, y: -0, z: -0, w: 1}
       <BrushType>k__BackingField: 1
       MaterialID: 0
     ParameterCount: 1
-    ParameterOffset: 0
+    ParameterOffset: 16
   <BrushParameters>k__BackingField:
+  - 8
+  - 8
+  - 8
+  - 8
+  - 8
+  - 8
+  - 8
+  - 8
+  - 8
+  - 8
+  - 8
+  - 8
+  - 10
+  - 10
+  - 10
+  - 10
   - 10
