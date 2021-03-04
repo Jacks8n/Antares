@@ -1,9 +1,7 @@
 ﻿using Antares.SDF;
 using Antares.Utility;
 using Sirenix.OdinInspector;
-using Unity.Collections;
 using UnityEngine;
-using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
 
 namespace Antares.Graphics

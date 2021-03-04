@@ -1,19 +1,17 @@
 ﻿#pragma enable_d3d11_debug_symbols
 
-// todo: known artifacts
-// all mips + tiled     : some silhouette tiles miss intersection, more conservative mips might help
-// all mips + rm only   : corners are rounded, more information is needed
-
 /// begin debug macro
 
 // 0: use every mips
 // n: use n - 1 mip only
-#define USE_MIP_N_ONLY 2
-#define DISABLE_TILED_MARCHING 1
+#define USE_MIP_N_ONLY 0
+#define DISABLE_TILED_MARCHING 0
+#define DEBUG_TILED_MARCHING_DEPTH 0
 #define DEBUG_RAY_MARCHING_STEP 0
 #define DEBUG_DEPTH 0
 #define DEBUG_ERROR 0
 #define DEBUG_MIN_SDF 0
+#define DEBUG_RAY_MARCHING_MAX_MIP 0
 
 #if DISABLE_TILED_MARCHING
 #define MAX_TILED_MARCHING_STEP 1
@@ -49,26 +47,29 @@ float4 SceneSize;
 #if !USE_MIP_N_ONLY
 #define SCENE_MAX_MIP SceneSize.w
 #else
-#define SCENE_MAX_MIP 0.0
+#define SCENE_MAX_MIP (USE_MIP_N_ONLY - 1)
 #endif
     
-float4 SDFSupremum;
+float4 SDFBands;
 #if !USE_MIP_N_ONLY
-#define SDF_SUP_LOWEST_W SDFSupremum.x
-#define SDF_SUP_HIGHEST_W SDFSupremum.y
-#define SDF_SUP_INITIAL_W SDFSupremum.z
-#define SCENE_INITIAL_MIP SDFSupremum.w
+#define SDF_SUP_MIN_W  SDFBands.x
+#define SDF_SUP_MAX_W SDFBands.y
+#define SDF_SUP_INITIAL_W SDFBands.z
+#define TILED_MARCHING_INITIAL_MIP SDFBands.w
+#define RAY_MARCHING_INITIAL_MIP 0.0
 #else
-#define SCENE_INITIAL_MIP (USE_MIP_N_ONLY - 1)
-#define SDF_SUP_LOWEST_W (SDFSupremum.x * (1 << SCENE_INITIAL_MIP))
-#define SDF_SUP_HIGHEST_W SDF_SUP_LOWEST_W
-#define SDF_SUP_INITIAL_W SDF_SUP_LOWEST_W
+#define TILED_MARCHING_INITIAL_MIP (USE_MIP_N_ONLY - 1)
+#define RAY_MARCHING_INITIAL_MIP TILED_MARCHING_INITIAL_MIP
+#define SDF_SUP_MIN_W  (SDFBands.x * (1 << TILED_MARCHING_INITIAL_MIP))
+#define SDF_SUP_MAX_W SDF_SUP_MIN_W
+#define SDF_SUP_INITIAL_W SDF_SUP_MIN_W
 #endif
 
-// zw: unused
+// w: unused
 float4 TiledMarchingParams;
-#define TILE_APERTURE_W TiledMarchingParams.x
-#define TILE_SWEEP_FACTOR_W TiledMarchingParams.y
+#define TILE_SWEEP_FACTOR_W TiledMarchingParams.x
+#define TILE_SWEEP_RADIUS_FACTOR_W TiledMarchingParams.y
+#define TILE_SWEEP_PAUSE_THRES_W TiledMarchingParams.z
 CBUFFER_END
 
 SamplerState SamplerLinearClamp;
@@ -83,7 +84,6 @@ extern RWTexture2D<float4> SceneRM1;
 
 bool IsHit(float sdf, float t)
 {
-    // TODO: pixel-sized filter
     return abs(sdf) <= t * PIXEL_APERTURE_W;
 }
 
@@ -93,12 +93,12 @@ void UpdateMip(float nsdf, inout float mip, inout float supremum)
     if (nsdf == 1.0)
     {
         mip = min(mip + 2.0, SCENE_MAX_MIP);
-        supremum = min(supremum * 4.0, SDF_SUP_LOWEST_W);
+        supremum = min(supremum * 4.0, SDF_SUP_MAX_W);
     }
     else if (nsdf <= 0.25)
     {
         mip = max(mip - 2.0, 0);
-        supremum = max(supremum * 0.25, SDF_SUP_LOWEST_W);
+        supremum = max(supremum * 0.25, SDF_SUP_MIN_W);
     }
 #endif
 }
@@ -176,25 +176,28 @@ void TiledMarching(uint3 id : SV_DispatchThreadID)
     
     const float3 d = GetRayDirection(middle);
     const float3 o = GetCameraPos();
-    const float a = TILE_APERTURE_W;
     const float k = TILE_SWEEP_FACTOR_W;
+    const float kr = TILE_SWEEP_RADIUS_FACTOR_W;
+    const float thres = TILE_SWEEP_PAUSE_THRES_W;
     
     const float end = GetRaySupInScene(o, d);
     float t = ClampRayToScene(o, d);
     
-    float mip = SCENE_INITIAL_MIP;
+    float mip = TILED_MARCHING_INITIAL_MIP;
     float supremum = SDF_SUP_INITIAL_W;
-    float nsdf, sdf, r;
+    float nsdf, sdf, far, r;
     for (uint i = 0; i < MAX_TILED_MARCHING_STEP; i++)
     {
         nsdf = SampleSDF(d * t + o, mip);
         sdf = nsdf * supremum;
-        r = a * t;
         
-        if (sdf <= r || t >= end)
+        far = sdf + t;
+        t = far * k;
+        r = far * kr;
+        
+        if (sdf <= r + thres || t >= end)
             break;
         
-        t = (sdf + t) * k;
         UpdateMip(nsdf, mip, supremum);
     }
     
@@ -224,11 +227,13 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
     const float end = GetRaySupInScene(o, d);
     
     float nsdf, sdf;
-    float mip = 0.0;
+    float mip = RAY_MARCHING_INITIAL_MIP;
     float supremum = SDF_SUP_INITIAL_W;
     
 #if DEBUG_MIN_SDF
     float minSDF = 1000.0;
+#elif DEBUG_RAY_MARCHING_MAX_MIP
+    float maxMip = mip;
 #endif
 
     uint i;
@@ -240,16 +245,18 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
 
 #if DEBUG_MIN_SDF
         minSDF = min(minSDF, sdf);
+#elif DEBUG_RAY_MARCHING_MAX_MIP
+        maxMip = max(maxMip, mip);
 #endif
         
-        if (IsHit(sdf, t) || t >= end)
+        if ((mip == 0.0 && IsHit(sdf, t)) || t >= end)
             break;
         
         UpdateMip(nsdf, mip, supremum);
     }
 
     // remedy with linear interpolation, which requires infinite marching steps to converge
-    const float last = SampleSDF(d * t + o, 0.0) * SDF_SUP_LOWEST_W;
+    const float last = SampleSDF(d * t + o, 0.0) * SDF_SUP_MIN_W;
     const float bias = last * rcp(1.0 - (last - sdf));
     t += bias;
 
@@ -257,8 +264,9 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
     const float3 color = SampleColor(hit);
     const float3 normal = SampleNormal(hit, 0.0);
     
-    //SceneRM0[id.xy] = float4(abs(sphere.xxx) * 0.01, 1.0);
-#if DEBUG_RAY_MARCHING_STEP
+#if DEBUG_TILED_MARCHING_DEPTH
+    SceneRM0[id.xy] = float4(abs(sphere.xxx) * 0.01, 1.0);
+#elif DEBUG_RAY_MARCHING_STEP
     SceneRM0[id.xy] = float4(float(i).xxx / MAX_RAY_MARCHING_STEP, 1.0);
 #elif DEBUG_DEPTH
     SceneRM0[id.xy] = float4(abs(t * 0.01).xxx, 1.0);
@@ -266,6 +274,8 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
     SceneRM0[id.xy] = float4(abs(sdf).xxx * 0.1, 1.0);
 #elif DEBUG_MIN_SDF
     SceneRM0[id.xy] = float4(abs(minSDF).xxx * 0.1, 1.0);
+    #elif DEBUG_RAY_MARCHING_MAX_MIP
+    SceneRM0[id.xy] = float4(abs(maxMip).xxx / SCENE_MAX_MIP, 1.0);
 #else
     SceneRM0[id.xy] = float4(abs(normal), IsHit(sdf, t));
 #endif

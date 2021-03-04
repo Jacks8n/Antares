@@ -557,7 +557,7 @@ float Eikonal2(float x, float y)
     return 0.5 * (sum + sqrt(d));
 }
 
-float Eikonal3(float x, float y, float z, float sdf)
+float Eikonal3(float x, float y, float z)
 {
     const float third = 1.0 / 3.0;
     const float gridSpace = GRID_SPACE_W;
@@ -566,19 +566,17 @@ float Eikonal3(float x, float y, float z, float sdf)
     const float sum = dot(xyz, float(1.0).xxx);
     const float sqsum = dot(xyz, xyz);
     const float d = sum * sum - 3.0 * (sqsum - SQR_GRID_SPACE_W);
-
-    float res;
+    
     if (d > 0.0)
-        res = third * (sum + sqrt(d));
+        return third * (sum + sqrt(d));
     else
     {
         const bool3 cond = abs(xyz - xyz.zxy) < gridSpace.xxx;
-        res = cond.x ? Eikonal2(x, z) : Eikonal1(x, z);
+        float res = cond.x ? Eikonal2(x, z) : Eikonal1(x, z);
         res = min(res, cond.y ? Eikonal2(y, x) : Eikonal1(y, x));
         res = min(res, cond.z ? Eikonal2(z, y) : Eikonal1(z, y));
+        return res;
     }
-    
-    return abs(res) * sign(sdf);
 }
 
 float MinNeighbor(int index, int stride, int2 range)
@@ -638,7 +636,7 @@ void GenerateMipMap(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex, uint3 tid :
         x = MinNeighbor(gi, 1, xrange);
         y = MinNeighbor(gi, 8, yrange);
         z = MinNeighbor(gi, 64, zrange);
-        sdf = Eikonal3(x, y, z, sdf);
+        sdf = Eikonal3(x, y, z);
         
         if (i < 2)
         {
