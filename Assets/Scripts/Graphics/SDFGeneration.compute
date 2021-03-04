@@ -44,7 +44,7 @@ float2 SceneGridSize;
 
 float2 SDFSupremum;
 #define SDF_SUPREMUM_W SDFSupremum.x
-#define SDF_SUPREMUM_INV_W SDFSupremum.y
+#define SDF_TO_SNORM_W SDFSupremum.y
 
 uint3 SceneVolumeSize;
 CBUFFER_END
@@ -115,21 +115,21 @@ struct SDFBrush
     }
     
 #define Declare_GetParameter(dim)                                               \
-    float##dim GetParameter##dim(uint offset)                                           \
+    float##dim GetParameter##dim(uint offset)                                   \
     {                                                                           \
-        float##dim value;                                                           \
+        float##dim value;                                                       \
                                                                                 \
         if (IsLoadedToGSM())                                                    \
         {                                                                       \
             [unroll]                                                            \
-            for (uint i = 0; i < dim; i++)                                        \
+            for (uint i = 0; i < dim; i++)                                      \
                 value[i] = GSM_BrushParams[ParameterOffsetCount + offset + i];  \
         }                                                                       \
         else                                                                    \
         {                                                                       \
             uint offset = GetParameterOffset_UAV();                             \
             [unroll]                                                            \
-            for (uint i = 0; i < dim; i++)                                        \
+            for (uint i = 0; i < dim; i++)                                      \
                 value[i] = BrushParameters[offset + i];                         \
         }                                                                       \
                                                                                 \
@@ -464,6 +464,11 @@ float SmoothMin(float a, float b)
     return invk * log2(exp2(k * a) + exp2(k * b)) - invk;
 }
 
+float SDFToSNorm(float sdf)
+{
+    return sdf * SDF_TO_SNORM_W;
+}
+
 groupshared float GSM_SDFGrids[8 * 8 * 8];
 
 // 8 parallel threads per grid in 4^3 tile
@@ -525,7 +530,7 @@ void GenerateSceneVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID)
     
         if (!threadOffset)
         {
-            SceneVolume[gridCoord] = GSM_SDFGrids[threadIndex] * SDF_SUPREMUM_INV_W;
+            SceneVolume[gridCoord] = SDFToSNorm(GSM_SDFGrids[threadIndex]);
             MaterialVolume[tileCoord] = GSM_Brushes[0].GetMaterialID();
         }
     }
@@ -643,7 +648,7 @@ void GenerateMipMap(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex, uint3 tid :
     }
     
     if (all(tid >= uint3(2, 2, 2) && tid < uint3(6, 6, 6)))
-        SceneVolumeMip[coord] = trunc(sdf) * SDF_SUPREMUM_INV_W;
+        SceneVolumeMip[coord] = SDFToSNorm(sdf);
 }
 
 /// end generate mipmap

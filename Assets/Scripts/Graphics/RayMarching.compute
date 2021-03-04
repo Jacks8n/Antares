@@ -1,19 +1,19 @@
 ﻿#pragma enable_d3d11_debug_symbols
 
 // todo: known artifacts
-// mip 0 + tiled        : correct result, with slow convergent
 // all mips + tiled     : some silhouette tiles miss intersection, more conservative mips might help
-// mip 0 + rm only      : silhouette is warped, more information is needed
 // all mips + rm only   : corners are rounded, more information is needed
 
 /// begin debug macro
 
 // 0: use every mips
 // n: use n - 1 mip only
-#define USE_MIP_N_ONLY 1
-#define DISABLE_TILED_MARCHING 0
+#define USE_MIP_N_ONLY 2
+#define DISABLE_TILED_MARCHING 1
 #define DEBUG_RAY_MARCHING_STEP 0
 #define DEBUG_DEPTH 0
+#define DEBUG_ERROR 0
+#define DEBUG_MIN_SDF 0
 
 #if DISABLE_TILED_MARCHING
 #define MAX_TILED_MARCHING_STEP 1
@@ -59,10 +59,10 @@ float4 SDFSupremum;
 #define SDF_SUP_INITIAL_W SDFSupremum.z
 #define SCENE_INITIAL_MIP SDFSupremum.w
 #else
-#define SDF_SUP_LOWEST_W (SDFSupremum.x * (1 << USE_MIP_N_ONLY))
+#define SCENE_INITIAL_MIP (USE_MIP_N_ONLY - 1)
+#define SDF_SUP_LOWEST_W (SDFSupremum.x * (1 << SCENE_INITIAL_MIP))
 #define SDF_SUP_HIGHEST_W SDF_SUP_LOWEST_W
 #define SDF_SUP_INITIAL_W SDF_SUP_LOWEST_W
-#define SCENE_INITIAL_MIP USE_MIP_N_ONLY
 #endif
 
 // zw: unused
@@ -157,7 +157,7 @@ float GetRaySupInScene(float3 o, float3 d)
     float3 t1 = (SCENE_SIZE - o) * invd;
     t0 = max(t0, t1);
     
-    return min(min(t0.x, t0.y), min(t0.z, 1000.0));
+    return min(min(t0.x, t0.y), min(t0.z, 1 << 15));
 }
 
 /// begin tiled marching
@@ -190,12 +190,8 @@ void TiledMarching(uint3 id : SV_DispatchThreadID)
         nsdf = SampleSDF(d * t + o, mip);
         sdf = nsdf * supremum;
         r = a * t;
-
-        // todo
-        // the original criteria won't stop before intersection as expected when using non-zero mips
-        //if (sdf <= r || t >= end)
         
-        if (nsdf <= 0.25 || t >= end)
+        if (sdf <= r || t >= end)
             break;
         
         t = (sdf + t) * k;
@@ -230,12 +226,21 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
     float nsdf, sdf;
     float mip = 0.0;
     float supremum = SDF_SUP_INITIAL_W;
+    
+#if DEBUG_MIN_SDF
+    float minSDF = 1000.0;
+#endif
+
     uint i;
     for (i = 0; i < MAX_RAY_MARCHING_STEP; i++)
     {
         nsdf = SampleSDF(d * t + o, mip);
         sdf = nsdf * supremum;
         t += sdf;
+
+#if DEBUG_MIN_SDF
+        minSDF = min(minSDF, sdf);
+#endif
         
         if (IsHit(sdf, t) || t >= end)
             break;
@@ -257,6 +262,10 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
     SceneRM0[id.xy] = float4(float(i).xxx / MAX_RAY_MARCHING_STEP, 1.0);
 #elif DEBUG_DEPTH
     SceneRM0[id.xy] = float4(abs(t * 0.01).xxx, 1.0);
+#elif DEBUG_ERROR
+    SceneRM0[id.xy] = float4(abs(sdf).xxx * 0.1, 1.0);
+#elif DEBUG_MIN_SDF
+    SceneRM0[id.xy] = float4(abs(minSDF).xxx * 0.1, 1.0);
 #else
     SceneRM0[id.xy] = float4(abs(normal), IsHit(sdf, t));
 #endif

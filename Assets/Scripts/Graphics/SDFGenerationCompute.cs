@@ -98,9 +98,12 @@ namespace Antares.Graphics
                     else
                     {
                         gridSize *= 1 << mip;
-                        float supremum = .5f * AShaderSpecs.SDFSupremum * gridSize;
+                        float supremum = AShaderSpecs.SDFSupremum * gridSize;
+                        SDFSupremum = new Vector2(supremum, 1f / supremum);
+
+                        gridSize *= .5f;
                         SceneGridSize = new Vector2(gridSize, gridSize * gridSize);
-                        SDFSupremum = new Vector2(supremum, .5f / supremum);
+
                     }
 
                     int scale = mip - 1;
