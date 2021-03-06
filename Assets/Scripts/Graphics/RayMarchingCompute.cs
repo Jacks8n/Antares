@@ -85,7 +85,7 @@ namespace Antares.Graphics
                     float tileDiagHalf = pixelDiagHalf * MarchingTileSize;
                     float tileAperture = tileDiagHalf / Mathf.Sqrt(tileDiagHalfSqr + near * near);
                     float sweepFactor = 1f / (1f + tileAperture);
-                    const float pauseThres = SDFSupremum * .5f;
+                    float pauseThres = supWorld * .25f;
                     TiledMarchingParams = new Vector4(sweepFactor, 1f - sweepFactor, pauseThres, 0f);
                 }
             }

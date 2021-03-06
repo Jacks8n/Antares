@@ -628,7 +628,7 @@ void GenerateMipMap(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex, uint3 tid :
         coord = UnpackGridCoord(MipDispatches[dispatchID]) * MAT_VOLUME_SCALE + tid - uint(MAT_VOLUME_SCALE / 2).xxx;
         const uint3 prevMipCoord = coord * 2;
         
-        sdf = SampleAverage(prevMipCoord) * SDF_SUPREMUM_W - GRID_SPACE_W;
+        sdf = SampleAverage(prevMipCoord) * SDF_SUPREMUM_W;
         GSM_SDFMips[gi] = sdf;
     }
     
@@ -643,10 +643,13 @@ void GenerateMipMap(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex, uint3 tid :
     [unroll]
     for (uint i = 0; i < 3; i++)
     {
-        x = MinNeighbor(gi, 1, xrange);
-        y = MinNeighbor(gi, 8, yrange);
-        z = MinNeighbor(gi, 64, zrange);
-        sdf = Eikonal3(x, y, z);
+        if (abs(sdf) > SDF_SUPREMUM_W)
+        {
+            x = MinNeighbor(gi, 1, xrange);
+            y = MinNeighbor(gi, 8, yrange);
+            z = MinNeighbor(gi, 64, zrange);
+            sdf = Eikonal3(x, y, z);
+        }
         
         if (i < 2)
         {
