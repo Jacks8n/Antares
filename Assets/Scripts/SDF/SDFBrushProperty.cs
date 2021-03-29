@@ -12,25 +12,42 @@ namespace Antares.SDF
     [Serializable]
     public struct SDFBrushTransform
     {
-        public Vector3 Translation;
+        [ReadOnly]
+        public Vector3 TranslationInv;
 
-        public float Scale;
+        [ReadOnly]
+        public float ScaleInv;
 
-        public Quaternion Rotation;
+        [ReadOnly]
+        public Quaternion RotationInv;
 
-        // order of matrix multiplication doesn't matter since scale is uniform
         public Matrix4x4 WorldToLocal {
             get {
-                float scaleInv = 1f / Scale;
-                return Matrix4x4.TRS(Translation, Rotation, new Vector3(scaleInv, scaleInv, scaleInv));
+                Matrix4x4 matrix = Matrix4x4.Rotate(RotationInv);
+
+                matrix.m03 = TranslationInv.x;
+                matrix.m13 = TranslationInv.y;
+                matrix.m23 = TranslationInv.z;
+
+                matrix.m00 *= ScaleInv;
+                matrix.m01 *= ScaleInv;
+                matrix.m02 *= ScaleInv;
+                matrix.m10 *= ScaleInv;
+                matrix.m11 *= ScaleInv;
+                matrix.m12 *= ScaleInv;
+                matrix.m20 *= ScaleInv;
+                matrix.m21 *= ScaleInv;
+                matrix.m22 *= ScaleInv;
+
+                return matrix;
             }
         }
 
         public SDFBrushTransform(Transform transform)
         {
-            Translation = -transform.position;
-            Scale = transform.localScale.x;
-            Rotation = Quaternion.Inverse(transform.rotation);
+            TranslationInv = -transform.position;
+            ScaleInv = 1f / transform.localScale.x;
+            RotationInv = Quaternion.Inverse(transform.rotation);
         }
 
         public static implicit operator SDFBrushTransform(Transform transform) => new SDFBrushTransform(transform);
