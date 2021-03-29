@@ -24,7 +24,7 @@ namespace Antares.Graphics
 
                 private readonly uint ParameterCountAndOffset;
 
-                private readonly float Scale;
+                private readonly float ScaleInv;
 
                 public SDFBrush(SDFBrushProperty brushProperty, int parameterCount, int parameterOffset)
                 {
@@ -39,7 +39,7 @@ namespace Antares.Graphics
 
                     ParameterCountAndOffset = (uint)(parameterCount << 24 | parameterOffset);
 
-                    Scale = brushProperty.Transform.Scale;
+                    ScaleInv = brushProperty.Transform.ScaleInv;
                 }
             }
 

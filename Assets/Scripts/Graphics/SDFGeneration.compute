@@ -76,16 +76,26 @@ struct SDFBrush
     
     uint ParameterOffsetCount;
     
-    float Scale;
+    float ScaleInv;
+    
+    float3 GetLocalPosition(float3 wpos)
+    {
+        const float3 tInv = WorldToLocal._41_42_43;
+        const float3x3 srInv = float3x3(WorldToLocal._11_21_31,
+                                        WorldToLocal._12_22_32,
+                                        WorldToLocal._13_23_33);
+
+        return mul(srInv, wpos + tInv);
+    }
     
     uint GetMaterialID()
     {
         return MaterialID;
     }
     
-    float GetUniformScale()
+    float GetUniformScaleInv()
     {
-        return Scale;
+        return ScaleInv;
     }
     
     // only used when loading from global memory, it will be overwritten after loading
@@ -174,7 +184,7 @@ struct SDFBrush
     
     float Sample(float3 wpos)
     {
-        const float3 p = mul(float4(wpos, 1.0), WorldToLocal);
+        const float3 p = GetLocalPosition(wpos);
 
         float sdf;
         switch (Type)
@@ -193,7 +203,7 @@ struct SDFBrush
                 break;
         }
 
-        return sdf * GetUniformScale();
+        return sdf * GetUniformScaleInv();
     }
     
     bool Cull(float3 wpos, float thres)
