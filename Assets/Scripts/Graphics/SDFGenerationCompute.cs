@@ -113,6 +113,9 @@ namespace Antares.Graphics
                 }
             }
 
+            /// <summary>
+            /// how many times scene volume is big as material volume
+            /// </summary>
             public const int MatVolumeScale = 4;
 
             /// <summary>
