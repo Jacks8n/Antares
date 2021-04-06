@@ -1,10 +1,10 @@
 # Antares
 
 ## To-Do
-- debug(in progress)
+- debug(almost finished)
     - sdf generation
     - ray marching    
-- simulation
+- simulation(in progress)
     - pbd, sdf-particle/particle-particle
 - [sdf, simulation] bake
     - openvdb integration?
