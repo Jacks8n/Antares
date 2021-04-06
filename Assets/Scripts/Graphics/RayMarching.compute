@@ -15,6 +15,7 @@
 #define DEBUG_RAY_MARCHING_ERROR 0
 #define DEBUG_RAY_MARCHING_MIN_SDF 0
 #define DEBUG_RAY_MARCHING_MAX_MIP 0
+#define DEBUG_RAY_MARCHING_BIAS 0
 
 #if USE_MIP_GE || USE_MIP_LE != ~0
 #define USE_MIP_RANGE
@@ -51,8 +52,6 @@ float3 SceneTexel;
 
 float RayMarchingParams;
 #define PIXEL_APERTURE_W RayMarchingParams
-    
-float4x3 WorldToSceneT;
     
 float4 SceneSize;
 #define SCENE_SIZE SceneSize.xyz
@@ -313,15 +312,17 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
 #elif DEBUG_RAY_MARCHING_DEPTH
     SceneRM0[id.xy] = float4(abs(t * 0.01).xxx, 1.0);
 #elif DEBUG_RAY_MARCHING_ERROR
-    SceneRM0[id.xy] = float4(abs(sdf).xxx * 0.1, 1.0);
+    SceneRM0[id.xy] = float4((sdf > 0 ? float2(sdf, 0.0) : float2(0.0, -sdf)) * 10.0, 0.0, 1.0);
 #elif DEBUG_RAY_MARCHING_MIN_SDF
     SceneRM0[id.xy] = float4(abs(minSDF).xxx * 0.1, 1.0);
 #elif DEBUG_RAY_MARCHING_MAX_MIP
     SceneRM0[id.xy] = float4(abs(maxMip).xxx / SCENE_MIP_MAX, 1.0);
+#elif DEBUG_RAY_MARCHING_BIAS
+    SceneRM0[id.xy] = float4(abs(bias * 10.0).xxx, 1.0);
 #else
     SceneRM0[id.xy] = float4(abs(normal), IsHit(sdf, t));
 #endif
     
-    SceneRM1[id.xy] = float4(normal, 1.0);
+    SceneRM1[id.xy] = float4(abs(normal).xxx, 1.0);
 #endif
 }

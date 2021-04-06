@@ -22,10 +22,6 @@ namespace Antares.Graphics
 
                 private readonly float RayMarchingParams;
 
-                private readonly Vector4 WorldToSceneTRow0;
-                private readonly Vector4 WorldToSceneTRow1;
-                private readonly Vector4 WorldToSceneTRow2;
-
                 private readonly Vector4 SceneSize;
 
                 private readonly Vector4 SDFBands;
@@ -64,12 +60,6 @@ namespace Antares.Graphics
                     float pixelDiagHalf = Mathf.Sqrt(pixelDiagHalfSqr);
                     float pixelAperture = pixelDiagHalf / Mathf.Sqrt(pixelDiagHalfSqr + near * near);
                     RayMarchingParams = pixelAperture * 5f;
-
-                    Transform sceneTrans = scene.transform;
-                    Matrix4x4 worldToScene = sceneTrans.worldToLocalMatrix;
-                    WorldToSceneTRow0 = worldToScene.GetRow(0);
-                    WorldToSceneTRow1 = worldToScene.GetRow(1);
-                    WorldToSceneTRow2 = worldToScene.GetRow(2);
 
                     Vector3 size = scene.Size;
                     SceneSize = new Vector4(size.x, size.y, size.z, SceneMipCount - 1);
