@@ -1,0 +1,107 @@
+﻿#pragma kernel SetupCLL
+#pragma kernel SolveConstraints
+
+#include "HLSLSupport.cginc"
+
+#define MAX_PARTICLE_VELOCITY 128
+
+#define PARTICLE_FLAG_ALIVE 1
+
+// ensure that the `val` is within [-`bound`, `bound`]
+uint F32ToF16Uniform(float val, float bound)
+{
+    return uint(val * (32767.0 / bound)) & 0xffff;
+}
+
+// ensure that the `val` is within [0, 65535]
+float F16UniformToF32(uint val, float bound)
+{
+    // (1.0 / 32767.0) has error around -0.000000000000524003
+    const float fval = (val & 0x7fff) * (bound * (1.0 / 32767.0));
+    
+    return val & 0x8000 ? -fval : fval;
+}
+
+// ensure that the `val` is within [0.0, 1.0]
+uint F32UNormToF16(float val)
+{
+    return uint(val * 65535.0);
+}
+
+// ensure that the `val` is within [0, 65535]
+float F16ToF32UNorm(uint val)
+{
+    // (1.0 / 65535.0) has error around -0.00000000000189670
+    return val * (1.0 / 65535.0);
+}
+
+struct FluidParticle
+{
+    uint VelocityXY;
+    uint VelocityZPosX;
+    uint PositionYZ;
+
+    // higher 16 bits are reserved for future
+    uint Flags;
+    
+    float3 GetVelocity()
+    {
+        return float3(F16UniformToF32(VelocityXY >> 16, MAX_PARTICLE_VELOCITY),
+                      F16UniformToF32(VelocityXY & 0xffff, MAX_PARTICLE_VELOCITY),
+                      F16UniformToF32(VelocityZPosX >> 16, MAX_PARTICLE_VELOCITY));
+    }
+    
+    float3 GetPosition_UNorm()
+    {
+        return float3(F16ToF32UNorm(VelocityZPosX & 0xffff),
+                      F16ToF32UNorm(PositionYZ >> 16),
+                      F16ToF32UNorm(PositionYZ & 0xffff));
+    }
+    
+    void Update(float3 velocity, float3 pos)
+    {
+        VelocityXY = (F32ToF16Uniform(velocity.x, MAX_PARTICLE_VELOCITY) << 16)
+                    | F32ToF16Uniform(velocity.y, MAX_PARTICLE_VELOCITY);
+        VelocityZPosX = (F32ToF16Uniform(velocity.z, MAX_PARTICLE_VELOCITY) << 16)
+                       | F32UNormToF16(pos.x);
+        PositionYZ = (F32UNormToF16(pos.y) << 16) | F32UNormToF16(pos.z);
+    }
+    
+    bool IsAlive()
+    {
+        return Flags & 1;
+    }
+};
+
+StructuredBuffer<FluidParticle> SPHParticles;
+RWTexture3D<uint> ParticleCellVolume;
+
+CBUFFER_START(SPHParameters)
+float TimeStep;
+#define TIME_STEP TimeStep
+CBUFFER_END
+
+[numthreads(64, 1, 1)]
+void SetupCLL(uint id : SV_DispatchThreadID)
+{
+    FluidParticle particle = SPHParticles[id.x];
+
+    if (particle.IsAlive())
+    {
+        float3 velocity;
+        velocity = particle.GetVelocity();
+
+        float3 pos;
+        pos = particle.GetPosition_UNorm();
+        // pos = lerp(pos, ,);
+
+        // todo: second order integration
+        pos += velocity * TIME_STEP;
+    }
+}
+
+[numthreads(64, 1, 1)]
+void SolveConstraints(uint3 id : SV_ThreadID)
+{
+	
+}
