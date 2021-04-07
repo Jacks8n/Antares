@@ -1,4 +1,5 @@
-﻿#pragma kernel SetupCLL
+﻿#pragma kernel UpdateParticles
+#pragma kernel SetupCLL
 #pragma kernel SolveConstraints
 
 #include "HLSLSupport.cginc"
@@ -73,35 +74,187 @@ struct FluidParticle
     }
 };
 
-StructuredBuffer<FluidParticle> SPHParticles;
-RWTexture3D<uint> ParticleCellVolume;
+// aggregate of five float3s and one 16bit flag
+struct PackedParticles
+{
+    // Data[0] ... Data[8]'s higher 16 bits: float3 position
+    // Data[8]'s lower 16 bits: particle state flags, 3 bits per particle, grouped by flag
+    // flag bits layout: { reserved[15:5], alive[4:0] }
+    uint Data[8];
+    
+    float3 GetPosition(uint index)
+    {
+        const uint offset = index * 3;
+
+        float3 pos;
+
+        [unroll]
+        for (uint i = 0; i < 3; i++)
+        {
+            const uint dindex = (offset + i) / 2;
+            const uint doffset = (offset + i) % 2;
+
+            const uint f16 = doffset ? Data[dindex] & 0xffff : Data[index] >> 16;
+            
+            pos[i] = F16ToF32UNorm(f16);
+        }
+        
+        return pos;
+    }
+    
+    bool IsAnyAlive()
+    {
+        return Data[8] & 0x1f;
+    }
+    
+    bool IsAlive(uint index)
+    {
+        return Data[8] & (1 << index);
+    }
+};
+
+#define CLL_EMPTY 0
 
 CBUFFER_START(SPHParameters)
 float TimeStep;
-#define TIME_STEP TimeStep
+
+float3 CellVolumeSize;
+
+uint FluidParticleCount;
 CBUFFER_END
 
+// first FluidParticleCount particles are sph particles which are both added to cll and solved
+// rest particles are point clouds which is only added to cll
+// must be aligned to 64 elements
+RWStructuredBuffer<PackedParticles> PBDParticles;
+
+// every grid is initialized to CLL_EMPTY
+RWTexture3D<uint> CellVolume;
+
+// first element is global counter, which is initialized to 2
+RWBuffer<uint> CellLinkedList;
+
 [numthreads(64, 1, 1)]
-void SetupCLL(uint id : SV_DispatchThreadID)
+void UpdateParticles(uint3 id : SV_DispatchThreadID)
 {
-    FluidParticle particle = SPHParticles[id.x];
+    // todo
+}
 
-    if (particle.IsAlive())
-    {
-        float3 velocity;
-        velocity = particle.GetVelocity();
+uint3 GetCellID(float3 pos)
+{
+    const float3 cpos = min(CellVolumeSize * pos, CellVolumeSize - float(0.5).xxx);
+    return (uint3) cpos;
+}
 
-        float3 pos;
-        pos = particle.GetPosition_UNorm();
-        // pos = lerp(pos, ,);
+uint AddCLLNode()
+{
+    uint nodeIndex;
+    InterlockedAdd(CellLinkedList[0], 2, nodeIndex);
+    return nodeIndex;
+}
 
-        // todo: second order integration
-        pos += velocity * TIME_STEP;
-    }
+uint GetNextCLLNode(uint index)
+{
+    return CellLinkedList[index];
+}
+
+void SetNextCLLNode(uint index, uint next)
+{
+    CellLinkedList[index] = next;
+}
+
+uint GetCLLNodeValue(uint index)
+{
+    return CellLinkedList[index + 1];
+}
+
+void SetCLLNodeValue(uint index, uint value)
+{
+    CellLinkedList[index + 1] = value;
 }
 
 [numthreads(64, 1, 1)]
-void SolveConstraints(uint3 id : SV_ThreadID)
+void SetupCLL(uint3 id : SV_DispatchThreadID)
 {
-	
+    const PackedParticles particles = PBDParticles[id.x];
+    
+    if (!particles.IsAnyAlive())
+        return;
+    
+    [unroll]
+    for (uint i = 0; i < 5; i++)
+    {
+        if (!particles.IsAlive(i))
+            continue;
+        
+        const uint pindex = id.x * 5 + i;
+        const float3 pos = particles.GetPosition(i);
+        const uint3 cid = GetCellID(pos);
+        
+        const uint nodeIndex = AddCLLNode();
+        SetCLLNodeValue(nodeIndex, pindex);
+        
+        uint prevNodeIndex;
+        InterlockedExchange(CellVolume[cid], nodeIndex, prevNodeIndex);
+        SetNextCLLNode(nodeIndex, prevNodeIndex);
+    }
+}
+
+float SPHKernel(float dist)
+{
+    
+}
+
+float3 SPHKernelGradiant(float3 r)
+{
+    
+}
+
+float3 GetParticlePosition(uint index)
+{
+    return PBDParticles[index / 5].GetPosition(index % 5);
+}
+
+[numthreads(64, 1, 1)]
+void SolveConstraints(uint3 id : SV_DispatchThreadID)
+{
+    // these constraints are solved
+    // 1. fluid density
+    // 2. point clouds bound
+    // 3. sdf bound
+
+    const uint packIndex = id.x / 5;
+    const uint particleIndex = id.x % 5;
+    const PackedParticles particles = PBDParticles[packIndex];
+    
+    if (!particles.IsAlive(particleIndex))
+        return;
+    
+    const float3 pos = particles.GetPosition(particleIndex);
+        
+    const uint3 cid = GetCellID(pos);
+    uint node = CellVolume[cid];
+    
+    do
+    {
+        const uint pindex = GetCLLNodeValue(node);
+        if (pindex != id.x)
+        {
+            if (pindex < FluidParticleCount)
+            {
+                // fluid density
+                const float3 r = (GetParticlePosition(pindex) - pos) * ;
+            
+                const float3 grad = SPHKernelGradiant(r);
+                const float c = SPHKernel(r);
+                const float step;
+            }
+            else
+            {
+                // point cloud bound
+            }
+        }
+        
+        node = GetNextCLLNode(node);
+    } while (node != CLL_EMPTY);
 }
