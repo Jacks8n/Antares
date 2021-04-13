@@ -1,132 +1,30 @@
-﻿#pragma kernel UpdateParticles
-#pragma kernel SetupCLL
+﻿#pragma kernel SetupCLL
 #pragma kernel SolveConstraints
 
 #include "HLSLSupport.cginc"
 
-#define MAX_PARTICLE_VELOCITY 128
-
-#define PARTICLE_FLAG_ALIVE 1
-
-// ensure that the `val` is within [-`bound`, `bound`]
-uint F32ToF16Uniform(float val, float bound)
-{
-    return uint(val * (32767.0 / bound)) & 0xffff;
-}
-
-// ensure that the `val` is within [0, 65535]
-float F16UniformToF32(uint val, float bound)
-{
-    // (1.0 / 32767.0) has error around -0.000000000000524003
-    const float fval = (val & 0x7fff) * (bound * (1.0 / 32767.0));
-    
-    return val & 0x8000 ? -fval : fval;
-}
-
-// ensure that the `val` is within [0.0, 1.0]
-uint F32UNormToF16(float val)
-{
-    return uint(val * 65535.0);
-}
-
-// ensure that the `val` is within [0, 65535]
-float F16ToF32UNorm(uint val)
-{
-    // (1.0 / 65535.0) has error around -0.00000000000189670
-    return val * (1.0 / 65535.0);
-}
-
-struct FluidParticle
-{
-    uint VelocityXY;
-    uint VelocityZPosX;
-    uint PositionYZ;
-
-    // higher 16 bits are reserved for future
-    uint Flags;
-    
-    float3 GetVelocity()
-    {
-        return float3(F16UniformToF32(VelocityXY >> 16, MAX_PARTICLE_VELOCITY),
-                      F16UniformToF32(VelocityXY & 0xffff, MAX_PARTICLE_VELOCITY),
-                      F16UniformToF32(VelocityZPosX >> 16, MAX_PARTICLE_VELOCITY));
-    }
-    
-    float3 GetPosition_UNorm()
-    {
-        return float3(F16ToF32UNorm(VelocityZPosX & 0xffff),
-                      F16ToF32UNorm(PositionYZ >> 16),
-                      F16ToF32UNorm(PositionYZ & 0xffff));
-    }
-    
-    void Update(float3 velocity, float3 pos)
-    {
-        VelocityXY = (F32ToF16Uniform(velocity.x, MAX_PARTICLE_VELOCITY) << 16)
-                    | F32ToF16Uniform(velocity.y, MAX_PARTICLE_VELOCITY);
-        VelocityZPosX = (F32ToF16Uniform(velocity.z, MAX_PARTICLE_VELOCITY) << 16)
-                       | F32UNormToF16(pos.x);
-        PositionYZ = (F32UNormToF16(pos.y) << 16) | F32UNormToF16(pos.z);
-    }
-    
-    bool IsAlive()
-    {
-        return Flags & 1;
-    }
-};
-
-// aggregate of five float3s and one 16bit flag
-struct PackedParticles
-{
-    // Data[0] ... Data[8]'s higher 16 bits: float3 position
-    // Data[8]'s lower 16 bits: particle state flags, 3 bits per particle, grouped by flag
-    // flag bits layout: { reserved[15:5], alive[4:0] }
-    uint Data[8];
-    
-    float3 GetPosition(uint index)
-    {
-        const uint offset = index * 3;
-
-        float3 pos;
-
-        [unroll]
-        for (uint i = 0; i < 3; i++)
-        {
-            const uint dindex = (offset + i) / 2;
-            const uint doffset = (offset + i) % 2;
-
-            const uint f16 = doffset ? Data[dindex] & 0xffff : Data[index] >> 16;
-            
-            pos[i] = F16ToF32UNorm(f16);
-        }
-        
-        return pos;
-    }
-    
-    bool IsAnyAlive()
-    {
-        return Data[8] & 0x1f;
-    }
-    
-    bool IsAlive(uint index)
-    {
-        return Data[8] & (1 << index);
-    }
-};
+#define SPH_PARTICLE_RADIUS 0.1
+#define SPH_FLUID_DENSITY 1.0
 
 #define CLL_EMPTY 0
 
 CBUFFER_START(SPHParameters)
-float TimeStep;
+float2 TimeStep;
+#define TIME_STEP TimeStep.x
+#define TIME_STEP_INV TimeStep.y
+
+uint FluidParticleCount;
+
+// 2/3 * Time Step * Global Force
+float FluidGravity;
+#define FLUID_GRAVITY FluidGravity
 
 float3 CellVolumeSize;
 
-uint FluidParticleCount;
+// 2/3 * Time Step * Stiffness
+float Stiffness;
+#define GLOBAL_STIFFNESS Stiffness
 CBUFFER_END
-
-// first FluidParticleCount particles are sph particles which are both added to cll and solved
-// rest particles are point clouds which is only added to cll
-// must be aligned to 64 elements
-RWStructuredBuffer<PackedParticles> PBDParticles;
 
 // every grid is initialized to CLL_EMPTY
 RWTexture3D<uint> CellVolume;
@@ -134,10 +32,89 @@ RWTexture3D<uint> CellVolume;
 // first element is global counter, which is initialized to 2
 RWBuffer<uint> CellLinkedList;
 
-[numthreads(64, 1, 1)]
-void UpdateParticles(uint3 id : SV_DispatchThreadID)
+struct PackedParticlePositions
 {
-    // todo
+    float x[64];
+    float y[64];
+    float z[64];
+};
+
+// to perform bdf2, x_n, x_{n-1}, v_n, v_{n-1} are required, but x_{n-1} 
+// can be computed on the fly since time step is constant. also for sake
+// of alignment, x_{n-1} is not stored
+// among these x_n is float32x3 and the rest are float16x3
+//
+// additionally flags are required to manage particles, they are packed
+// into three buffers, which have different layouts
+//
+// here's the illustration in regex style:
+// ParticlePositions: (x_n.x{64}, x_n.y{64}, x_n.z{64})*
+// ParticleFlags    : (flag)*
+// ParticleTracks   : (v_n.yzx, v_{n-1}.x){64}, v_{n-1}.yz{64})*
+// where the 32-bit flag's layout is: (reserved{24}, alive{8})
+//
+// first FluidParticleCount particles are both added to cll and solved,
+// the rest are point clouds which is only added to cll
+RWStructuredBuffer<PackedParticlePositions> ParticlePositions;
+RWBuffer<uint> ParticleFlags;
+RWByteAddressBuffer ParticleTracks;
+
+float3 GetParticlePosition(uint index)
+{
+    const uint packIndex = index / 64;
+    const uint packOffset = index % 64;
+    return float3(ParticlePositions[packIndex].x[packOffset],
+                  ParticlePositions[packIndex].y[packOffset],
+                  ParticlePositions[packIndex].z[packOffset]);
+}
+
+void SetParticlePosition(uint index, float3 position)
+{
+    const uint packIndex = index / 64;
+    const uint packOffset = index % 64;
+    ParticlePositions[packIndex].x[packOffset] = position.x;
+    ParticlePositions[packIndex].y[packOffset] = position.y;
+    ParticlePositions[packIndex].z[packOffset] = position.z;
+}
+
+bool IsParticleAlive(uint index)
+{
+    const uint packIndex = index / 8;
+    const uint packOffset = index % 8;
+    const uint mask = 1 << packOffset;
+    return ParticleFlags[packIndex] & mask;
+}
+
+void PopParticleTrack(uint index, out float3 velocity, out float3 prevVelocity, out uint compressedWord)
+{
+    const uint packIndex = index / 64;
+    const uint packOffset = index % 64;
+    const uint packByteIndex = packIndex * 768;
+
+    const uint yzoffset = packByteIndex + 512 + packOffset * 4;
+    const uint3 word = uint3(ParticleTracks.Load2(packByteIndex + packOffset * 8),
+                             ParticleTracks.Load(yzoffset));
+    // update compressed velocity immediately to avoid redundant compression
+    // v_n.x and v_{n-1}.x shares the same word, thus they are updated later
+    ParticleTracks.Store(yzoffset, word.x);
+    
+    const float3 high = f16tof32(word >> 16);
+    const float3 low = f16tof32(word & 0xffff);
+    
+    velocity = float3(high.y, high.x, low.x);
+    prevVelocity = float3(low.y, high.z, low.z);
+    compressedWord = word.y >> 16;
+}
+
+void SetParticleTrack(uint index, float3 velocity, uint compressedWord)
+{
+    const uint packIndex = index / 64;
+    const uint packOffset = index % 64;
+    const uint packByteIndex = packIndex * 768;
+
+    const uint3 word = f32tof16(velocity);
+    const uint2 packedWord = uint2(word.y << 16 | word.z, word.x << 16 | compressedWord);
+    ParticleTracks.Store2(packByteIndex + packOffset * 8, packedWord);
 }
 
 uint3 GetCellID(float3 pos)
@@ -176,85 +153,68 @@ void SetCLLNodeValue(uint index, uint value)
 [numthreads(64, 1, 1)]
 void SetupCLL(uint3 id : SV_DispatchThreadID)
 {
-    const PackedParticles particles = PBDParticles[id.x];
-    
-    if (!particles.IsAnyAlive())
+    if (!IsParticleAlive(id.x))
         return;
     
-    [unroll]
-    for (uint i = 0; i < 5; i++)
-    {
-        if (!particles.IsAlive(i))
-            continue;
+    const float pos = GetParticlePosition(id.x);
+    const uint3 cid = GetCellID(pos);
         
-        const uint pindex = id.x * 5 + i;
-        const float3 pos = particles.GetPosition(i);
-        const uint3 cid = GetCellID(pos);
+    const uint nodeIndex = AddCLLNode();
+    SetCLLNodeValue(nodeIndex, id.x);
         
-        const uint nodeIndex = AddCLLNode();
-        SetCLLNodeValue(nodeIndex, pindex);
-        
-        uint prevNodeIndex;
-        InterlockedExchange(CellVolume[cid], nodeIndex, prevNodeIndex);
-        SetNextCLLNode(nodeIndex, prevNodeIndex);
-    }
+    uint prevNodeIndex;
+    InterlockedExchange(CellVolume[cid], nodeIndex, prevNodeIndex);
+    SetNextCLLNode(nodeIndex, prevNodeIndex);
 }
 
-float SPHKernel(float dist)
+float SPHKernel(float distSqr)
 {
-    
+    // todo
 }
 
 float3 SPHKernelGradiant(float3 r)
 {
-    
-}
-
-float3 GetParticlePosition(uint index)
-{
-    return PBDParticles[index / 5].GetPosition(index % 5);
+    // todo
 }
 
 [numthreads(64, 1, 1)]
 void SolveConstraints(uint3 id : SV_DispatchThreadID)
 {
     // these constraints are solved
-    // 1. fluid density
-    // 2. point clouds bound
-    // 3. sdf bound
-
-    const uint packIndex = id.x / 5;
-    const uint particleIndex = id.x % 5;
-    const PackedParticles particles = PBDParticles[packIndex];
+    //  1. fluid density
+    //  2. point clouds bound
+    //  3. sdf bound
+    // currently 1 and 2 are not processed separately
     
-    if (!particles.IsAlive(particleIndex))
+    if (!IsParticleAlive(id.x))
         return;
-    
-    const float3 pos = particles.GetPosition(particleIndex);
         
+    const float3 pos = GetParticlePosition(id.x);
     const uint3 cid = GetCellID(pos);
     uint node = CellVolume[cid];
     
+    float3 gradiant = float(0.0).xxx;
     do
     {
         const uint pindex = GetCLLNodeValue(node);
         if (pindex != id.x)
         {
-            if (pindex < FluidParticleCount)
-            {
-                // fluid density
-                const float3 r = (GetParticlePosition(pindex) - pos) * ;
+            const float3 r = GetParticlePosition(pindex) - pos;
+            const float rr = dot(r, r);
             
-                const float3 grad = SPHKernelGradiant(r);
-                const float c = SPHKernel(r);
-                const float step;
-            }
-            else
-            {
-                // point cloud bound
-            }
+            gradiant += SPHKernelGradiant(r);
         }
         
         node = GetNextCLLNode(node);
     } while (node != CLL_EMPTY);
+    
+    float3 v0, v1;
+    uint tmp;
+    PopParticleTrack(id.x, v0, v1, tmp);
+    
+    const float3 vn = (4.0 / 3.0) * v0 - (1.0 / 3.0) * v1 + FLUID_GRAVITY + GLOBAL_STIFFNESS * gradiant;
+    const float3 xn = pos + (1.0 / 3.0) * v0 * TIME_STEP + (2.0 / 3.0) * vn;
+    
+    SetParticlePosition(id.x, xn);
+    SetParticleTrack(id.x, vn, tmp);
 }
