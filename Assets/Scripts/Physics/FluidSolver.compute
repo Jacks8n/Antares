@@ -9,28 +9,43 @@
 #define CLL_EMPTY 0
 
 CBUFFER_START(SPHParameters)
-float2 TimeStep;
-#define TIME_STEP TimeStep.x
-#define TIME_STEP_INV TimeStep.y
+float4x3 WorldToSceneTex;
 
 uint FluidParticleCount;
 
-// 2/3 * Time Step * Global Force
-float FluidGravity;
-#define FLUID_GRAVITY FluidGravity
-
-float3 CellVolumeSize;
+float2 TimeStep;
+#define TIME_STEP TimeStep.x
+#define TIME_STEP_INV TimeStep.y
 
 // 2/3 * Time Step * Stiffness
 float Stiffness;
 #define GLOBAL_STIFFNESS Stiffness
 
-// todo
-float4x3 WorldToScene;
+// 2/3 * Time Step * Global Force
+float FluidGravity;
+#define GLOBAL_GRAVITY float3(0.0, 0.0, FluidGravity)
 
-float SDFSupremum;
-#define SDF_SUPREMUM_W SDFSupremum
+float3 SceneTexel;
+#define SCENE_VOLUME_TEXEL
+
+// SPH_PARTICLE_RADIUS / SDF_SUPREMUM_W
+float SDFCollisionThres;
+
+float3 CellVolumeSiz;
+
+// in unit of cell volume texel
+float3 CellVolumeTranslation;
 CBUFFER_END
+
+SamplerState SamplerLinearClamp;
+#define SCENE_VOLUME_SAMPLER SamplerLinearClamp
+
+#include "../Graphics/SceneVolumeSampling.hlsli"
+
+bool IsParticleCollideWithSDF(float normalizedSDF)
+{
+    return normalizedSDF < SDFCollisionThres;
+}
 
 // every grid is initialized to CLL_EMPTY
 RWTexture3D<uint> CellVolume;
@@ -188,8 +203,6 @@ float3 SPHKernelGradiant(float3 r)
     return rr < h2 ? r * (d * d * a) : float(0.0).xxx;
 }
 
-extern Texture3D<snorm float> SceneVolume;
-
 [numthreads(64, 1, 1)]
 void SolveConstraints(uint3 id : SV_DispatchThreadID)
 {
@@ -204,8 +217,12 @@ void SolveConstraints(uint3 id : SV_DispatchThreadID)
         
     const float3 pos = GetParticlePosition(id.x);
     
+    const float3 spos = mul(float4(pos, 1.0), WorldToSceneTex);
+    const float nsdf = SampleNormalizedSDF(spos, 0.0);
+    
     float3 gradiant = float(0.0).xxx;
-    // todo sdf bound
+    if (IsParticleCollideWithSDF(nsdf))
+        gradiant = SampleNormal(spos, 0.0);
 
     const uint3 cid = GetCellID(pos);
     uint node = CellVolume[cid];
@@ -228,7 +245,7 @@ void SolveConstraints(uint3 id : SV_DispatchThreadID)
     const float third1 = 1.0 / 3.0;
     const float third2 = 2.0 / 3.0;
     const float third4 = 4.0 / 3.0;
-    const float3 vn = third4 * v0 - third1 * v1 + FLUID_GRAVITY + GLOBAL_STIFFNESS * gradiant;
+    const float3 vn = third4 * v0 - third1 * v1 + GLOBAL_GRAVITY + GLOBAL_STIFFNESS * gradiant;
     const float3 xn = pos + third1 * v0 * TIME_STEP + third2 * vn;
     
     SetParticlePosition(id.x, xn);

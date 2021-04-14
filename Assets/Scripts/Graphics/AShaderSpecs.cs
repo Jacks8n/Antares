@@ -1,4 +1,5 @@
-﻿using Antares.SDF;
+﻿using System.Runtime.InteropServices;
+using Antares.SDF;
 using Antares.Utility;
 using Sirenix.OdinInspector;
 using UnityEngine;
@@ -36,6 +37,30 @@ namespace Antares.Graphics
             {
                 shader.SetConstantBuffer(cbufferID, cbuffer, OffsetInBytes, Size);
             }
+        }
+
+        [StructLayout(LayoutKind.Sequential, Pack = 1)]
+        private struct Matrix3x4
+        {
+            private readonly Vector4 Row0;
+            private readonly Vector4 Row1;
+            private readonly Vector4 Row2;
+
+            public Matrix3x4(Matrix4x4 matrix)
+            {
+                Row0 = matrix.GetRow(0);
+                Row1 = matrix.GetRow(1);
+                Row2 = matrix.GetRow(2);
+            }
+
+            public Matrix3x4(Vector3 col0, Vector3 col1, Vector3 col2, Vector3 col3)
+            {
+                Row0 = new Vector4(col0.x, col1.x, col2.x, col3.x);
+                Row1 = new Vector4(col0.y, col1.y, col2.y, col3.y);
+                Row2 = new Vector4(col0.z, col1.z, col2.z, col3.z);
+            }
+
+            public static implicit operator Matrix3x4(Matrix4x4 matrix) => new Matrix3x4(matrix);
         }
 
         private interface IShaderAggregator

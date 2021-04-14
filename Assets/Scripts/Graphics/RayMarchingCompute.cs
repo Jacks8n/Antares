@@ -14,9 +14,7 @@ namespace Antares.Graphics
             [StructLayout(LayoutKind.Sequential, Pack = 1)]
             public struct RayMarchingParameters
             {
-                private readonly Vector4 UVToSceneRow0;
-                private readonly Vector4 UVToSceneRow1;
-                private readonly Vector4 UVToSceneRow2;
+                private readonly Matrix3x4 UVToScene;
 
                 private readonly Vector3 SceneTexel;
 
@@ -49,9 +47,7 @@ namespace Antares.Graphics
                     Vector3 cameraPos = cameraTrans.position;
                     cameraPos = scene.WorldToScenePoint(cameraPos);
 
-                    UVToSceneRow0 = new Vector4(right.x, up.x, lbn.x, cameraPos.x);
-                    UVToSceneRow1 = new Vector4(right.y, up.y, lbn.y, cameraPos.y);
-                    UVToSceneRow2 = new Vector4(right.z, up.z, lbn.z, cameraPos.z);
+                    UVToScene = new Matrix3x4(right, up, lbn, cameraPos);
 
                     Vector3 texel = scene.SizeInv;
                     SceneTexel = new Vector4(texel.x, texel.y, texel.z);
@@ -95,14 +91,14 @@ namespace Antares.Graphics
 
             public int RayMarchingKernel { get; private set; }
 
-            public ConstantBufferSegment<RayMarchingParameters> RayMarchingParametersCBuffer { get; private set; }
+            public ConstantBufferSegment<RayMarchingParameters> RayMarchingParamsCBSegment { get; private set; }
 
             void IShaderSpec.OnAfterDeserialize<T>(T specs)
             {
                 TiledMarchingKernel = Shader.FindKernel("TiledMarching");
                 RayMarchingKernel = Shader.FindKernel("RayMarching");
 
-                RayMarchingParametersCBuffer = specs.RegisterConstantBuffer<RayMarchingParameters>();
+                RayMarchingParamsCBSegment = specs.RegisterConstantBuffer<RayMarchingParameters>();
             }
         }
     }

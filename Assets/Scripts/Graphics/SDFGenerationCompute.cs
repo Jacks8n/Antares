@@ -14,9 +14,7 @@ namespace Antares.Graphics
             [StructLayout(LayoutKind.Sequential, Pack = 1)]
             public struct SDFBrush
             {
-                private readonly Vector4 WorldToLocalRow0;
-                private readonly Vector4 WorldToLocalRow1;
-                private readonly Vector4 WorldToLocalRow2;
+                private readonly Matrix3x4 WorldToLocal;
 
                 private readonly uint BrushType;
 
@@ -28,10 +26,7 @@ namespace Antares.Graphics
 
                 public SDFBrush(SDFBrushProperty brushProperty, int parameterCount, int parameterOffset)
                 {
-                    Matrix4x4 worldToLocal = brushProperty.Transform.WorldToLocal;
-                    WorldToLocalRow0 = worldToLocal.GetRow(0);
-                    WorldToLocalRow1 = worldToLocal.GetRow(1);
-                    WorldToLocalRow2 = worldToLocal.GetRow(2);
+                    WorldToLocal = brushProperty.Transform.WorldToLocal;
 
                     BrushType = (uint)brushProperty.BrushType;
 
@@ -148,9 +143,9 @@ namespace Antares.Graphics
 
             public int GenerateMipMapKernel { get; private set; }
 
-            public ConstantBufferSegment<SDFGenerationParameters> SDFGenerationCBuffer { get; private set; }
+            public ConstantBufferSegment<SDFGenerationParameters> SDFGenerationParamsCBSegment { get; private set; }
 
-            public ConstantBufferSegment<MipGenerationParameters>[] MipGenerationCBuffers { get; private set; }
+            public ConstantBufferSegment<MipGenerationParameters>[] MipGenerationParamsCBSegment { get; private set; }
 
             void IShaderSpec.OnAfterDeserialize<T>(T specs)
             {
@@ -159,10 +154,10 @@ namespace Antares.Graphics
                 GenerateSceneVolumeKernel = Shader.FindKernel("GenerateSceneVolume");
                 GenerateMipMapKernel = Shader.FindKernel("GenerateMipMap");
 
-                SDFGenerationCBuffer = specs.RegisterConstantBuffer<SDFGenerationParameters>();
-                MipGenerationCBuffers = new ConstantBufferSegment<MipGenerationParameters>[SceneMipCount];
+                SDFGenerationParamsCBSegment = specs.RegisterConstantBuffer<SDFGenerationParameters>();
+                MipGenerationParamsCBSegment = new ConstantBufferSegment<MipGenerationParameters>[SceneMipCount];
                 for (int i = 0; i < SceneMipCount; i++)
-                    MipGenerationCBuffers[i] = specs.RegisterConstantBuffer<MipGenerationParameters>();
+                    MipGenerationParamsCBSegment[i] = specs.RegisterConstantBuffer<MipGenerationParameters>();
             }
         }
     }

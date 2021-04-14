@@ -48,7 +48,7 @@ CBUFFER_START(RayMarchingParameters)
 float4x3 UVToScene;
 
 float3 SceneTexel;
-#define SCENE_TEXEL_SIZE SceneTexel.xyz
+#define SCENE_VOLUME_TEXEL SceneTexel.xyz
 
 float RayMarchingParams;
 #define PIXEL_APERTURE_W RayMarchingParams
@@ -87,9 +87,9 @@ float4 TiledMarchingParams;
 CBUFFER_END
 
 SamplerState SamplerLinearClamp;
-#define SDFSampler SamplerLinearClamp
+#define SCENE_VOLUME_SAMPLER SamplerLinearClamp
 
-extern Texture3D<snorm float> SceneVolume;
+#include "SceneVolumeSampling.hlsli"
 
 extern RWTexture2D<float2> TiledRM;
 
@@ -117,26 +117,9 @@ void UpdateMip(float nsdf, inout float mip, inout float supremum)
 #endif
 }
 
-// returns **normalized** sdf
-float SampleSDF(float3 pos, float mip)
-{
-    const float3 texel = SCENE_TEXEL_SIZE;
-    const float3 uvw = pos * texel;
-    return SceneVolume.SampleLevel(SDFSampler, uvw, mip);
-}
-
 float3 SampleColor(float3 p)
 {
     return abs(normalize(sin(p)));
-}
-
-float3 SampleNormal(float3 p, float mip)
-{
-    const float2 offset = float2(1.0, -1.0);
-    return normalize(SampleSDF(p + offset.xxx, mip) * offset.xxx +
-                     SampleSDF(p + offset.yyx, mip) * offset.yyx +
-                     SampleSDF(p + offset.xyy, mip) * offset.xyy +
-                     SampleSDF(p + offset.yxy, mip) * offset.yxy);
 }
 
 float3 GetCameraPos()
@@ -209,7 +192,7 @@ void TiledMarching(uint3 id : SV_DispatchThreadID)
     uint i;
     for (i = 0; i < MAX_TILED_MARCHING_STEP; i++)
     {
-        nsdf = SampleSDF(d * t + o, mip);
+        nsdf = SampleNormalizedSDFLocal(d * t + o, mip);
         sdf = nsdf * supremum;
 
 #if DEBUG_TILED_MARCHING_MIN_SDF
@@ -282,7 +265,7 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
     uint i;
     for (i = 0; i < MAX_RAY_MARCHING_STEP; i++)
     {
-        nsdf = SampleSDF(d * t + o, mip);
+        nsdf = SampleNormalizedSDFLocal(d * t + o, mip);
         sdf = nsdf * supremum;
         t += sdf;
 
@@ -299,13 +282,13 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
     }
 
     // remedy with linear interpolation, which requires infinite marching steps to converge
-    const float last = SampleSDF(d * t + o, 0.0) * SDF_SUP_MIN_W;
+    const float last = SampleNormalizedSDFLocal(d * t + o, 0.0) * SDF_SUP_MIN_W;
     const float bias = last * rcp(1.0 - (last - sdf));
     t += bias;
 
     const float3 hit = d * t + o;
     const float3 color = SampleColor(hit);
-    const float3 normal = SampleNormal(hit, 0.0);
+    const float3 normal = SampleNormalLocal(hit, 0.0);
     
 #if DEBUG_RAY_MARCHING_STEP
     SceneRM0[id.xy] = float4(float(i).xxx / MAX_RAY_MARCHING_STEP, 1.0);

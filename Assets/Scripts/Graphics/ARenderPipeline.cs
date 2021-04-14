@@ -131,8 +131,8 @@ namespace Antares.Graphics
 
                 // set global params
                 {
-                    sdfGeneration.SDFGenerationCBuffer.UpdateCBuffer(_constantBuffer, new SDFGenerationCompute.SDFGenerationParameters(_loadedScene));
-                    sdfGeneration.SDFGenerationCBuffer.BindCBuffer(cmd, shader, ID_SDFGenerationParameters, _constantBuffer);
+                    sdfGeneration.SDFGenerationParamsCBSegment.UpdateCBuffer(_constantBuffer, new SDFGenerationCompute.SDFGenerationParameters(_loadedScene));
+                    sdfGeneration.SDFGenerationParamsCBSegment.BindCBuffer(cmd, shader, ID_SDFGenerationParameters, _constantBuffer);
                 }
 
                 // generate material volume mip 0
@@ -153,8 +153,8 @@ namespace Antares.Graphics
                 kernel = sdfGeneration.GenerateSceneVolumeKernel;
                 {
                     var parameters = new SDFGenerationCompute.MipGenerationParameters(_loadedScene, 0);
-                    sdfGeneration.MipGenerationCBuffers[0].UpdateCBuffer(_constantBuffer, parameters);
-                    sdfGeneration.MipGenerationCBuffers[0].BindCBuffer(cmd, shader, ID_MipGenerationParameters, _constantBuffer);
+                    sdfGeneration.MipGenerationParamsCBSegment[0].UpdateCBuffer(_constantBuffer, parameters);
+                    sdfGeneration.MipGenerationParamsCBSegment[0].BindCBuffer(cmd, shader, ID_MipGenerationParameters, _constantBuffer);
 
                     SetMaterialVolume(cmd, shader, kernel);
                     SetSceneVolume(cmd, shader, kernel);
@@ -170,8 +170,8 @@ namespace Antares.Graphics
                     for (int i = 0; i < SceneMipCount - 1; i++)
                     {
                         var parameters = new SDFGenerationCompute.MipGenerationParameters(_loadedScene, i + 1);
-                        sdfGeneration.MipGenerationCBuffers[i + 1].UpdateCBuffer(_constantBuffer, parameters);
-                        sdfGeneration.MipGenerationCBuffers[i + 1].BindCBuffer(cmd, shader, ID_MipGenerationParameters, _constantBuffer);
+                        sdfGeneration.MipGenerationParamsCBSegment[i + 1].UpdateCBuffer(_constantBuffer, parameters);
+                        sdfGeneration.MipGenerationParamsCBSegment[i + 1].BindCBuffer(cmd, shader, ID_MipGenerationParameters, _constantBuffer);
 
                         // generate material volume non-zero mips
                         kernel = sdfGeneration.GenerateMipDispatchKernel;
@@ -247,8 +247,8 @@ namespace Antares.Graphics
                     unsafe
                     {
                         var parameters = new RayMarchingCompute.RayMarchingParameters(camera, _loadedScene, invWidth, invHeight);
-                        rayMarching.RayMarchingParametersCBuffer.UpdateCBuffer(_constantBuffer, parameters);
-                        rayMarching.RayMarchingParametersCBuffer.BindCBuffer(cmdCompute, shader, ID_RayMarchingParameters, _constantBuffer);
+                        rayMarching.RayMarchingParamsCBSegment.UpdateCBuffer(_constantBuffer, parameters);
+                        rayMarching.RayMarchingParamsCBSegment.BindCBuffer(cmdCompute, shader, ID_RayMarchingParameters, _constantBuffer);
                     }
 
                     // tiled marching
