@@ -1,5 +1,7 @@
 ﻿using System;
 using System.Runtime.InteropServices;
+using Antares.Physics;
+using Antares.SDF;
 using Sirenix.OdinInspector;
 using UnityEngine;
 
@@ -25,37 +27,47 @@ namespace Antares.Graphics
 
                 private readonly Vector3 SceneTexel;
 
-                private readonly float SDFCollisionThres;
+                private readonly float CellVolumeTexelInv;
 
-                private readonly Vector3 CellVolumeSize;
-
-                private readonly Vector3 CellVolumeTe;
                 private readonly Vector3 CellVolumeTranslation;
 
-                public SPHParameters(uint particleCount, float timeStep, float gravity)
+                private readonly float SDFCollisionThres;
+
+                private readonly uint CellVolumeSize;
+
+                public SPHParameters(float timeStep, SDFPhysics physics, SDFScene scene)
                 {
-                    FluidParticleCount = particleCount;
+                    Matrix4x4 worldToScene = scene.WorldToScene;
+                    Vector3 texel = scene.SizeInv;
+                    WorldToSceneTex = new Matrix3x4(
+                        worldToScene.GetRow(0) * texel.x,
+                        worldToScene.GetRow(1) * texel.y,
+                        worldToScene.GetRow(2) * texel.z);
+
+                    FluidParticleCount = physics.FluidParticleCount;
 
                     TimeStep = new Vector2(timeStep, 1f / timeStep);
 
                     const float third2 = 2f / 3f;
                     Stiffness = third2 * FluidSolverCompute.Stiffness * timeStep;
 
-                    FluidGravity = third2 * gravity * timeStep;
+                    FluidGravity = third2 * physics.Gravity * timeStep;
 
-                    SceneTexel = ;
+                    SceneTexel = scene.SizeInv;
 
-                    SDFCollisionThres = ;
+                    CellVolumeTexelInv = physics.CellVolumeWorldGridInv;
 
-                    CellVolumeSize = ;
+                    CellVolumeTranslation = physics.CellVolumeTranslation;
 
-                    SceneTranslation = ;
+                    SDFCollisionThres = SPHParticleRadius / scene.WorldSpaceSupremum;
+
+                    CellVolumeSize = physics.CellVolumeResolution;
                 }
             }
 
             private const float Stiffness = 1f;
 
-
+            private const float SPHParticleRadius = 0.2f;
 
             [field: SerializeField, LabelText(nameof(Shader))]
             public ComputeShader Shader { get; private set; }

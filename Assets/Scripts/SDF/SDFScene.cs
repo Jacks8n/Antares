@@ -20,13 +20,17 @@ namespace Antares.SDF
 
         public bool IsEmpty => BrusheCollection.Brushes.Length == 0;
 
-        public Vector3 WorldToSceneVector(Vector3 vec) => transform.worldToLocalMatrix.MultiplyVector(vec);
-
-        public Vector3 WorldToScenePoint(Vector3 pos) => transform.worldToLocalMatrix.MultiplyPoint(pos);
-
         public Matrix4x4 SceneToWorld => transform.localToWorldMatrix;
 
+        public Matrix4x4 WorldToScene => transform.worldToLocalMatrix;
+
         public float GridWorldSize => transform.localScale.x;
+
+        public float WorldSpaceSupremum => GridWorldSize * AShaderSpecs.SDFSupremum;
+
+        public Vector3 WorldToSceneVector(Vector3 vec) => transform.InverseTransformVector(vec);
+
+        public Vector3 WorldToScenePoint(Vector3 pos) => transform.InverseTransformPoint(pos);
 
         private void Awake()
         {

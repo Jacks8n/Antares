@@ -3,7 +3,7 @@
 
 #include "HLSLSupport.cginc"
 
-#define SPH_PARTICLE_RADIUS 0.1
+#define SPH_PARTICLE_RADIUS 0.2
 #define SPH_FLUID_DENSITY 1.0
 
 #define CLL_EMPTY 0
@@ -26,15 +26,17 @@ float FluidGravity;
 #define GLOBAL_GRAVITY float3(0.0, 0.0, FluidGravity)
 
 float3 SceneTexel;
-#define SCENE_VOLUME_TEXEL
+#define SCENE_VOLUME_TEXEL SceneTexel
+
+float4 CellVolumeTransform;
+#define CELL_VOLUME_TEXEL_INV_W CellVolumeTransform.xxx
+#define CELL_VOLUME_TRANSLATION_W CellVolumeTransform.yzw
 
 // SPH_PARTICLE_RADIUS / SDF_SUPREMUM_W
 float SDFCollisionThres;
 
-float3 CellVolumeSiz;
-
-// in unit of cell volume texel
-float3 CellVolumeTranslation;
+uint CellVolumeSize;
+#define CELL_VOLUME_SIZE CellVolumeSize
 CBUFFER_END
 
 SamplerState SamplerLinearClamp;
@@ -138,9 +140,9 @@ void SetParticleTrack(uint index, float3 velocity, uint compressedWord)
     ParticleTracks.Store2(packByteIndex + packOffset * 8, packedWord);
 }
 
-uint3 GetCellID(float3 pos)
+uint3 GetCellID(float3 wpos)
 {
-    const float3 cpos = min(CellVolumeSize * pos, CellVolumeSize - float(0.5).xxx);
+    const float3 cpos = (wpos - CELL_VOLUME_TRANSLATION_W) * CELL_VOLUME_TEXEL_INV_W;
     return (uint3) cpos;
 }
 
@@ -179,6 +181,9 @@ void SetupCLL(uint3 id : SV_DispatchThreadID)
     
     const float pos = GetParticlePosition(id.x);
     const uint3 cid = GetCellID(pos);
+    
+    if (any(cid >= CELL_VOLUME_SIZE))
+        return;
         
     const uint nodeIndex = AddCLLNode();
     SetCLLNodeValue(nodeIndex, id.x);
@@ -238,6 +243,7 @@ void SolveConstraints(uint3 id : SV_DispatchThreadID)
         node = GetNextCLLNode(node);
     } while (node != CLL_EMPTY);
     
+    // todo: sdf of particles needs to be generated
     float3 v0, v1;
     uint tmp;
     PopParticleTrack(id.x, v0, v1, tmp);

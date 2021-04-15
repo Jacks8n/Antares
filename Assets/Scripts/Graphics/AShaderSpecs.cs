@@ -46,11 +46,11 @@ namespace Antares.Graphics
             private readonly Vector4 Row1;
             private readonly Vector4 Row2;
 
-            public Matrix3x4(Matrix4x4 matrix)
+            public Matrix3x4(Vector4 row0, Vector4 row1, Vector4 row2)
             {
-                Row0 = matrix.GetRow(0);
-                Row1 = matrix.GetRow(1);
-                Row2 = matrix.GetRow(2);
+                Row0 = row0;
+                Row1 = row1;
+                Row2 = row2;
             }
 
             public Matrix3x4(Vector3 col0, Vector3 col1, Vector3 col2, Vector3 col3)
@@ -59,6 +59,8 @@ namespace Antares.Graphics
                 Row1 = new Vector4(col0.y, col1.y, col2.y, col3.y);
                 Row2 = new Vector4(col0.z, col1.z, col2.z, col3.z);
             }
+
+            public Matrix3x4(Matrix4x4 matrix) : this(matrix.GetRow(0), matrix.GetRow(1), matrix.GetRow(2)) { }
 
             public static implicit operator Matrix3x4(Matrix4x4 matrix) => new Matrix3x4(matrix);
         }

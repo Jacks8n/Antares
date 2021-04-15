@@ -60,7 +60,7 @@ namespace Antares.Graphics
                     Vector3 size = scene.Size;
                     SceneSize = new Vector4(size.x, size.y, size.z, SceneMipCount - 1);
 
-                    float supWorld = SDFSupremum * scene.GridWorldSize;
+                    float supWorld = scene.WorldSpaceSupremum;
                     SDFBands = new Vector4(
                         supWorld,
                         supWorld * (1 << (SceneMipCount - 1)),
