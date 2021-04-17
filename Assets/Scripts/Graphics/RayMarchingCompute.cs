@@ -57,7 +57,7 @@ namespace Antares.Graphics
                     float pixelAperture = pixelDiagHalf / Mathf.Sqrt(pixelDiagHalfSqr + near * near);
                     RayMarchingParams = pixelAperture * 5f;
 
-                    Vector3 size = scene.Size;
+                    Vector3 size = scene.SizeInFloat;
                     SceneSize = new Vector4(size.x, size.y, size.z, SceneMipCount - 1);
 
                     float supWorld = scene.WorldSpaceSupremum;

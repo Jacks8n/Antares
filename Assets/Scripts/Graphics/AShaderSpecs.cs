@@ -107,6 +107,9 @@ namespace Antares.Graphics
         [field: SerializeField, LabelText(nameof(Deferred))]
         public DeferredGraphics Deferred { get; private set; }
 
+        [field: SerializeField, LabelText(nameof(FluidSolver))]
+        public FluidSolverCompute FluidSolver { get; private set; }
+
         private int _constantBufferAlignment;
 
         private const int _constantBufferMimmumSize = 16;

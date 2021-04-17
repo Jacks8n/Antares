@@ -13,6 +13,8 @@ namespace Antares.SDF
         [field: SerializeField, LabelText("Scene Resolution")]
         public Vector3Int Size { get; private set; }
 
+        public Vector3 SizeInFloat { get; private set; }
+
         public Vector3 SizeInv { get; private set; }
 
         [field: SerializeField, Required, LabelText(nameof(BrusheCollection))]
@@ -28,18 +30,23 @@ namespace Antares.SDF
 
         public float WorldSpaceSupremum => GridWorldSize * AShaderSpecs.SDFSupremum;
 
+        public Vector3 WorldSpaceBoundMin => transform.position;
+
+        public Vector3 WorldSpaceBoundMax => transform.position + SizeInFloat;
+
         public Vector3 WorldToSceneVector(Vector3 vec) => transform.InverseTransformVector(vec);
 
         public Vector3 WorldToScenePoint(Vector3 pos) => transform.InverseTransformPoint(pos);
 
         private void Awake()
         {
-            SizeInv = new Vector3(1f / Size.x, 1f / Size.y, 1f / Size.z);
+            SizeInFloat = Size;
+            SizeInv = new Vector3(1f / SizeInFloat.x, 1f / SizeInFloat.y, 1f / SizeInFloat.z);
         }
 
         private void OnEnable()
         {
-            if (Instance && Instance != this)
+            if (Instance)
                 Instance.enabled = false;
             Instance = this;
 
@@ -48,6 +55,7 @@ namespace Antares.SDF
 
         private void OnDisable()
         {
+            Instance = null;
             LoadScene(null);
         }
 

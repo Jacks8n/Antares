@@ -1,4 +1,5 @@
-﻿using Antares.SDF;
+﻿using Antares.Physics;
+using Antares.SDF;
 using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
@@ -11,8 +12,10 @@ using UGraphics = UnityEngine.Graphics;
 
 namespace Antares.Graphics
 {
-    public class ARenderPipeline : RenderPipeline
+    public partial class ARenderPipeline : RenderPipeline
     {
+        public bool IsSceneLoaded { get; private set; }
+
         private readonly AShaderSpecs _shaderSpecs;
 
         private ComputeBuffer _constantBuffer;
@@ -21,7 +24,7 @@ namespace Antares.Graphics
 
         private RenderTexture _materialVolume;
 
-        private SDFScene _loadedScene;
+        private SDFScene _scene;
 
         public ARenderPipeline(AShaderSpecs shaderSpecs)
         {
@@ -29,8 +32,10 @@ namespace Antares.Graphics
 
             _sceneVolume = null;
             _materialVolume = null;
-            _loadedScene = null;
+            _scene = null;
             _constantBuffer = null;
+
+            IsSceneLoaded = false;
         }
 
         protected override void Dispose(bool disposing)
@@ -38,45 +43,30 @@ namespace Antares.Graphics
             if (disposing)
                 return;
 
-            LoadScene(null);
+            UnloadScene();
 
             base.Dispose(disposing);
         }
 
-        public void LoadScene(SDFScene scene)
+        private partial void UnloadPhysicsScene();
+
+        private partial bool LoadPhysicsScene(SDFPhysicsScene scene);
+
+        public void LoadScene(SDFScene scene, SDFPhysicsScene physicsScene)
         {
-            void ReleaseVolumes()
-            {
-                if (_sceneVolume)
-                    _sceneVolume.Release();
-                if (_materialVolume)
-                    _materialVolume.Release();
-            }
-
-            void ReleaseCBuffer()
-            {
-                if (_constantBuffer != null)
-                    _constantBuffer.Release();
-            }
-
-            _loadedScene = scene;
+            Debug.Assert(!IsSceneLoaded);
 
             if (scene == null || scene.IsEmpty)
-            {
-                ReleaseVolumes();
-                ReleaseCBuffer();
-
                 return;
-            }
+
+            _scene = scene;
 
             // resize textures
-            Vector3Int sceneSize = _loadedScene.Size;
+            Vector3Int sceneSize = _scene.Size;
             Vector3Int matVolumeSize = sceneSize / SDFGenerationCompute.MatVolumeScale;
             if (!_sceneVolume || !_materialVolume || !_sceneVolume.IsCreated() || !_materialVolume.IsCreated()
                 || _sceneVolume.width != sceneSize.x || _sceneVolume.height != sceneSize.z || _sceneVolume.volumeDepth != sceneSize.y)
             {
-                ReleaseVolumes();
-
                 _sceneVolume = CreateRWVolumeRT(GraphicsFormat.R8_SNorm, sceneSize, SceneMipCount);
                 _materialVolume = CreateRWVolumeRT(GraphicsFormat.R16_UInt, matVolumeSize, SceneMipCount);
             }
@@ -94,7 +84,7 @@ namespace Antares.Graphics
             }
 
             // upload brushes
-            var brushCollection = _loadedScene.BrusheCollection;
+            var brushCollection = _scene.BrusheCollection;
             ComputeBuffer brushBuffer, brushParameterBuffer;
             unsafe
             {
@@ -131,7 +121,7 @@ namespace Antares.Graphics
 
                 // set global params
                 {
-                    sdfGeneration.SDFGenerationParamsCBSegment.UpdateCBuffer(_constantBuffer, new SDFGenerationCompute.SDFGenerationParameters(_loadedScene));
+                    sdfGeneration.SDFGenerationParamsCBSegment.UpdateCBuffer(_constantBuffer, new SDFGenerationCompute.SDFGenerationParameters(_scene));
                     sdfGeneration.SDFGenerationParamsCBSegment.BindCBuffer(cmd, shader, ID_SDFGenerationParameters, _constantBuffer);
                 }
 
@@ -152,7 +142,7 @@ namespace Antares.Graphics
                 // generate scene volume mip 0
                 kernel = sdfGeneration.GenerateSceneVolumeKernel;
                 {
-                    var parameters = new SDFGenerationCompute.MipGenerationParameters(_loadedScene, 0);
+                    var parameters = new SDFGenerationCompute.MipGenerationParameters(_scene, 0);
                     sdfGeneration.MipGenerationParamsCBSegment[0].UpdateCBuffer(_constantBuffer, parameters);
                     sdfGeneration.MipGenerationParamsCBSegment[0].BindCBuffer(cmd, shader, ID_MipGenerationParameters, _constantBuffer);
 
@@ -169,7 +159,7 @@ namespace Antares.Graphics
                     Vector3Int dispatchSize = matVolumeSize / SDFGenerationCompute.GenerateMipDispatchKernelSize;
                     for (int i = 0; i < SceneMipCount - 1; i++)
                     {
-                        var parameters = new SDFGenerationCompute.MipGenerationParameters(_loadedScene, i + 1);
+                        var parameters = new SDFGenerationCompute.MipGenerationParameters(_scene, i + 1);
                         sdfGeneration.MipGenerationParamsCBSegment[i + 1].UpdateCBuffer(_constantBuffer, parameters);
                         sdfGeneration.MipGenerationParamsCBSegment[i + 1].BindCBuffer(cmd, shader, ID_MipGenerationParameters, _constantBuffer);
 
@@ -201,11 +191,30 @@ namespace Antares.Graphics
             dispatchCoordsBuffer.Release();
             for (int i = 0; i < mipDispatchesBuffers.Length; i++)
                 mipDispatchesBuffers[i].Release();
+
+            LoadPhysicsScene(physicsScene);
+
+            IsSceneLoaded = true;
+        }
+
+        public void UnloadScene()
+        {
+            Debug.Assert(IsSceneLoaded);
+
+            _sceneVolume.Release();
+            _materialVolume.Release();
+            _constantBuffer.Release();
+
+            _physicsScene = null;
+
+            UnloadPhysicsScene();
+
+            IsSceneLoaded = false;
         }
 
         protected override void Render(ScriptableRenderContext context, Camera[] cameras)
         {
-            if (!_loadedScene)
+            if (!_scene)
                 return;
 
             //var window = UnityEditor.EditorWindow.GetWindow<UnityEditor.SceneView>();
@@ -244,9 +253,8 @@ namespace Antares.Graphics
 
                     // set cbuffer
                     int tileCountX = width / RayMarchingCompute.MarchingTileSize, tileCountY = height / RayMarchingCompute.MarchingTileSize;
-                    unsafe
                     {
-                        var parameters = new RayMarchingCompute.RayMarchingParameters(camera, _loadedScene, invWidth, invHeight);
+                        var parameters = new RayMarchingCompute.RayMarchingParameters(camera, _scene, invWidth, invHeight);
                         rayMarching.RayMarchingParamsCBSegment.UpdateCBuffer(_constantBuffer, parameters);
                         rayMarching.RayMarchingParamsCBSegment.BindCBuffer(cmdCompute, shader, ID_RayMarchingParameters, _constantBuffer);
                     }

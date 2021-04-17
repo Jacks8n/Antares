@@ -13,29 +13,24 @@ namespace Antares.Graphics
         public class FluidSolverCompute : IComputeShaderSpec
         {
             [StructLayout(LayoutKind.Sequential, Pack = 1)]
-            public struct SPHParameters
+            public struct PhysicsSceneParameters
             {
                 private readonly Matrix3x4 WorldToSceneTex;
 
-                private readonly uint FluidParticleCount;
-
-                private readonly Vector2 TimeStep;
-
-                private readonly float Stiffness;
-
-                private readonly float FluidGravity;
+                private readonly Vector4 CellVolumeTransform;
 
                 private readonly Vector3 SceneTexel;
 
-                private readonly float CellVolumeTexelInv;
+                private readonly float SDFSupremum;
 
-                private readonly Vector3 CellVolumeTranslation;
+                private readonly float Stiffness;
 
-                private readonly float SDFCollisionThres;
+                private readonly Vector3 FluidBoundMin;
+                private readonly Vector3 FluidBoundMax;
 
-                private readonly uint CellVolumeSize;
+                private readonly int CellVolumeSize;
 
-                public SPHParameters(float timeStep, SDFPhysics physics, SDFScene scene)
+                public PhysicsSceneParameters(SDFPhysicsScene physicsScene, SDFScene scene)
                 {
                     Matrix4x4 worldToScene = scene.WorldToScene;
                     Vector3 texel = scene.SizeInv;
@@ -44,30 +39,48 @@ namespace Antares.Graphics
                         worldToScene.GetRow(1) * texel.y,
                         worldToScene.GetRow(2) * texel.z);
 
-                    FluidParticleCount = physics.FluidParticleCount;
-
-                    TimeStep = new Vector2(timeStep, 1f / timeStep);
-
-                    const float third2 = 2f / 3f;
-                    Stiffness = third2 * FluidSolverCompute.Stiffness * timeStep;
-
-                    FluidGravity = third2 * physics.Gravity * timeStep;
+                    Vector3 translation = physicsScene.CellVolumeTranslation;
+                    CellVolumeTransform = new Vector4(physicsScene.CellVolumeWorldGridInv.x, translation.x, translation.y, translation.z);
 
                     SceneTexel = scene.SizeInv;
 
-                    CellVolumeTexelInv = physics.CellVolumeWorldGridInv;
+                    SDFSupremum = scene.WorldSpaceSupremum;
 
-                    CellVolumeTranslation = physics.CellVolumeTranslation;
+                    Stiffness = FluidSolverCompute.Stiffness;
 
-                    SDFCollisionThres = SPHParticleRadius / scene.WorldSpaceSupremum;
+                    FluidBoundMin = scene.WorldSpaceBoundMin;
+                    FluidBoundMax = scene.WorldSpaceBoundMax;
 
-                    CellVolumeSize = physics.CellVolumeResolution;
+                    CellVolumeSize = physicsScene.CellVolumeResolution.x;
+                }
+            }
+
+            [StructLayout(LayoutKind.Sequential, Pack = 1)]
+            public struct PhysicsFrameParameters
+            {
+                private readonly uint FluidParticleCount;
+
+                private readonly Vector3 TimeStep;
+
+                private readonly float FluidGravity;
+
+                public PhysicsFrameParameters(SDFPhysicsScene physics, float timeStep, float timeStepPrev)
+                {
+                    FluidParticleCount = physics.FluidParticleCount;
+
+                    TimeStep = new Vector3(timeStep, 1f / timeStep, timeStepPrev);
+
+                    FluidGravity = physics.Gravity;
                 }
             }
 
             private const float Stiffness = 1f;
 
             private const float SPHParticleRadius = 0.2f;
+
+            public const int MaxParticleCount = 65536;
+
+            public const int ParticleCountAlignment = 64;
 
             [field: SerializeField, LabelText(nameof(Shader))]
             public ComputeShader Shader { get; private set; }
@@ -76,14 +89,17 @@ namespace Antares.Graphics
 
             public int SolveConstraintsKernel { get; private set; }
 
-            public ConstantBufferSegment<SPHParameters> SPHParamsCBSegment { get; private set; }
+            public ConstantBufferSegment<PhysicsSceneParameters> PhysicsSceneParamsCBSegment { get; private set; }
+
+            public ConstantBufferSegment<PhysicsFrameParameters> PhysicsFrameParamCBSegment { get; private set; }
 
             void IShaderSpec.OnAfterDeserialize<T>(T specs)
             {
                 SetupCLLKernel = Shader.FindKernel("SetupCLL");
                 SolveConstraintsKernel = Shader.FindKernel("SolveConstraints");
 
-                SPHParamsCBSegment = specs.RegisterConstantBuffer<SPHParameters>();
+                PhysicsSceneParamsCBSegment = specs.RegisterConstantBuffer<PhysicsSceneParameters>();
+                PhysicsFrameParamCBSegment = specs.RegisterConstantBuffer<PhysicsFrameParameters>();
             }
         }
     }

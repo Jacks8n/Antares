@@ -83,6 +83,27 @@ namespace Antares.Graphics
         public const string Binding_BrushAtlas = "BrushAtlas";
         public static int ID_BrushAtlas { get; } = Shader.PropertyToID(Binding_BrushAtlas);
 
+        public const string Binding_CellVolume = "CellVolume";
+        public static int ID_CellVolume { get; } = Shader.PropertyToID(Binding_CellVolume);
+
+        public const string Binding_CellLinkedList = "CellLinkedList";
+        public static int ID_CellLinkedList { get; } = Shader.PropertyToID(Binding_CellLinkedList);
+
+        public const string Binding_ParticlePositions = "ParticlePositions";
+        public static int ID_ParticlePositions { get; } = Shader.PropertyToID(Binding_ParticlePositions);
+
+        public const string Binding_ParticleFlags = "ParticleFlags";
+        public static int ID_ParticleFlags { get; } = Shader.PropertyToID(Binding_ParticleFlags);
+
+        public const string Binding_ParticleTracks = "ParticleTracks";
+        public static int ID_ParticleTracks { get; } = Shader.PropertyToID(Binding_ParticleTracks);
+
+        public const string Binding_PhysicsSceneParameters = "PhysicsSceneParameters";
+        public static int ID_PhysicsSceneParameters { get; } = Shader.PropertyToID(Binding_PhysicsSceneParameters);
+
+        public const string Binding_PhysicsFrameParameters = "PhysicsFrameParameters";
+        public static int ID_PhysicsFrameParameters { get; } = Shader.PropertyToID(Binding_PhysicsFrameParameters);
+
         public static readonly int[] ID_NonAttachmentRTs = new int[] {
             ID_TiledRM,
             ID_Shading,

@@ -10,9 +10,29 @@
 
 #define CLL_EMPTY 0
 
-CBUFFER_START(SPHParameters)
+CBUFFER_START(PhysicsSceneParameters)
 float4x3 WorldToSceneTex;
 
+float4 CellVolumeTransform;
+#define CELL_VOLUME_TEXEL_INV_W CellVolumeTransform.xxx
+#define CELL_VOLUME_TRANSLATION_W CellVolumeTransform.yzw
+
+float3 SceneTexel;
+#define SCENE_VOLUME_TEXEL SceneTexel
+
+float SDFSupremum;
+
+float Stiffness;
+#define GLOBAL_STIFFNESS Stiffness
+
+float3 FluidBoundMin;
+float3 FluidBoundMax;
+
+uint CellVolumeSize;
+#define CELL_VOLUME_SIZE CellVolumeSize.xxx
+CBUFFER_END
+
+CBUFFER_START(PhysicsFrameParameters)
 // must be aligned to 64
 uint FluidParticleCount;
 
@@ -21,23 +41,8 @@ float3 TimeStep;
 #define TIME_STEP_INV TimeStep.y
 #define TIME_STEP_PREV TimeStep.z
 
-float Stiffness;
-#define GLOBAL_STIFFNESS Stiffness
-
 float FluidGravity;
 #define GLOBAL_GRAVITY float3(0.0, 0.0, FluidGravity)
-
-float3 SceneTexel;
-#define SCENE_VOLUME_TEXEL SceneTexel
-
-float4 CellVolumeTransform;
-#define CELL_VOLUME_TEXEL_INV_W CellVolumeTransform.xxx
-#define CELL_VOLUME_TRANSLATION_W CellVolumeTransform.yzw
-
-float SDFSupremum;
-
-uint CellVolumeSize;
-#define CELL_VOLUME_SIZE CellVolumeSize
 CBUFFER_END
 
 SamplerState SamplerLinearClamp;
@@ -278,7 +283,7 @@ void SolveConstraints(uint3 id : SV_DispatchThreadID)
     } while (node != CLL_EMPTY);
     
     const float3 correct = -constraint * gradient * rcp(dot(gradient, gradient));
-    const float3 x1 = x1p + GLOBAL_STIFFNESS * correct;
+    const float3 x1 = clamp(x1p + GLOBAL_STIFFNESS * correct, FluidBoundMin, FluidBoundMax);    
     const float3 v1 = (x1 - x0) * TIME_STEP_INV;
     
     SetParticlePosition(id.x, x1);
