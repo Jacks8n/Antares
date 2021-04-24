@@ -30,6 +30,8 @@ namespace Antares.Graphics
 
                 private readonly int CellVolumeSize;
 
+                private readonly float ParticleKillZ;
+
                 public PhysicsSceneParameters(SDFPhysicsScene physicsScene, SDFScene scene)
                 {
                     Matrix4x4 worldToScene = scene.WorldToScene;
@@ -52,25 +54,34 @@ namespace Antares.Graphics
                     FluidBoundMax = scene.WorldSpaceBoundMax;
 
                     CellVolumeSize = physicsScene.CellVolumeResolution.x;
+
+                    ParticleKillZ = physicsScene.ParticleKillZ;
                 }
             }
 
             [StructLayout(LayoutKind.Sequential, Pack = 1)]
             public struct PhysicsFrameParameters
             {
-                private readonly uint FluidParticleCount;
-
                 private readonly Vector3 TimeStep;
 
                 private readonly float FluidGravity;
 
                 public PhysicsFrameParameters(SDFPhysicsScene physics, float timeStep, float timeStepPrev)
                 {
-                    FluidParticleCount = physics.FluidParticleCount;
-
                     TimeStep = new Vector3(timeStep, 1f / timeStep, timeStepPrev);
 
                     FluidGravity = physics.Gravity;
+                }
+            }
+
+            [StructLayout(LayoutKind.Sequential, Pack = 1)]
+            public struct CreateParticleParameters
+            {
+                private readonly uint CreateParticleCount;
+
+                public CreateParticleParameters(uint particleCount)
+                {
+                    CreateParticleCount = particleCount;
                 }
             }
 

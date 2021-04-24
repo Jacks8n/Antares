@@ -1,4 +1,5 @@
-﻿using Sirenix.OdinInspector;
+﻿using System.Collections.Generic;
+using Sirenix.OdinInspector;
 using UnityEngine;
 
 namespace Antares.Physics
@@ -15,8 +16,8 @@ namespace Antares.Physics
         [field: OnValueChanged(nameof(GetUniformVector3))]
         public Vector3Int CellVolumeResolution { get; private set; }
 
-        [field: VerticalGroup("Specification"), SerializeField, LabelText(nameof(FluidParticleCount))]
-        public uint FluidParticleCount { get; private set; }
+        [field: VerticalGroup("Specification"), SerializeField, LabelText(nameof(ParticleKillZ))]
+        public float ParticleKillZ { get; private set; }
 
         public Vector3 CellVolumeWorldGridInv => (Vector3)CellVolumeResolution / transform.localScale.x;
 

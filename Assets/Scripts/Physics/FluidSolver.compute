@@ -2,6 +2,7 @@
 
 #pragma kernel SetupCLL
 #pragma kernel SolveConstraints
+#pragma kernel CreateParticles
 
 #include "HLSLSupport.cginc"
 
@@ -30,12 +31,12 @@ float3 FluidBoundMax;
 
 uint CellVolumeSize;
 #define CELL_VOLUME_SIZE CellVolumeSize.xxx
+
+float ParticleKillZ;
 CBUFFER_END
 
 CBUFFER_START(PhysicsFrameParameters)
-// must be aligned to 64
-uint FluidParticleCount;
-
+// when the time step is 0, inverse of it should be 0 too
 float3 TimeStep;
 #define TIME_STEP TimeStep.x
 #define TIME_STEP_INV TimeStep.y
@@ -58,9 +59,9 @@ RWBuffer<uint> CellLinkedList;
 
 struct PackedParticlePositions
 {
-    float x[64];
-    float y[64];
-    float z[64];
+    float x[16];
+    float y[16];
+    float z[16];
 };
 
 // to perform bdf2, x_n, x_{n-1}, v_n are required, but x_{n-1} can
@@ -95,41 +96,74 @@ struct PackedParticlePositions
 // into three buffers, which have different layouts
 //
 // here's the illustration in regex style:
-// ParticlePositions: (x_n.x{64}, x_n.y{64}, x_n.z{64})*
+// ParticlePositions: (x_n.x{16}, x_n.y{16}, x_n.z{16})*
 // ParticleFlags    : (flag)*
-// ParticleTracks   : ((slot.xy, slot.zw){64})*
-// where the 32-bit flag's layout is: (reserved{24}, alive{8})
+// ParticleTracks   : ((slot.xy, slot.zw){16})*
+// where the 32-bit flag's layout is: (reserved{16}, isFluid{8}, isAlive{8})
 //
 // first FluidParticleCount particles are both added to cll and solved,
 // the rest are point clouds which is only added to cll
+// ParticleTracks should be initialized to zero
 RWStructuredBuffer<PackedParticlePositions> ParticlePositions;
 RWBuffer<uint> ParticleFlags;
 RWByteAddressBuffer ParticleTracks;
 
+#define GetParticlePositionTemplate(type)                                       \
+float3 GetParticlePosition(type<PackedParticlePositions> buffer, uint index)    \
+{                                                                               \
+    const uint packIndex = index / 16;                                          \
+    const uint packOffset = index % 16;                                         \
+    return float3(buffer[packIndex].x[packOffset],                              \
+                  buffer[packIndex].y[packOffset],                              \
+                  buffer[packIndex].z[packOffset]);                             \
+}
+
+GetParticlePositionTemplate(StructuredBuffer)
+GetParticlePositionTemplate(RWStructuredBuffer)
+
+#undef GetParticlePositionTemplate
+
 float3 GetParticlePosition(uint index)
 {
-    const uint packIndex = index / 64;
-    const uint packOffset = index % 64;
-    return float3(ParticlePositions[packIndex].x[packOffset],
-                  ParticlePositions[packIndex].y[packOffset],
-                  ParticlePositions[packIndex].z[packOffset]);
+    return GetParticlePosition(ParticlePositions, index);
 }
 
 void SetParticlePosition(uint index, float3 position)
 {
-    const uint packIndex = index / 64;
-    const uint packOffset = index % 64;
+    const uint packIndex = index / 16;
+    const uint packOffset = index % 16;
     ParticlePositions[packIndex].x[packOffset] = position.x;
     ParticlePositions[packIndex].y[packOffset] = position.y;
     ParticlePositions[packIndex].z[packOffset] = position.z;
 }
 
-bool IsParticleAlive(uint index)
+#define PARTICLE_FLAG_ALIVE 0x1
+#define PARTICLE_FLAG_FLUID 0x100
+#define PARTICLE_FLAG_ALL 0x01010101
+
+uint GetParticleFlags(uint index)
+{
+    const uint packIndex = index / 8;
+    return ParticleFlags[packIndex];
+}
+
+bool IsParticleHasFlagAny(uint index, uint flags, uint mask)
+{
+    mask <<= index % 8;
+    return flags & mask;
+}
+
+bool IsParticleHasFlagAll(uint index, uint flags, uint mask)
+{
+    mask <<= index % 8;
+    return flags & mask == mask;
+}
+
+void ResetParticleFlags(uint index, uint mask)
 {
     const uint packIndex = index / 8;
     const uint packOffset = index % 8;
-    const uint mask = 1 << packOffset;
-    return ParticleFlags[packIndex] & mask;
+    InterlockedAnd(ParticleFlags[packIndex], !(mask << packOffset));
 }
 
 float3 GetParticleTrack(uint index)
@@ -190,7 +224,8 @@ void SetCLLNodeValue(uint index, uint value)
 [numthreads(64, 1, 1)]
 void SetupCLL(uint3 id : SV_DispatchThreadID)
 {
-    if (!IsParticleAlive(id.x))
+    const uint flags = GetParticleFlags(id.x);
+    if (!IsParticleHasFlagAny(id.x, flags, PARTICLE_FLAG_ALIVE))
         return;
     
     const float x0 = GetParticlePosition(id.x);
@@ -236,8 +271,36 @@ void SPHKernel(float3 r, out float value, out float3 gradient)
     gradient = rr < h2 ? r * (c2 * b * rsqrt(rr)) : float(0.0).xxx;
 }
 
+extern RWBuffer<int> ParticlePool;
+
+groupshared uint ParticlePoolSize_GSM = 0;
+groupshared uint ParticlePool_GSM[2048];
+groupshared uint ParticlePoolOffest_GSM;
+
+void FreeParticle(uint index)
+{
+    ResetParticleFlags(index, PARTICLE_FLAG_ALL);
+    
+    uint particlePoolIndex;
+    InterlockedAdd(ParticlePoolSize_GSM, 1, particlePoolIndex);
+    ParticlePool_GSM[particlePoolIndex] = index;
+}
+
+void StoreParticlePoolToUAV(uint groupIndex, uint numthreads)
+{
+    if (!ParticlePoolSize_GSM)
+        return;
+    
+    if (groupIndex == 0)
+        InterlockedAdd(ParticlePool[0], ParticlePoolSize_GSM, ParticlePoolOffest_GSM);
+    GroupMemoryBarrierWithGroupSync();
+    
+    for (; groupIndex < ParticlePoolSize_GSM; groupIndex += numthreads)
+        ParticlePool[groupIndex + ParticlePoolOffest_GSM] = ParticlePool_GSM[groupIndex];
+}
+
 [numthreads(64, 1, 1)]
-void SolveConstraints(uint3 id : SV_DispatchThreadID)
+void SolveConstraints(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex)
 {
     // these constraints are solved
     //  1. fluid density
@@ -245,7 +308,8 @@ void SolveConstraints(uint3 id : SV_DispatchThreadID)
     //  3. sdf bound
     // currently 1 and 2 are not processed separately
     
-    if (!IsParticleAlive(id.x))
+    const uint flags = GetParticleFlags(id.x);
+    if (!IsParticleHasFlagAll(id.x, flags, PARTICLE_FLAG_ALIVE | PARTICLE_FLAG_FLUID))
         return;
         
     const float3 x0 = GetParticlePosition(id.x);
@@ -283,9 +347,41 @@ void SolveConstraints(uint3 id : SV_DispatchThreadID)
     } while (node != CLL_EMPTY);
     
     const float3 correct = -constraint * gradient * rcp(dot(gradient, gradient));
-    const float3 x1 = clamp(x1p + GLOBAL_STIFFNESS * correct, FluidBoundMin, FluidBoundMax);    
-    const float3 v1 = (x1 - x0) * TIME_STEP_INV;
+    const float3 x1 = clamp(x1p + GLOBAL_STIFFNESS * correct, FluidBoundMin, FluidBoundMax);
+
+    if (x1.z > ParticleKillZ)
+    {
+        const float3 v1 = (x1 - x0) * TIME_STEP_INV;
     
-    SetParticlePosition(id.x, x1);
-    SetParticleTrack(id.x, v1);
+        SetParticlePosition(id.x, x1);
+        SetParticleTrack(id.x, v1);
+    }
+    else
+        FreeParticle(id.x);
+    
+    StoreParticlePoolToUAV(gi, 64);
+}
+
+CBUFFER_START(CreateParticleParameters) 
+uint CreateParticleCount;
+CBUFFER_END
+
+extern StructuredBuffer<PackedParticlePositions> ParticlesToCreate;
+
+[numthreads(64, 1, 1)]
+void CreateParticles(uint3 id : SV_DispatchThreadID)
+{
+    if (!id.x)
+    {
+        const uint particlePoolSize = ParticlePool[0];
+        ParticlePool[0] = ParticlePoolOffest_GSM = particlePoolSize - CreateParticleCount;
+    }
+    GroupMemoryBarrierWithGroupSync();
+    
+    if (id.x >= CreateParticleCount)
+        return;
+    
+    const uint particleIndex = ParticlePool[ParticlePoolOffest_GSM + id.x];
+    const float3 position = GetParticlePosition(ParticlesToCreate, id.x);
+    SetParticlePosition(particleIndex, position);
 }

@@ -1,5 +1,4 @@
-﻿using Antares.Physics;
-using Antares.SDF;
+﻿using Antares.SDF;
 using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
@@ -14,7 +13,9 @@ namespace Antares.Graphics
 {
     public partial class ARenderPipeline : RenderPipeline
     {
-        public bool IsSceneLoaded { get; private set; }
+        public static ARenderPipeline Instance { get; private set; }
+
+        public bool IsSceneLoaded { get; private set; } = false;
 
         private readonly AShaderSpecs _shaderSpecs;
 
@@ -29,13 +30,6 @@ namespace Antares.Graphics
         public ARenderPipeline(AShaderSpecs shaderSpecs)
         {
             _shaderSpecs = shaderSpecs;
-
-            _sceneVolume = null;
-            _materialVolume = null;
-            _scene = null;
-            _constantBuffer = null;
-
-            IsSceneLoaded = false;
         }
 
         protected override void Dispose(bool disposing)
@@ -44,19 +38,17 @@ namespace Antares.Graphics
                 return;
 
             UnloadScene();
+            UnloadPhysicsScene();
 
             base.Dispose(disposing);
         }
 
-        private partial void UnloadPhysicsScene();
-
-        private partial bool LoadPhysicsScene(SDFPhysicsScene scene);
-
-        public void LoadScene(SDFScene scene, SDFPhysicsScene physicsScene)
+        public void LoadScene(SDFScene scene)
         {
             Debug.Assert(!IsSceneLoaded);
+            Debug.Assert(scene);
 
-            if (scene == null || scene.IsEmpty)
+            if (scene.IsEmpty)
                 return;
 
             _scene = scene;
@@ -192,8 +184,6 @@ namespace Antares.Graphics
             for (int i = 0; i < mipDispatchesBuffers.Length; i++)
                 mipDispatchesBuffers[i].Release();
 
-            LoadPhysicsScene(physicsScene);
-
             IsSceneLoaded = true;
         }
 
@@ -205,17 +195,16 @@ namespace Antares.Graphics
             _materialVolume.Release();
             _constantBuffer.Release();
 
-            _physicsScene = null;
-
-            UnloadPhysicsScene();
-
             IsSceneLoaded = false;
         }
 
         protected override void Render(ScriptableRenderContext context, Camera[] cameras)
         {
-            if (!_scene)
+            if (!IsSceneLoaded || !_scene.enabled)
+            {
+                UnloadScene();
                 return;
+            }
 
             //var window = UnityEditor.EditorWindow.GetWindow<UnityEditor.SceneView>();
             //UnityEditorInternal.RenderDoc.BeginCaptureRenderDoc(window);

@@ -11,6 +11,9 @@ namespace Antares.SDF
         public static SDFScene Instance { get; private set; }
 
         [field: SerializeField, LabelText("Scene Resolution")]
+        [field: InfoBox("Specifications are applied while the scene is being loaded. "
+            + "Reloading is required if any of them is modified.")]
+        [field: VerticalGroup("Specification")]
         public Vector3Int Size { get; private set; }
 
         public Vector3 SizeInFloat { get; private set; }
@@ -18,6 +21,7 @@ namespace Antares.SDF
         public Vector3 SizeInv { get; private set; }
 
         [field: SerializeField, Required, LabelText(nameof(BrusheCollection))]
+        [field: VerticalGroup("Specification")]
         public SDFBrushCollection BrusheCollection { get; private set; }
 
         public bool IsEmpty => BrusheCollection.Brushes.Length == 0;
@@ -50,13 +54,18 @@ namespace Antares.SDF
                 Instance.enabled = false;
             Instance = this;
 
-            LoadScene(this);
+            RenderPipeline pipeline = RenderPipelineManager.currentPipeline;
+            if (pipeline is ARenderPipeline)
+                (pipeline as ARenderPipeline).LoadScene(this);
         }
 
         private void OnDisable()
         {
             Instance = null;
-            LoadScene(null);
+
+            RenderPipeline pipeline = RenderPipelineManager.currentPipeline;
+            if (pipeline is ARenderPipeline)
+                (pipeline as ARenderPipeline).UnloadScene();
         }
 
         private void Update()
@@ -69,13 +78,6 @@ namespace Antares.SDF
                 transform.localScale = new Vector3(scale.x, scale.x, scale.x);
             }
 #endif
-        }
-
-        private static void LoadScene(SDFScene scene)
-        {
-            RenderPipeline pipeline = RenderPipelineManager.currentPipeline;
-            if (pipeline is ARenderPipeline)
-                (pipeline as ARenderPipeline).LoadScene(scene);
         }
     }
 }
