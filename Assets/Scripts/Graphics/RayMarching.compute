@@ -89,7 +89,7 @@ CBUFFER_END
 SamplerState SamplerLinearClamp;
 #define SCENE_VOLUME_SAMPLER SamplerLinearClamp
 
-#include "SceneVolumeSampling.hlsli"
+#include "SceneVolumeSampling.cginc"
 
 extern RWTexture2D<float2> TiledRM;
 

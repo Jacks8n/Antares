@@ -113,7 +113,7 @@ namespace Antares.Graphics
 
                 // set global params
                 {
-                    sdfGeneration.SDFGenerationParamsCBSegment.UpdateCBuffer(_constantBuffer, new SDFGenerationCompute.SDFGenerationParameters(_scene));
+                    sdfGeneration.SDFGenerationParamsCBSegment.SubUpdateCBuffer(_constantBuffer, new SDFGenerationCompute.SDFGenerationParameters(_scene));
                     sdfGeneration.SDFGenerationParamsCBSegment.BindCBuffer(cmd, shader, ID_SDFGenerationParameters, _constantBuffer);
                 }
 
@@ -135,7 +135,7 @@ namespace Antares.Graphics
                 kernel = sdfGeneration.GenerateSceneVolumeKernel;
                 {
                     var parameters = new SDFGenerationCompute.MipGenerationParameters(_scene, 0);
-                    sdfGeneration.MipGenerationParamsCBSegment[0].UpdateCBuffer(_constantBuffer, parameters);
+                    sdfGeneration.MipGenerationParamsCBSegment[0].SubUpdateCBuffer(_constantBuffer, parameters);
                     sdfGeneration.MipGenerationParamsCBSegment[0].BindCBuffer(cmd, shader, ID_MipGenerationParameters, _constantBuffer);
 
                     SetMaterialVolume(cmd, shader, kernel);
@@ -152,7 +152,7 @@ namespace Antares.Graphics
                     for (int i = 0; i < SceneMipCount - 1; i++)
                     {
                         var parameters = new SDFGenerationCompute.MipGenerationParameters(_scene, i + 1);
-                        sdfGeneration.MipGenerationParamsCBSegment[i + 1].UpdateCBuffer(_constantBuffer, parameters);
+                        sdfGeneration.MipGenerationParamsCBSegment[i + 1].SubUpdateCBuffer(_constantBuffer, parameters);
                         sdfGeneration.MipGenerationParamsCBSegment[i + 1].BindCBuffer(cmd, shader, ID_MipGenerationParameters, _constantBuffer);
 
                         // generate material volume non-zero mips
@@ -244,7 +244,7 @@ namespace Antares.Graphics
                     int tileCountX = width / RayMarchingCompute.MarchingTileSize, tileCountY = height / RayMarchingCompute.MarchingTileSize;
                     {
                         var parameters = new RayMarchingCompute.RayMarchingParameters(camera, _scene, invWidth, invHeight);
-                        rayMarching.RayMarchingParamsCBSegment.UpdateCBuffer(_constantBuffer, parameters);
+                        rayMarching.RayMarchingParamsCBSegment.SubUpdateCBuffer(_constantBuffer, parameters);
                         rayMarching.RayMarchingParamsCBSegment.BindCBuffer(cmdCompute, shader, ID_RayMarchingParameters, _constantBuffer);
                     }
 

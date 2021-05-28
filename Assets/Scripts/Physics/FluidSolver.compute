@@ -2,9 +2,9 @@
 
 #pragma kernel SetupCLL
 #pragma kernel SolveConstraints
-#pragma kernel CreateParticles
 
 #include "HLSLSupport.cginc"
+#include "FluidProcess.cginc"
 
 #define SPH_PARTICLE_RADIUS 0.2
 #define SPH_FLUID_DENSITY 1.0
@@ -49,7 +49,7 @@ CBUFFER_END
 SamplerState SamplerLinearClamp;
 #define SCENE_VOLUME_SAMPLER SamplerLinearClamp
 
-#include "../Graphics/SceneVolumeSampling.hlsli"
+#include "../Graphics/SceneVolumeSampling.cginc"
 
 // every grid is initialized to CLL_EMPTY
 RWTexture3D<uint> CellVolume;
@@ -57,13 +57,7 @@ RWTexture3D<uint> CellVolume;
 // first element is global counter, which is initialized to 2
 RWBuffer<uint> CellLinkedList;
 
-struct PackedParticlePositions
-{
-    float x[16];
-    float y[16];
-    float z[16];
-};
-
+// todo comment needs to be updated
 // to perform bdf2, x_n, x_{n-1}, v_n are required, but x_{n-1} can
 // be computed on the fly with preview time step. also for sake of
 // alignment, x_{n-1} is not stored
@@ -104,67 +98,7 @@ struct PackedParticlePositions
 // first FluidParticleCount particles are both added to cll and solved,
 // the rest are point clouds which is only added to cll
 // ParticleTracks should be initialized to zero
-RWStructuredBuffer<PackedParticlePositions> ParticlePositions;
-RWBuffer<uint> ParticleFlags;
 RWByteAddressBuffer ParticleTracks;
-
-#define GetParticlePositionTemplate(type)                                       \
-float3 GetParticlePosition(type<PackedParticlePositions> buffer, uint index)    \
-{                                                                               \
-    const uint packIndex = index / 16;                                          \
-    const uint packOffset = index % 16;                                         \
-    return float3(buffer[packIndex].x[packOffset],                              \
-                  buffer[packIndex].y[packOffset],                              \
-                  buffer[packIndex].z[packOffset]);                             \
-}
-
-GetParticlePositionTemplate(StructuredBuffer)
-GetParticlePositionTemplate(RWStructuredBuffer)
-
-#undef GetParticlePositionTemplate
-
-float3 GetParticlePosition(uint index)
-{
-    return GetParticlePosition(ParticlePositions, index);
-}
-
-void SetParticlePosition(uint index, float3 position)
-{
-    const uint packIndex = index / 16;
-    const uint packOffset = index % 16;
-    ParticlePositions[packIndex].x[packOffset] = position.x;
-    ParticlePositions[packIndex].y[packOffset] = position.y;
-    ParticlePositions[packIndex].z[packOffset] = position.z;
-}
-
-#define PARTICLE_FLAG_ALIVE 0x1
-#define PARTICLE_FLAG_FLUID 0x100
-#define PARTICLE_FLAG_ALL 0x01010101
-
-uint GetParticleFlags(uint index)
-{
-    const uint packIndex = index / 8;
-    return ParticleFlags[packIndex];
-}
-
-bool IsParticleHasFlagAny(uint index, uint flags, uint mask)
-{
-    mask <<= index % 8;
-    return flags & mask;
-}
-
-bool IsParticleHasFlagAll(uint index, uint flags, uint mask)
-{
-    mask <<= index % 8;
-    return flags & mask == mask;
-}
-
-void ResetParticleFlags(uint index, uint mask)
-{
-    const uint packIndex = index / 8;
-    const uint packOffset = index % 8;
-    InterlockedAnd(ParticleFlags[packIndex], !(mask << packOffset));
-}
 
 float3 GetParticleTrack(uint index)
 {
@@ -224,11 +158,11 @@ void SetCLLNodeValue(uint index, uint value)
 [numthreads(64, 1, 1)]
 void SetupCLL(uint3 id : SV_DispatchThreadID)
 {
-    const uint flags = GetParticleFlags(id.x);
-    if (!IsParticleHasFlagAny(id.x, flags, PARTICLE_FLAG_ALIVE))
+    const ParticleProperties props = GetParticleProperties(id.x);
+    if (!IsParticleHasFlagAny(props.Flags, PARTICLE_FLAG_ALIVE))
         return;
     
-    const float x0 = GetParticlePosition(id.x);
+    const float x0 = props.Position;
     const float v0 = GetParticleTrack(id.x);
 
     const float third1 = 1.0 / 3.0;
@@ -271,34 +205,6 @@ void SPHKernel(float3 r, out float value, out float3 gradient)
     gradient = rr < h2 ? r * (c2 * b * rsqrt(rr)) : float(0.0).xxx;
 }
 
-extern RWBuffer<int> ParticlePool;
-
-groupshared uint ParticlePoolSize_GSM = 0;
-groupshared uint ParticlePool_GSM[2048];
-groupshared uint ParticlePoolOffest_GSM;
-
-void FreeParticle(uint index)
-{
-    ResetParticleFlags(index, PARTICLE_FLAG_ALL);
-    
-    uint particlePoolIndex;
-    InterlockedAdd(ParticlePoolSize_GSM, 1, particlePoolIndex);
-    ParticlePool_GSM[particlePoolIndex] = index;
-}
-
-void StoreParticlePoolToUAV(uint groupIndex, uint numthreads)
-{
-    if (!ParticlePoolSize_GSM)
-        return;
-    
-    if (groupIndex == 0)
-        InterlockedAdd(ParticlePool[0], ParticlePoolSize_GSM, ParticlePoolOffest_GSM);
-    GroupMemoryBarrierWithGroupSync();
-    
-    for (; groupIndex < ParticlePoolSize_GSM; groupIndex += numthreads)
-        ParticlePool[groupIndex + ParticlePoolOffest_GSM] = ParticlePool_GSM[groupIndex];
-}
-
 [numthreads(64, 1, 1)]
 void SolveConstraints(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex)
 {
@@ -306,82 +212,251 @@ void SolveConstraints(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex)
     //  1. fluid density
     //  2. point clouds bound
     //  3. sdf bound
-    // currently 1 and 2 are not processed separately
     
-    const uint flags = GetParticleFlags(id.x);
-    if (!IsParticleHasFlagAll(id.x, flags, PARTICLE_FLAG_ALIVE | PARTICLE_FLAG_FLUID))
-        return;
-        
-    const float3 x0 = GetParticlePosition(id.x);
-    const float3 dx = GetParticleTrack(id.x);
-    const float3 x1p = x0 + dx;
-    
-    const float3 spos = mul(float4(x1p, 1.0), WorldToSceneTex);
-    const float nsdf = SampleNormalizedSDF(spos, 0.0);
-    const float sdf = nsdf * SDFSupremum;
-    
-    float constraint = 0.0;
-    float3 gradient = float(0.0).xxx;
-    if (sdf < SPH_PARTICLE_RADIUS)
+    ParticleProperties props = GetParticleProperties(id.x);
+    if (IsParticleHasFlagAll(props.Flags, PARTICLE_FLAG_ALIVE | PARTICLE_FLAG_FLUID))
     {
-        constraint = sdf - SPH_PARTICLE_RADIUS;
-        gradient = SampleNormal(spos, 0.0);
-    }
-
-    const uint3 cid = GetCellID(x1p);
-    uint node = CellVolume[cid];
-    do
-    {
-        const uint pindex = GetCLLNodeValue(node);
-        if (pindex != id.x)
+        const float3 x0 = props.Position;
+        const float3 dx = GetParticleTrack(id.x);
+        const float3 x1p = x0 + dx;
+    
+        const float3 spos = mul(float4(x1p, 1.0), WorldToSceneTex);
+        const float nsdf = SampleNormalizedSDF(spos, 0.0);
+        const float sdf = nsdf * SDFSupremum;
+    
+        float constraint = 0.0;
+        float3 gradient = float(0.0).xxx;
+        if (sdf < SPH_PARTICLE_RADIUS)
         {
-            const float3 r = GetParticlePosition(pindex) - x1p;
-            
-            float c, g;
-            SPHKernel(x1p, c, g);
-            constraint += c;
-            gradient += g;
+            constraint = sdf - SPH_PARTICLE_RADIUS;
+            gradient = SampleNormal(spos, 0.0);
         }
-        
-        node = GetNextCLLNode(node);
-    } while (node != CLL_EMPTY);
-    
-    const float3 correct = -constraint * gradient * rcp(dot(gradient, gradient));
-    const float3 x1 = clamp(x1p + GLOBAL_STIFFNESS * correct, FluidBoundMin, FluidBoundMax);
 
-    if (x1.z > ParticleKillZ)
-    {
-        const float3 v1 = (x1 - x0) * TIME_STEP_INV;
+        const uint3 cid = GetCellID(x1p);
+        uint node = CellVolume[cid];
+        do
+        {
+            const uint pindex = GetCLLNodeValue(node);
+            if (pindex != id.x)
+            {
+                const float3 r = GetParticleProperties(pindex).Position - x1p;
+            
+                float c, g;
+                SPHKernel(x1p, c, g);
+                constraint += c;
+                gradient += g;
+            }
+        
+            node = GetNextCLLNode(node);
+        } while (node != CLL_EMPTY);
     
-        SetParticlePosition(id.x, x1);
-        SetParticleTrack(id.x, v1);
+        const float3 correct = -constraint * gradient * rcp(dot(gradient, gradient));
+        const float3 x1 = clamp(x1p + GLOBAL_STIFFNESS * correct, FluidBoundMin, FluidBoundMax);
+
+        if (x1.z > ParticleKillZ)
+        {
+            props.Position = x1;
+            SetParticleProperties(id.x, props);
+
+            const float3 v1 = (x1 - x0) * TIME_STEP_INV;
+            SetParticleTrack(id.x, v1);
+        }
+        else
+            RemoveParticleDelay_GSM(id.x);
     }
-    else
-        FreeParticle(id.x);
     
-    StoreParticlePoolToUAV(gi, 64);
+    RemoveParticleDealy(gi, 64);
 }
 
-CBUFFER_START(CreateParticleParameters) 
-uint CreateParticleCount;
-CBUFFER_END
+extern RWBuffer<uint> DispatchBuffer;
 
-extern StructuredBuffer<PackedParticlePositions> ParticlesToCreate;
+void SetCreateParticleDispatchCount(uint count)
+{
+    DispatchBuffer[0] = count;
+}
+
+void SetCompactParticleDispatchCount(uint count)
+{
+    DispatchBuffer[3] = count;
+}
+
+[numthreads(1, 1, 1)]
+void PrepareCreateRemoveParticles()
+{
+    const uint capacity = GetParticleCapacity();
+    const uint createParticleCount = GetCreateParticleCount();
+    const uint removeParticleCount = GetRemoveParticleCount();
+
+    const uint newCapacity = capacity + createParticleCount - removeParticleCount;
+    const uint compactParticleCount = max(createParticleCount, removeParticleCount) - createParticleCount;
+    const uint searchParticleCount = min(compactParticleCount * 2, capacity);
+    
+    SetParticleCapacity(newCapacity);
+    SetCreateParticleDispatchCount((createParticleCount + 63) / 64);
+    SetCompactParticleDispatchCount((searchParticleCount + 63) / 64);
+}
 
 [numthreads(64, 1, 1)]
 void CreateParticles(uint3 id : SV_DispatchThreadID)
 {
-    if (!id.x)
+    const uint capacity = GetParticleCapacity();
+    const uint createParticleCount = GetCreateParticleCount();
+    const uint removeParticleCount = GetRemoveParticleCount();
+
+    const uint appendOffset = capacity - createParticleCount;
+    const bool isCreating = id.x < createParticleCount;
+    const bool isRemoving = id.x < removeParticleCount;
+    
+    if (isCreating)
     {
-        const uint particlePoolSize = ParticlePool[0];
-        ParticlePool[0] = ParticlePoolOffest_GSM = particlePoolSize - CreateParticleCount;
+        const ParticleWord particle = GetParticleToCreate(id.x);
+
+        uint insertIndex;
+        if (isRemoving)
+            insertIndex = GetParticleToRemove(id.x);
+        else
+            insertIndex = id.x + appendOffset;
+        
+        StoreParticleWord(insertIndex, particle);
     }
+}
+
+RWBuffer<uint> ParticleCounts;
+RWBuffer<uint> AliveParticleMasks;
+
+// WaveGetLaneCount() guarantees that 4~128 lanes are presented
+// see https://docs.microsoft.com/en-us/windows/win32/direct3dhlsl/wavegetlanecount
+groupshared uint ParticleCounts_GSM[16];
+
+[numthreads(64, 1, 1)]
+void CompactParticlesPrepass(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex, uint3 gid : SV_GroupID)
+{
+    const uint capacity = GetParticleCapacity();
+    const uint createParticleCount = GetCreateParticleCount();
+    const uint removeParticleCount = GetRemoveParticleCount();
+
+    const uint compactParticleCount = removeParticleCount - createParticleCount;
+    const uint searchParticleCount = min(compactParticleCount, capacity) + compactParticleCount;
+    const uint searchHi = capacity + compactParticleCount - 1;
+    
+    // per thread: find alive particles
+    bool isParticleAlive = false;
+    if (id.x < searchParticleCount)
+    {
+        ParticleProperties particle = GetParticleProperties(searchHi - id.x);
+        isParticleAlive = IsParticleHasFlagAny(particle.Flags, PARTICLE_FLAG_ALIVE);
+    }
+    
+    const uint laneCount = WaveGetLaneCount();
+    const uint laneIndex = WaveGetLaneIndex();
+    
+    // store wave-packed particle mask to uav
+    const uint waveChannelCount = max(laneCount / 32, 1);
+    const uint4 waveMask = WaveActiveBallot(isParticleAlive);
+    if (laneIndex < waveChannelCount)
+    {
+        const uint offset = id.x / laneCount * waveChannelCount;
+        AliveParticleMasks[offset + laneIndex] = waveMask[laneIndex];
+    }
+    
+    const uint waveParticleCount = WaveActiveCountBits(isParticleAlive);
+    if (WaveIsFirstLane())
+        ParticleCounts_GSM[gi / laneCount] = waveParticleCount;
+    
+    const uint groupWaveCount = 64 / laneCount;
+    for (uint i = groupWaveCount; i > 1; i /= laneCount)
+    {
+        if (gi < i)
+        {
+            const uint particleCount = WaveActiveSum(ParticleCounts_GSM[gi]);
+
+            if (WaveIsFirstLane())
+                ParticleCounts_GSM[gi / laneCount] = particleCount;
+        }
+
+        GroupMemoryBarrierWithGroupSync();
+    }
+    
+    if (!gi)
+        ParticleCounts[gid.x] = ParticleCounts_GSM[0];
+}
+
+groupshared uint PrefixSumBuffer_GSM[16 + 4 + 1];
+
+[numthreads(64, 1, 1)]
+void CompactParticles(uint3 id : SV_DispatchThreadID, uint gi : SV_GroupIndex, uint3 gid : SV_GroupIndex)
+{
+    const uint laneCount = WaveGetLaneCount();
+    const uint laneIndex = WaveGetLaneIndex();
+    const uint waveChannelCount = max(laneCount / 32, 1);
+    
+    const uint groupOffset = ParticleCounts[gid.x];
+    
+    uint waveMask;
+    {
+        // load mask
+        if (laneIndex < waveChannelCount)
+        {
+            const uint offset = id.x / laneCount * waveChannelCount;
+            waveMask = AliveParticleMasks[offset + laneIndex];
+        }
+    
+        // broadcast mask
+        waveMask = WaveReadLaneAt(waveMask, laneIndex / 32);
+    }
+    
+    // store wave-packed particle count to gsm
+    const uint wavePrefixCount = WavePrefixCountBits(waveMask & (1 << laneIndex % 32));
+    if (laneIndex == WaveActiveMax(laneIndex))
+        PrefixSumBuffer_GSM[gi / laneCount] = wavePrefixCount;
+
     GroupMemoryBarrierWithGroupSync();
     
-    if (id.x >= CreateParticleCount)
-        return;
+    // per wave: sum wave-packed particle count
+    const uint groupWaveCount = max(64 / laneCount, 1);
+    if (gi < groupWaveCount)
+    {
+        const uint waveSum = PrefixSumBuffer_GSM[gi];
+        if (WaveIsFirstLane())
+            PrefixSumBuffer_GSM[groupWaveCount + gi / laneCount] = WaveActiveSum(waveSum);
+    }
     
-    const uint particleIndex = ParticlePool[ParticlePoolOffest_GSM + id.x];
-    const float3 position = GetParticlePosition(ParticlesToCreate, id.x);
-    SetParticlePosition(particleIndex, position);
+    // per wave: wave-packed sum
+    uint prefixSumDst = groupWaveCount, i;
+    for (i = groupWaveCount; i > laneCount; i /= laneCount)
+    {
+        if (gi < i)
+        {
+            const uint prefixSum = WavePrefixSum(PrefixSumBuffer_GSM[prefixSumDst + gi]);
+            PrefixSumBuffer_GSM[prefixSumDst + gi] = prefixSum;
+            
+            prefixSumDst += i;
+            if (laneIndex == WaveActiveMax(laneIndex))
+                PrefixSumBuffer_GSM[prefixSumDst + gi / laneCount] = prefixSum;
+        }
+        
+        GroupMemoryBarrierWithGroupSync();
+    }
+    
+    // now `i` must be smaller than `laneCount`, sync is not needed
+    if (gi < i)
+        PrefixSumBuffer_GSM[prefixSumDst + gi] = WavePrefixSum(PrefixSumBuffer_GSM[prefixSumDst + gi]);
+    
+    // per thread: offset wave-packed prefix sum among group
+    for (i *= laneCount; i <= groupWaveCount; i *= laneCount)
+    {
+        if (gi < i)
+        {
+            const uint offset = PrefixSumBuffer_GSM[prefixSumDst + gi / laneCount];
+            PrefixSumBuffer_GSM[prefixSumDst - i + gi] += offset;
+        }
+        prefixSumDst -= i;
+
+        GroupMemoryBarrierWithGroupSync();
+    }
+
+    const uint groupPrefixSum = wavePrefixCount + PrefixSumBuffer_GSM[gi / laneCount];
+    const uint globalPrefixSum = groupOffset + groupPrefixSum;
+    
+    
 }

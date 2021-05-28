@@ -2,6 +2,7 @@
 using Antares.SDF;
 using Antares.Utility;
 using Sirenix.OdinInspector;
+using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -21,11 +22,17 @@ namespace Antares.Graphics
                 OffsetInBytes = offsetInBytes;
             }
 
-            public void UpdateCBuffer(ComputeBuffer cbuffer, T data)
+            public void SubUpdateCBuffer(ComputeBuffer cbuffer, T data)
             {
                 var mapped = cbuffer.BeginWrite<byte>(OffsetInBytes, Size);
                 mapped.ReinterpretStore(0, data);
                 cbuffer.EndWrite<byte>(Size);
+            }
+
+            public void SetCBuffer(CommandBuffer cmd, ComputeBuffer cbuffer, T data)
+            {
+                using var tmp = new NativeArray<T>(new T[] { data }, Allocator.Temp);
+                cmd.SetComputeBufferData(cbuffer, tmp.Reinterpret<byte>(), 0, OffsetInBytes, Size);
             }
 
             public void BindCBuffer(CommandBuffer cmd, ComputeShader shader, int cbufferID, ComputeBuffer cbuffer)

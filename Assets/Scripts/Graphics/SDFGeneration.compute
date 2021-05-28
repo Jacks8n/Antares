@@ -212,7 +212,6 @@ struct SDFBrush
     }
 };
 
-// todo: bank conflict?
 groupshared SDFBrush GSM_Brushes[MAX_GROUP_BRUSH_COUNT];
 groupshared uint GSM_BrushCount = 0;
 
@@ -673,3 +672,14 @@ void GenerateMipMap(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex, uint3 tid :
 }
 
 /// end generate mipmap
+
+/// begin generate fluid volume
+
+[numthreads(8, 8, 8)]
+void GenerateFluidVolume(uint3 id : SV_DispatchThreadID)
+{
+    
+}
+
+/// end generate fluid volume
+

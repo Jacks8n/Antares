@@ -89,11 +89,14 @@ namespace Antares.Graphics
         public const string Binding_CellLinkedList = "CellLinkedList";
         public static int ID_CellLinkedList { get; } = Shader.PropertyToID(Binding_CellLinkedList);
 
-        public const string Binding_ParticlePositions = "ParticlePositions";
-        public static int ID_ParticlePositions { get; } = Shader.PropertyToID(Binding_ParticlePositions);
+        public const string Binding_Particles = "Particles";
+        public static int ID_Particles { get; } = Shader.PropertyToID(Binding_Particles);
 
-        public const string Binding_ParticleFlags = "ParticleFlags";
-        public static int ID_ParticleFlags { get; } = Shader.PropertyToID(Binding_ParticleFlags);
+        public const string Binding_ParticlePool = "ParticlePool";
+        public static int ID_ParticlePool { get; } = Shader.PropertyToID(Binding_ParticlePool);
+
+        public const string Binding_ParticleToCreate = "ParticleToCreate";
+        public static int ID_ParticleToCreate { get; } = Shader.PropertyToID(Binding_ParticleToCreate);
 
         public const string Binding_ParticleTracks = "ParticleTracks";
         public static int ID_ParticleTracks { get; } = Shader.PropertyToID(Binding_ParticleTracks);

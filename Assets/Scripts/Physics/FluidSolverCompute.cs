@@ -89,9 +89,15 @@ namespace Antares.Graphics
 
             private const float SPHParticleRadius = 0.2f;
 
+            /// <summary>
+            /// must be aligned to size of kernels
+            /// </summary>
             public const int MaxParticleCount = 65536;
 
-            public const int ParticleCountAlignment = 64;
+            /// <summary>
+            /// must not be greater than <see cref="MaxParticleCount"/>
+            /// </summary>
+            public const int MaxParticleCreateCount = 4096;
 
             [field: SerializeField, LabelText(nameof(Shader))]
             public ComputeShader Shader { get; private set; }
@@ -100,17 +106,26 @@ namespace Antares.Graphics
 
             public int SolveConstraintsKernel { get; private set; }
 
+            public int FillParticlePoolKernel { get; private set; }
+
+            public int CreateParticlesKernel { get; private set; }
+
             public ConstantBufferSegment<PhysicsSceneParameters> PhysicsSceneParamsCBSegment { get; private set; }
 
             public ConstantBufferSegment<PhysicsFrameParameters> PhysicsFrameParamCBSegment { get; private set; }
+
+            public ConstantBufferSegment<CreateParticleParameters> CreateParticleParamsCBSegment { get; private set; }
 
             void IShaderSpec.OnAfterDeserialize<T>(T specs)
             {
                 SetupCLLKernel = Shader.FindKernel("SetupCLL");
                 SolveConstraintsKernel = Shader.FindKernel("SolveConstraints");
+                FillParticlePoolKernel = Shader.FindKernel("FillParticlePool");
+                CreateParticlesKernel = Shader.FindKernel("CreateParticles");
 
                 PhysicsSceneParamsCBSegment = specs.RegisterConstantBuffer<PhysicsSceneParameters>();
                 PhysicsFrameParamCBSegment = specs.RegisterConstantBuffer<PhysicsFrameParameters>();
+                CreateParticleParamsCBSegment = specs.RegisterConstantBuffer<CreateParticleParameters>();
             }
         }
     }
