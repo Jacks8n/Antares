@@ -1,0 +1,13 @@
+fileFormatVersion: 2
+guid: e062296443f1d014383bf1f01def3bd9
+MonoImporter:
+  externalObjects: {}
+  serializedVersion: 2
+  defaultReferences:
+  - _rayMarchingCS: {fileID: 7200000, guid: 3d8ed33ea02b6f54f86149b0ab306ff7, type: 3}
+  - _shadingShader: {fileID: 4800000, guid: ddf58c62808a5c54598205ad9ebf89d6, type: 3}
+  executionOrder: 0
+  icon: {instanceID: 0}
+  userData: 
+  assetBundleName: 
+  assetBundleVariant: 

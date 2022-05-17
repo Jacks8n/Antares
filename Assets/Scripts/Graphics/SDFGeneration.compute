@@ -1,0 +1,685 @@
+﻿#pragma enable_d3d11_debug_symbols
+
+#pragma kernel GenerateMatVolume
+#pragma kernel GenerateMipDispatch
+#pragma kernel GenerateSceneVolume
+#pragma kernel GenerateMipMap
+
+#include "HLSLSupport.cginc"
+
+/// begin definations used by multiple kernels
+
+#define SDF_SUPREMUM 4.0
+#define SDF_MAX float(1 << 15)
+
+#define MAT_VOLUME_SCALE 4
+
+#define MAX_GROUP_BRUSH_COUNT 64
+#define MAX_THREAD_BRUSH_COUNT 16
+#define MAX_BRUSH_PARAMETER_COUNT 8 // maximum number of parameter that a brush can have
+
+#define BRUSH_TYPE_NUMERICAL 0
+#define BRUSH_TYPE_SPHERE 1
+#define BRUSH_TYPE_CUBE 2
+
+/// begin constant buffer
+
+CBUFFER_START(SDFGenerationParameters)
+// transform mip 0 scene's indices to world position
+float4x3 SceneToWorld;
+
+float2 BrushCullRadius;
+#define MAT_TILE_CULL_RADIUS_W BrushCullRadius.x
+#define MAT_GRID_CULL_RADIUS_W BrushCullRadius.y
+
+uint SDFBrushCount;
+
+CBUFFER_END
+
+CBUFFER_START(MipGenerationParameters)
+
+float2 SceneGridSize;
+#define GRID_SPACE_W SceneGridSize.x
+#define SQR_GRID_SPACE_W SceneGridSize.y
+
+float2 SDFSupremum;
+#define SDF_SUPREMUM_W SDFSupremum.x
+#define SDF_TO_SNORM_W SDFSupremum.y
+
+uint3 SceneVolumeSize;
+CBUFFER_END
+
+/// end constant buffer
+
+/// begin brush definition
+
+extern Texture3D<snorm float> BrushAtlas;
+extern SamplerState SDFSampler_Linear_Clamp;
+
+extern Buffer<float> BrushParameters;
+
+float3 VolumeIndexToWorldPos(float3 index)
+{
+    return mul(float4(index, 1.0), SceneToWorld);
+}
+
+groupshared float GSM_BrushParams[MAX_GROUP_BRUSH_COUNT * MAX_BRUSH_PARAMETER_COUNT];
+groupshared uint GSM_BrushParamCount = 0;
+
+struct SDFBrush
+{
+    float4x3 WorldToLocal;
+    
+    uint Type;
+    
+    uint MaterialID;
+    
+    uint ParameterOffsetCount;
+    
+    float ScaleInv;
+    
+    float3 GetLocalPosition(float3 wpos)
+    {
+        const float3 tInv = WorldToLocal._41_42_43;
+        const float3x3 srInv = float3x3(WorldToLocal._11_21_31,
+                                        WorldToLocal._12_22_32,
+                                        WorldToLocal._13_23_33);
+
+        return mul(srInv, wpos + tInv);
+    }
+    
+    uint GetMaterialID()
+    {
+        return MaterialID;
+    }
+    
+    float GetUniformScaleInv()
+    {
+        return ScaleInv;
+    }
+    
+    // only used when loading from global memory, it will be overwritten after loading
+    uint GetParameterCount_UAV()
+    {
+        return ParameterOffsetCount >> 24;
+    }
+    
+    uint GetParameterOffset_UAV()
+    {
+        return ParameterOffsetCount & 0xffffff;
+    }
+    
+    void SetParameterOffset_GSM(uint offset)
+    {
+        ParameterOffsetCount = offset;
+    }
+    
+    uint GetParameterOffset_GSM()
+    {
+        return ParameterOffsetCount;
+    }
+    
+    bool IsLoadedToGSM()
+    {
+        return GetParameterCount_UAV() == 0;
+    }
+    
+#define Declare_GetParameter(dim)                                               \
+    float##dim GetParameter##dim(uint offset)                                   \
+    {                                                                           \
+        float##dim value;                                                       \
+                                                                                \
+        if (IsLoadedToGSM())                                                    \
+        {                                                                       \
+            [unroll]                                                            \
+            for (uint i = 0; i < dim; i++)                                      \
+                value[i] = GSM_BrushParams[ParameterOffsetCount + offset + i];  \
+        }                                                                       \
+        else                                                                    \
+        {                                                                       \
+            uint offset = GetParameterOffset_UAV();                             \
+            [unroll]                                                            \
+            for (uint i = 0; i < dim; i++)                                      \
+                value[i] = BrushParameters[offset + i];                         \
+        }                                                                       \
+                                                                                \
+        return value;                                                           \
+    }
+
+    Declare_GetParameter(1)
+    Declare_GetParameter(2)
+    Declare_GetParameter(3)
+    Declare_GetParameter(4)
+    
+#undef Decalre_GetParameter
+    
+    float SDF_Numerical(float3 p)
+    {
+        const float3 brushSize = GetParameter3(0);
+        const float3 brushOffset = GetParameter3(3);
+
+        const float3 nearest = clamp(p, float3(0.0, 0.0, 0.0), brushSize);
+        const float sdf = SDF_SUPREMUM * BrushAtlas.SampleLevel(SDFSampler_Linear_Clamp, nearest + brushOffset, 0.0);
+        
+        return sdf + distance(nearest, p);
+    }
+    
+    float SDF_Sphere(float3 p)
+    {
+        const float radius = GetParameter1(0);
+        
+        return length(p) - radius;
+    }
+    
+    float SDF_Cube(float3 p)
+    {
+        const float3 size = GetParameter3(0);
+        
+        const float3 local = abs(p) - size;
+        const float inside = min(max(max(local.x, local.y), local.z), 0.0);
+        const float outside = length(max(local, float(0.0).xxx));
+
+        return inside + outside;
+    }
+    
+    float Sample(float3 wpos)
+    {
+        const float3 p = GetLocalPosition(wpos);
+
+        float sdf;
+        switch (Type)
+        {
+            case BRUSH_TYPE_NUMERICAL:
+                sdf = SDF_Numerical(p);
+                break;
+            case BRUSH_TYPE_SPHERE:
+                sdf = SDF_Sphere(p);
+                break;
+            case BRUSH_TYPE_CUBE:
+                sdf = SDF_Cube(p);
+                break;
+            default:
+                sdf = SDF_MAX;
+                break;
+        }
+
+        return sdf * GetUniformScaleInv();
+    }
+    
+    bool Cull(float3 wpos, float thres)
+    {
+        return abs(Sample(wpos)) <= thres;
+    }
+};
+
+groupshared SDFBrush GSM_Brushes[MAX_GROUP_BRUSH_COUNT];
+groupshared uint GSM_BrushCount = 0;
+
+bool LoadBrushToGSM(SDFBrush brush, out uint writtenIndex)
+{
+    const uint paramCount = brush.GetParameterCount_UAV();
+    const uint paramOffset = brush.GetParameterOffset_UAV();
+    uint gsmParamOffset;
+    
+    InterlockedAdd(GSM_BrushCount, 1, writtenIndex);
+    if (writtenIndex < MAX_GROUP_BRUSH_COUNT)
+    {
+        InterlockedAdd(GSM_BrushParamCount, paramCount, gsmParamOffset);
+        for (uint i = 0; i < paramCount; i++)
+            GSM_BrushParams[gsmParamOffset + i] = BrushParameters[paramOffset + i];
+        
+        brush.SetParameterOffset_GSM(gsmParamOffset);
+        GSM_Brushes[writtenIndex] = brush;
+        return true;
+    }
+
+    return false;
+}
+
+void LoadBrushToGSMUnchecked(SDFBrush brush, uint dest)
+{
+    const uint paramCount = brush.GetParameterCount_UAV();
+    const uint paramOffset = brush.GetParameterOffset_UAV();
+    
+    uint gsmParamOffset;
+    InterlockedAdd(GSM_BrushParamCount, paramCount, gsmParamOffset);
+    
+    for (uint i = 0; i < paramCount; i++)
+        GSM_BrushParams[gsmParamOffset + i] = BrushParameters[paramOffset + i];
+    
+    brush.SetParameterOffset_GSM(gsmParamOffset);
+    GSM_Brushes[dest] = brush;
+}
+
+/// end brush definition
+
+extern RWTexture3D<snorm float> SceneVolume;
+// mip 0: indices to BrushIndices spans
+// mip n: nonsense values, indicating mip masks only
+extern RWTexture3D<uint> MaterialVolume;
+
+// first element should be 1, skipping itself
+extern RWBuffer<uint> BrushIndices;
+
+extern RWBuffer<uint> DispatchCoords;
+extern RWBuffer<uint> MipDispatches;
+
+// indirect buffer layout:
+// total count | group x | group y | group z | elements...
+// initial values:
+//      4      |   8192  |    0    |    1    | elements...
+void AllocateRange(RWBuffer<uint> buffer, uint n, out uint offset)
+{
+    InterlockedAdd(buffer[0], n, offset);
+
+    // D3D11_CS_DISPATCH_MAX_THREAD_GROUPS_PER_DIMENSION is 65535
+    // 8187 = 8191 - 4, where 4 stands for total count and 3 indirect arguments
+    InterlockedMax(buffer[2], (n + offset + 8187) / 8192);
+}
+
+uint GroupIDToDispatchID(uint3 gid)
+{
+    // skip total count and 3 indirect arguments
+    return gid.y * 8192 + gid.x + 4;
+}
+
+#define GetDispatchCount(buffer) (buffer[0])
+
+/// end definations used by multiple kernels
+
+/// begin generate material volume
+
+#define MATERIAL_GRID_NULL 0u
+
+extern StructuredBuffer<SDFBrush> SDFBrushes;
+
+groupshared uint GSM_BrushIndices[MAX_GROUP_BRUSH_COUNT];
+groupshared uint GSM_DispatchCoordCount = 0;
+groupshared uint GSM_DispatchCoords[4 * 4 * 4];
+groupshared uint GSM_DispatchCoordOffset = 0;
+
+uint PackGridCoord(uint3 id)
+{
+    return (id.x << 21) | (id.y << 10) | id.z;
+}
+
+uint3 UnpackGridCoord(uint id)
+{
+    return uint3(id >> 21, (id >> 10) & 2047, id & 1023);
+}
+
+[numthreads(4, 4, 4)]
+void GenerateMatVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID, uint gi : SV_GroupIndex, uint3 id : SV_DispatchThreadID)
+{
+    uint index, gsmIndex;
+    
+    // cull brushes that are guaranteed to be apart from 16^3 tile
+    const float tileRadius = MAT_TILE_CULL_RADIUS_W;
+    const float3 tileCenter = VolumeIndexToWorldPos((gid * (4 * MAT_VOLUME_SCALE) + float(2 * MAT_VOLUME_SCALE - 0.5).xxx));
+    
+    for (index = gi; index < SDFBrushCount; index += 64)
+    {
+        SDFBrush brush = SDFBrushes[index];
+        uint brushIndex;
+        if (brush.Cull(tileCenter, tileRadius))
+        {
+            if (LoadBrushToGSM(brush, brushIndex))
+                GSM_BrushIndices[brushIndex] = index;
+            else
+                break;
+        }
+    }
+    
+    GroupMemoryBarrierWithGroupSync();
+    
+    // traversal brushes that coincide with 16^3 tile and cull per grid
+    const float gridRadius = MAT_GRID_CULL_RADIUS_W;
+    const float3 gridPos = VolumeIndexToWorldPos(id * MAT_VOLUME_SCALE + float(0.5 * MAT_VOLUME_SCALE - 0.5).xxx);
+    uint brushIndices[MAX_THREAD_BRUSH_COUNT], brushCount = 0;
+
+    // store brushes(local)
+    const uint tileBrushCount = min(GSM_BrushCount, MAX_GROUP_BRUSH_COUNT);
+    for (index = 0; index < tileBrushCount && brushCount < MAX_THREAD_BRUSH_COUNT; index++)
+        if (GSM_Brushes[index].Cull(gridPos, gridRadius))
+            brushIndices[brushCount++] = GSM_BrushIndices[index];
+    
+    // store brushes(uav) and dispatch coordinates(gsm)
+    if (brushCount)
+    {
+        // brush count | brush0 | brush1 | ...
+        // first element is used as global counter, thus non-empty grid must be greater than 0
+        InterlockedAdd(BrushIndices[0], brushCount + 1, index);
+        
+        MaterialVolume[id] = index;
+        BrushIndices[index++] = brushCount;
+        for (uint i = 0; i < brushCount; i++)
+            BrushIndices[index + i] = brushIndices[i];
+    
+        // store scene generation dispatch coordinate
+        InterlockedAdd(GSM_DispatchCoordCount, 1, index);
+        GSM_DispatchCoords[index] = PackGridCoord(id);
+    }
+    else
+        MaterialVolume[id] = MATERIAL_GRID_NULL;
+    
+    GroupMemoryBarrierWithGroupSync();
+
+    // store dispatch coordinates(uav)
+    if (GSM_DispatchCoordCount)
+    {
+        if (!gi)
+            AllocateRange(DispatchCoords, GSM_DispatchCoordCount, GSM_DispatchCoordOffset);
+        
+        GroupMemoryBarrierWithGroupSync();
+    
+        if (gi < GSM_DispatchCoordCount)
+            DispatchCoords[GSM_DispatchCoordOffset + gi] = GSM_DispatchCoords[gi];
+    }
+}
+
+/// end generate material volume
+
+/// begin generate mipmap dispatch
+
+extern RWTexture3D<uint> MaterialVolumeMip;
+
+groupshared uint GSM_PrevMip[6 * 6 * 6];
+groupshared uint GSM_MipDispatches[4 * 4 * 4];
+groupshared uint GSM_MipDispatchCount = 0;
+groupshared uint GSM_MipDispatchOffset = 0;
+
+uint GetMipMask(uint3 tid)
+{
+    const uint offset = dot(tid, uint3(1, 6, 36));
+    
+    uint mask = 0, index;
+    [unroll]
+    for (uint i = 0; i < 3; i++)
+        [unroll]
+        for (uint j = 0; j < 3; j++)
+            [unroll]
+            for (uint k = 0; k < 3; k++)
+            {
+                index = offset + k + 6 * j + 36 * i;
+                mask |= GSM_PrevMip[index];
+            }
+    return mask;
+}
+
+void LoadMipMask(uint3 loadCoord, uint3 localLoadCoord, uint3 offset)
+{
+    const uint3 coord = loadCoord + offset;
+    if (all(coord * MAT_VOLUME_SCALE < SceneVolumeSize))
+    {
+        const uint loadIndex = dot((localLoadCoord + offset) / 2, uint3(1, 6, 36));
+        const uint mask = MaterialVolume.Load(int4(coord, 0));
+        InterlockedOr(GSM_PrevMip[loadIndex], mask);
+    }
+}
+
+// todo: tighter bound generation
+[numthreads(4, 4, 4)]
+void GenerateMipDispatch(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID, uint gi : SV_GroupIndex, uint3 id : SV_DispatchThreadID)
+{
+    uint i;
+    for (i = gi; i < 6 * 6 * 6; i += 64)
+        GSM_PrevMip[i] = 0;
+
+    GroupMemoryBarrierWithGroupSync();
+    
+    const uint3 tileCoord = gid * 8;
+    const uint3 localLoadCoord = tid * 3;
+    const uint3 loadCoord = tileCoord + localLoadCoord - uint(2).xxx;
+    
+    [unroll]
+    for (i = 0; i < 3; i++)
+        [unroll]
+        for (uint j = 0; j < 3; j++)
+            [unroll]
+            for (uint k = 0; k < 3; k++)
+                LoadMipMask(loadCoord, localLoadCoord, uint3(k, j, i));
+    
+    GroupMemoryBarrierWithGroupSync();
+    
+    const uint mask = GetMipMask(tid);
+    MaterialVolumeMip[id] = mask;
+    
+    if (mask)
+    {
+        uint dispatchCount;
+        InterlockedAdd(GSM_MipDispatchCount, 1, dispatchCount);
+        GSM_MipDispatches[dispatchCount] = PackGridCoord(id);
+    }
+    
+    GroupMemoryBarrierWithGroupSync();
+    
+    if (!gi)
+        AllocateRange(MipDispatches, GSM_MipDispatchCount, GSM_MipDispatchOffset);
+    
+    GroupMemoryBarrierWithGroupSync();
+    
+    if (gi < GSM_MipDispatchCount)
+        MipDispatches[GSM_MipDispatchOffset + gi] = GSM_MipDispatches[gi];
+}
+
+/// end generate mipmap dispatch
+
+/// begin generate scene volume
+
+float SmoothMin(float a, float b)
+{
+    const float k = -16.0;
+    const float invk = 1.0 / k;
+    return invk * log2(exp2(k * a) + exp2(k * b)) - invk;
+}
+
+float SDFToSNorm(float sdf)
+{
+    return sdf * SDF_TO_SNORM_W;
+}
+
+groupshared float GSM_SDFGrids[8 * 8 * 8];
+
+// 8 parallel threads per grid in 4^3 tile
+[numthreads(8, 8, 8)]
+void GenerateSceneVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID)
+{
+    const uint dispatchID = GroupIDToDispatchID(gid);
+    const bool isValid = dispatchID < GetDispatchCount(DispatchCoords);
+
+    uint3 tileCoord;
+    uint brushCount;
+    uint threadOffset;
+    uint threadIndex;
+    if (isValid)
+    {
+        tileCoord = UnpackGridCoord(DispatchCoords[dispatchID]);
+        const uint brushOffset = MaterialVolume[tileCoord] + 1;
+        brushCount = BrushIndices[brushOffset - 1];
+
+        // read brushes into gsm
+        // todo: it assumes the numeber of brushes that coincide with a grid of
+        // material volume doesn't exceed 8^3(numthreads), which should be expl-
+        // ictly defined
+        threadOffset = dot(tid % 2, uint3(1, 2, 4));
+        threadIndex = dot(tid / 2, uint3(1, 4, 16) * 8) + threadOffset;
+        if (threadIndex < brushCount)
+            LoadBrushToGSMUnchecked(SDFBrushes[BrushIndices[brushOffset + threadIndex]], threadIndex);
+    }
+    
+    GroupMemoryBarrierWithGroupSync();
+
+    uint3 gridCoord;
+    if (isValid)
+    {
+        // generate smooth union of sdfs
+        const uint3 alignedCoord = tileCoord * 4;
+        gridCoord = alignedCoord + tid / 2;
+        const float3 coord = VolumeIndexToWorldPos(gridCoord);
+
+        float sdf = SDF_MAX;
+        for (uint i = threadOffset; i < brushCount; i += 8)
+            sdf = SmoothMin(sdf, GSM_Brushes[i].Sample(coord));
+    
+        GSM_SDFGrids[threadIndex] = sdf;
+    }
+    
+    GroupMemoryBarrierWithGroupSync();
+    
+    if (isValid)
+    {
+        // parallel sdf union
+        [unroll]
+        for (uint i = 4; i; i /= 2)
+        {
+            if (threadOffset < i)
+                GSM_SDFGrids[threadIndex] = SmoothMin(GSM_SDFGrids[threadIndex], GSM_SDFGrids[threadIndex + i]);
+            GroupMemoryBarrier();
+        }
+    
+        if (!threadOffset)
+        {
+            SceneVolume[gridCoord] = SDFToSNorm(GSM_SDFGrids[threadIndex]);
+            MaterialVolume[tileCoord] = GSM_Brushes[0].GetMaterialID();
+        }
+    }
+}
+
+/// end generate scene volume
+
+/// begin generate mipmap
+
+extern RWTexture3D<snorm float> SceneVolumeMip;
+
+groupshared float GSM_SDFMips[8 * 8 * 8];
+
+float Eikonal1(float x, float y)
+{
+    return min(x, y) + GRID_SPACE_W;
+}
+
+float Eikonal2(float x, float y)
+{
+    const float sub = x - y;
+    const float sum = x + y;
+    const float d = 2.0 * SQR_GRID_SPACE_W - sub * sub;
+    return 0.5 * (sum + sqrt(d));
+}
+
+float Eikonal3(float x, float y, float z)
+{
+    const float third = 1.0 / 3.0;
+    const float gridSpace = GRID_SPACE_W;
+    const float3 xyz = float3(x, y, z);
+    
+    const float sum = x + y + z;
+    const float sqsum = dot(xyz, xyz);
+    const float d = sum * sum - 3.0 * (sqsum - SQR_GRID_SPACE_W);
+    
+    if (d > 0.0)
+        return third * (sum + sqrt(d));
+    else
+    {
+        const bool3 cond = abs(xyz - xyz.zxy) < gridSpace.xxx;
+        float res = cond.x ? Eikonal2(x, z) : Eikonal1(x, z);
+        res = min(res, cond.y ? Eikonal2(y, x) : Eikonal1(y, x));
+        res = min(res, cond.z ? Eikonal2(z, y) : Eikonal1(z, y));
+        return res;
+    }
+}
+
+float LoadSDF_GSM(int index, int2 range)
+{
+    return range.x <= index && index <= range.y ? GSM_SDFMips[index] : SDF_MAX;
+}
+
+float MinNeighbor(int index, int stride, int2 range)
+{
+    const float a = LoadSDF_GSM(index + stride, range);
+    const float b = LoadSDF_GSM(index - stride, range);
+    return min(a, b);
+}
+
+float SampleAverage(uint3 coord)
+{
+    if (all(coord < SceneVolumeSize))
+    {
+        const uint2 one = uint2(1, 0);
+        float avg = SceneVolume.Load(int4(coord, 0));
+        avg += SceneVolume.Load(int4(coord + one.xyy, 0));
+        avg += SceneVolume.Load(int4(coord + one.yxy, 0));
+        avg += SceneVolume.Load(int4(coord + one.xxy, 0));
+        avg += SceneVolume.Load(int4(coord + one.yyx, 0));
+        avg += SceneVolume.Load(int4(coord + one.xyx, 0));
+        avg += SceneVolume.Load(int4(coord + one.yxx, 0));
+        avg += SceneVolume.Load(int4(coord + one.xxx, 0));
+        return avg * 0.125;
+    }
+    else
+        return 1.0;
+}
+
+float AbsMax(float a, float b)
+{
+    return abs(a) < abs(b) ? b : a;
+}
+
+[numthreads(8, 8, 8)]
+void GenerateMipMap(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex, uint3 tid : SV_GroupThreadID)
+{
+    const uint dispatchID = GroupIDToDispatchID(gid);
+    const bool isValid = dispatchID < GetDispatchCount(MipDispatches);
+    
+    uint3 coord;
+    float sdf;
+    if (isValid)
+    {
+        coord = UnpackGridCoord(MipDispatches[dispatchID]) * MAT_VOLUME_SCALE + tid - uint(MAT_VOLUME_SCALE / 2).xxx;
+        const uint3 prevMipCoord = coord * 2;
+        
+        sdf = SampleAverage(prevMipCoord) * SDF_SUPREMUM_W;
+        GSM_SDFMips[gi] = sdf;
+    }
+    
+    GroupMemoryBarrierWithGroupSync();
+    
+    const uint2 xrange = (gi & ~7).xx + uint2(0, 7);
+    // ((gi & ~63) + (gi % 8)).xx + uint2(0, 8 * 7)
+    const uint2 yrange = (gi & ~56).xx + uint2(0, 8 * 7);
+    const uint2 zrange = (gi % 64).xx + uint2(0, 64 * 7);
+    
+    float x, y, z;
+    [unroll]
+    for (uint i = 0; i < 3; i++)
+    {
+        if (abs(sdf) > SDF_SUPREMUM_W)
+        {
+            x = MinNeighbor(gi, 1, xrange);
+            y = MinNeighbor(gi, 8, yrange);
+            z = MinNeighbor(gi, 64, zrange);
+            sdf = Eikonal3(x, y, z);
+        }
+        
+        if (i < 2)
+        {
+            GSM_SDFMips[gi] = sdf;
+            GroupMemoryBarrierWithGroupSync();
+        }
+    }
+    
+    if (all(tid >= uint3(2, 2, 2) && tid < uint3(6, 6, 6)))
+        SceneVolumeMip[coord] = SDFToSNorm(sdf);
+}
+
+/// end generate mipmap
+
+/// begin generate fluid volume
+
+[numthreads(8, 8, 8)]
+void GenerateFluidVolume(uint3 id : SV_DispatchThreadID)
+{
+    
+}
+
+/// end generate fluid volume
+

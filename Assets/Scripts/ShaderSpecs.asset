@@ -1,0 +1,26 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 0
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5f7452bce6fa27e438273b6d126d2461, type: 3}
+  m_Name: ShaderSpecs
+  m_EditorClassIdentifier: 
+  <TextureUtilCS>k__BackingField:
+    <Shader>k__BackingField: {fileID: 7200000, guid: 89bf5cc4c17638f41bbef72a7ab374f3,
+      type: 3}
+  <SDFGenerationCS>k__BackingField:
+    <Shader>k__BackingField: {fileID: 7200000, guid: ce44576c94bbb9b46853eb0899225b44,
+      type: 3}
+  <RayMarchingCS>k__BackingField:
+    <Shader>k__BackingField: {fileID: 7200000, guid: 3d8ed33ea02b6f54f86149b0ab306ff7,
+      type: 3}
+  <Deferred>k__BackingField:
+    <Material>k__BackingField: {fileID: 2100000, guid: 7eedcf4b565fb594bb7c70e05883af23,
+      type: 2}

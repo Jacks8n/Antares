@@ -1,0 +1,311 @@
+﻿#pragma enable_d3d11_debug_symbols
+
+/// begin debug macro
+
+#define USE_MIP_GE 0
+#define USE_MIP_LE ~0
+#define DISABLE_TILED_MARCHING 0
+
+#define DEBUG_TILED_MARCHING_STEP 0
+#define DEBUG_TILED_MARCHING_DEPTH 0
+#define DEBUG_TILED_MARCHING_MIN_SDF 0
+#define DEBUG_TILED_MARCHING_MIN_MIP 0
+#define DEBUG_RAY_MARCHING_STEP 0
+#define DEBUG_RAY_MARCHING_DEPTH 0
+#define DEBUG_RAY_MARCHING_ERROR 0
+#define DEBUG_RAY_MARCHING_MIN_SDF 0
+#define DEBUG_RAY_MARCHING_MAX_MIP 0
+#define DEBUG_RAY_MARCHING_BIAS 0
+
+#if USE_MIP_GE || USE_MIP_LE != ~0
+#define USE_MIP_RANGE
+#endif
+
+#if DEBUG_TILED_MARCHING_STEP || DEBUG_TILED_MARCHING_DEPTH \
+    || DEBUG_TILED_MARCHING_MIN_SDF || DEBUG_TILED_MARCHING_MIN_MIP
+#define DEBUG_TILED_MARCHING
+#endif
+
+#if DISABLE_TILED_MARCHING
+#define MAX_TILED_MARCHING_STEP 1
+#define MAX_RAY_MARCHING_STEP 128
+#else
+#define MAX_TILED_MARCHING_STEP 64
+#define MAX_RAY_MARCHING_STEP 64
+#endif
+
+/// end debug macro
+
+#pragma kernel TiledMarching
+#pragma kernel RayMarching
+
+#include "HLSLSupport.cginc"
+
+CBUFFER_START(RayMarchingParameters)
+// column 0, 1: dudx, dvdy
+// column 2: left-bottom-near corner
+// column 3: position of camera
+float4x3 UVToScene;
+
+float3 SceneTexel;
+#define SCENE_VOLUME_TEXEL SceneTexel.xyz
+
+float RayMarchingParams;
+#define PIXEL_APERTURE_W RayMarchingParams
+    
+float4 SceneSize;
+#define SCENE_SIZE SceneSize.xyz
+#ifndef USE_MIP_RANGE
+#define SCENE_MIP_MAX SceneSize.w
+#define SCENE_MIP_MIN 0
+#else
+#define SCENE_MIP_MAX min(SceneSize.w, USE_MIP_LE)
+#define SCENE_MIP_MIN USE_MIP_GE
+#endif
+    
+float4 SDFBands;
+#ifndef USE_MIP_RANGE
+#define SDF_SUP_MIN_W SDFBands.x
+#define SDF_SUP_MAX_W SDFBands.y
+#define TILED_MARCHING_INITIAL_SUP SDFBands.z
+#define TILED_MARCHING_INITIAL_MIP SDFBands.w
+#else
+#define SDF_SUP_MIN_W (SDFBands.x * (1 << int(SCENE_MIP_MIN)))
+#define SDF_SUP_MAX_W (SDFBands.x * (1 << int(SCENE_MIP_MAX)))
+#define TILED_MARCHING_INITIAL_SUP clamp(SDFBands.z, SDF_SUP_MIN_W, SDF_SUP_MAX_W)
+#define TILED_MARCHING_INITIAL_MIP clamp(SDFBands.w, SCENE_MIP_MIN, SCENE_MIP_MAX)
+#endif
+
+#define RAY_MARCHING_INITIAL_SUP SDF_SUP_MIN_W
+#define RAY_MARCHING_INITIAL_MIP SCENE_MIP_MIN
+
+// w: unused
+float4 TiledMarchingParams;
+#define TILE_SWEEP_FACTOR_W TiledMarchingParams.x
+#define TILE_SWEEP_RADIUS_FACTOR_W TiledMarchingParams.y
+#define TILE_SWEEP_PAUSE_THRES_W TiledMarchingParams.z
+CBUFFER_END
+
+SamplerState SamplerLinearClamp;
+#define SCENE_VOLUME_SAMPLER SamplerLinearClamp
+
+#include "SceneVolumeSampling.cginc"
+
+extern RWTexture2D<float2> TiledRM;
+
+extern RWTexture2D<float4> SceneRM0;
+extern RWTexture2D<float4> SceneRM1;
+
+bool IsHit(float sdf, float t)
+{
+    return abs(sdf) <= t * PIXEL_APERTURE_W;
+}
+
+void UpdateMip(float nsdf, inout float mip, inout float supremum)
+{
+#ifndef USE_MIP_RANGE
+    if (abs(nsdf) == 1.0)
+    {
+        mip = min(mip + 2.0, SCENE_MIP_MAX);
+        supremum = min(supremum * 4.0, SDF_SUP_MAX_W);
+    }
+    else if (abs(nsdf) <= 0.25)
+    {
+        mip = max(mip - 2.0, 0);
+        supremum = max(supremum * 0.25, SDF_SUP_MIN_W);
+    }
+#endif
+}
+
+float3 SampleColor(float3 p)
+{
+    return abs(normalize(sin(p)));
+}
+
+float3 GetCameraPos()
+{
+    return UVToScene._41_42_43;
+}
+
+float3 GetRayDirectionUnnormalized(float2 uv)
+{
+    return mul(float4(uv, 1.0, -1.0), UVToScene);
+}
+
+float3 GetRayDirection(float2 uv)
+{
+    return normalize(GetRayDirectionUnnormalized(uv));
+}
+
+float ClampRayToScene(float3 o, float3 d)
+{
+    float3 invd = 1.0 / d;
+    float3 t0 = -o * invd;
+    float3 t1 = (SCENE_SIZE - o) * invd;
+    t0 = min(t0, t1);
+    
+    return max(max(t0.x, t0.y), max(t0.z, 0.0));
+}
+
+float GetRaySupInScene(float3 o, float3 d)
+{
+    float3 invd = 1.0 / d;
+    float3 t0 = -o * invd;
+    float3 t1 = (SCENE_SIZE - o) * invd;
+    t0 = max(t0, t1);
+    
+    return min(min(t0.x, t0.y), min(t0.z, 1 << 15));
+}
+
+/// begin tiled marching
+
+#define MARCHING_TILE_SIZE_X 8
+#define MARCHING_TILE_SIZE_Y 8
+
+[numthreads(8, 8, 1)]
+void TiledMarching(uint3 id : SV_DispatchThreadID)
+{
+    const float2 tile = float2(MARCHING_TILE_SIZE_X, MARCHING_TILE_SIZE_Y);
+    const float2 tileHalf = tile * 0.5;
+
+    const float2 uv = float2(id.xy) * tile;
+    const float2 middle = uv + tileHalf;
+    
+    const float3 d = GetRayDirection(middle);
+    const float3 o = GetCameraPos();
+    const float k = TILE_SWEEP_FACTOR_W;
+    const float kr = TILE_SWEEP_RADIUS_FACTOR_W;
+    const float thres = TILE_SWEEP_PAUSE_THRES_W;
+    
+    const float end = GetRaySupInScene(o, d);
+    float t = ClampRayToScene(o, d);
+    
+#if DEBUG_TILED_MARCHING_MIN_SDF
+    float minSDF = 1000.0;
+#elif DEBUG_TILED_MARCHING_MIN_MIP
+    float minMip = SCENE_MIP_MAX;
+#endif
+    
+    float mip = TILED_MARCHING_INITIAL_MIP;
+    float supremum = TILED_MARCHING_INITIAL_SUP;
+    float nsdf, sdf, far, r;
+    uint i;
+    for (i = 0; i < MAX_TILED_MARCHING_STEP; i++)
+    {
+        nsdf = SampleNormalizedSDFLocal(d * t + o, mip);
+        sdf = nsdf * supremum;
+
+#if DEBUG_TILED_MARCHING_MIN_SDF
+        minSDF = min(minSDF, sdf);
+#elif DEBUG_TILED_MARCHING_MIN_MIP
+        minMip = min(minMip, mip);
+#endif
+        
+        far = sdf + t;
+        t = far * k;
+        r = far * kr;
+        
+        if ((mip == SCENE_MIP_MIN && sdf <= r + thres) || t >= end)
+            break;
+        
+        UpdateMip(nsdf, mip, supremum);
+    }
+    
+#if DEBUG_TILED_MARCHING_STEP
+    TiledRM[id.xy] = float2(float(i) / MAX_TILED_MARCHING_STEP, t * t - r * r);
+#elif DEBUG_TILED_MARCHING_DEPTH
+    TiledRM[id.xy] = float2(t * 0.01, t * t - r * r);
+#elif DEBUG_TILED_MARCHING_MIN_SDF
+    TiledRM[id.xy] = float2(minSDF * 0.05, t * t - r * r);
+#elif DEBUG_TILED_MARCHING_MIN_MIP
+    TiledRM[id.xy] = float2(minMip / SCENE_MIP_MAX, t * t - r * r);
+#else
+    TiledRM[id.xy] = float2(t, t * t - r * r);
+#endif
+}
+
+[numthreads(MARCHING_TILE_SIZE_X, MARCHING_TILE_SIZE_Y, 1)]
+void RayMarching(uint3 id : SV_DispatchThreadID)
+{
+    const uint2 tile = uint2(MARCHING_TILE_SIZE_X, MARCHING_TILE_SIZE_Y);
+    const uint2 tileHalf = tile / 2;
+    const float2 sphere = TiledRM[id.xy / tile];
+    
+#if defined(DEBUG_TILED_MARCHING)
+
+    SceneRM0[id.xy] = float4(abs(sphere.xxx), 1.0);
+
+#else
+    
+    const float2 middle = float2((id.xy - id.xy % tile) + tileHalf);
+    const float3 mray = GetRayDirection(middle);
+    const float3 d = GetRayDirection(id.xy);
+    const float3 o = GetCameraPos();
+    
+#if DISABLE_TILED_MARCHING
+    float t = ClampRayToScene(o, d);
+#else
+    const float od = dot(mray, d) * sphere.x;
+    const float delta = sqrt(max(0.0, od * od - sphere.y));
+    float t = od + delta;
+#endif
+    
+    const float end = GetRaySupInScene(o, d);
+    
+    float nsdf, sdf;
+    float mip = RAY_MARCHING_INITIAL_MIP;
+    float supremum = RAY_MARCHING_INITIAL_SUP;
+    
+#if DEBUG_RAY_MARCHING_MIN_SDF
+    float minSDF = 1000.0;
+#elif DEBUG_RAY_MARCHING_MAX_MIP
+    float maxMip = mip;
+#endif
+
+    uint i;
+    for (i = 0; i < MAX_RAY_MARCHING_STEP; i++)
+    {
+        nsdf = SampleNormalizedSDFLocal(d * t + o, mip);
+        sdf = nsdf * supremum;
+        t += sdf;
+
+#if DEBUG_RAY_MARCHING_MIN_SDF
+        minSDF = min(minSDF, sdf);
+#elif DEBUG_RAY_MARCHING_MAX_MIP
+        maxMip = max(maxMip, mip);
+#endif
+        
+        if ((mip == SCENE_MIP_MIN && IsHit(sdf, t)) || t >= end)
+            break;
+        
+        UpdateMip(nsdf, mip, supremum);
+    }
+
+    // remedy with linear interpolation, which requires infinite marching steps to converge
+    const float last = SampleNormalizedSDFLocal(d * t + o, 0.0) * SDF_SUP_MIN_W;
+    const float bias = last * rcp(1.0 - (last - sdf));
+    t += bias;
+
+    const float3 hit = d * t + o;
+    const float3 color = SampleColor(hit);
+    const float3 normal = SampleNormalLocal(hit, 0.0);
+    
+#if DEBUG_RAY_MARCHING_STEP
+    SceneRM0[id.xy] = float4(float(i).xxx / MAX_RAY_MARCHING_STEP, 1.0);
+#elif DEBUG_RAY_MARCHING_DEPTH
+    SceneRM0[id.xy] = float4(abs(t * 0.01).xxx, 1.0);
+#elif DEBUG_RAY_MARCHING_ERROR
+    SceneRM0[id.xy] = float4((sdf > 0 ? float2(sdf, 0.0) : float2(0.0, -sdf)) * 10.0, 0.0, 1.0);
+#elif DEBUG_RAY_MARCHING_MIN_SDF
+    SceneRM0[id.xy] = float4(abs(minSDF).xxx * 0.1, 1.0);
+#elif DEBUG_RAY_MARCHING_MAX_MIP
+    SceneRM0[id.xy] = float4(abs(maxMip).xxx / SCENE_MIP_MAX, 1.0);
+#elif DEBUG_RAY_MARCHING_BIAS
+    SceneRM0[id.xy] = float4(abs(bias * 10.0).xxx, 1.0);
+#else
+    SceneRM0[id.xy] = float4(abs(normal), IsHit(sdf, t));
+#endif
+    
+    SceneRM1[id.xy] = float4(abs(normal).xxx, 1.0);
+#endif
+}

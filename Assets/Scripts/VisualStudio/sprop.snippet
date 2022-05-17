@@ -1,0 +1,26 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<CodeSnippets xmlns="http://schemas.microsoft.com/VisualStudio/2005/CodeSnippet">
+  <CodeSnippet Format="1.0.0">
+    <Header>
+      <Title>Declare Shader Property ID</Title>
+      <Shortcut>sprop</Shortcut>
+    </Header>
+    <Snippet>
+      <Code Language="CSharp">
+        <![CDATA[public const string Binding_$Name$ = "$Name$";
+                 public static int ID_$Name$ { get; } = Shader.PropertyToID(Binding_$Name$);$end$]]>
+      </Code>
+      <Declarations>
+        <Literal>
+          <ID>Name</ID>
+          <Default>Property</Default>
+        </Literal>
+      </Declarations>
+      <Imports>
+        <Import>
+          <Namespace>UnityEngine</Namespace>
+        </Import>
+      </Imports>
+    </Snippet>
+  </CodeSnippet>
+</CodeSnippets>
