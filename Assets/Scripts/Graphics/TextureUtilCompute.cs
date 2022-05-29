@@ -5,7 +5,7 @@ using UnityEngine.Rendering;
 
 namespace Antares.Graphics
 {
-    public partial class AShaderSpecs
+    public partial class AShaderSpecifications
     {
         [Serializable]
         public class TextureUtilCompute : IComputeShaderSpec
@@ -27,8 +27,8 @@ namespace Antares.Graphics
 
             public void ClearVolume(CommandBuffer cmd, RenderTexture volume, float value, int mip = 0)
             {
-                cmd.SetComputeTextureParam(Shader, ClearKernel, ARenderLayouts.ID_Destination, volume, mip);
-                cmd.SetComputeFloatParam(Shader, ARenderLayouts.ID_Value, value);
+                cmd.SetComputeTextureParam(Shader, ClearKernel, ARenderLayouts.Bindings.Destination, volume, mip);
+                cmd.SetComputeFloatParam(Shader, ARenderLayouts.Bindings.Value, value);
 
                 int width = volume.width >> mip;
                 int height = volume.height >> mip;

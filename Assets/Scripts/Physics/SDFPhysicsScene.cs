@@ -9,27 +9,12 @@ namespace Antares.Physics
         public static SDFPhysicsScene Instance { get; private set; }
 
         [field: SerializeField, LabelText(nameof(Gravity))]
-        public float Gravity { get; set; } = -9.8f;
+        public Vector3 Gravity { get; set; } = new Vector3(0f, 0f, -9.8f);
 
-        [field: VerticalGroup("Specification"), SerializeField, LabelText(nameof(CellVolumeResolution))]
-#if UNITY_EDITOR
-        [field: OnValueChanged(nameof(GetUniformVector3))]
-#endif
-        public Vector3Int CellVolumeResolution { get; private set; }
+        [field: VerticalGroup("Specification"), SerializeField, LabelText(nameof(GridResolution))]
+        public int GridResolution { get; private set; }
 
-        [field: VerticalGroup("Specification"), SerializeField, LabelText(nameof(ParticleKillZ))]
-        public float ParticleKillZ { get; private set; }
-
-        public Vector3 CellVolumeWorldGridInv => (Vector3)CellVolumeResolution / transform.localScale.x;
-
-        public Vector3 CellVolumeTranslation => transform.position;
-
-#if UNITY_EDITOR
-        private void GetUniformVector3()
-        {
-            CellVolumeResolution = new Vector3Int(CellVolumeResolution.x, CellVolumeResolution.y, CellVolumeResolution.z);
-        }
-#endif
+        public float GridSpacing { get => 1f / GridResolution; }
 
         private void OnEnable()
         {

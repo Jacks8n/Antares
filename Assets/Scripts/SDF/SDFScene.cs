@@ -30,9 +30,9 @@ namespace Antares.SDF
 
         public Matrix4x4 WorldToScene => transform.worldToLocalMatrix;
 
-        public float GridWorldSize => transform.localScale.x;
+        public float GridSizeWorld => transform.localScale.x;
 
-        public float WorldSpaceSupremum => GridWorldSize * AShaderSpecs.SDFSupremum;
+        public float WorldSpaceSupremum => GridSizeWorld * AShaderSpecifications.SDFSupremum;
 
         public Vector3 WorldSpaceBoundMin => transform.position;
 

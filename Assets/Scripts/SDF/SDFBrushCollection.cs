@@ -120,7 +120,7 @@ namespace Antares.SDF
                 }
             }
             else
-                NumericalBrushAtlas = ARenderLayouts.CreateRWVolumeRT(GraphicsFormat.R8_SNorm, new Vector3Int(4, 4, 4));
+                NumericalBrushAtlas = ARenderUtilities.CreateRWVolumeRT(GraphicsFormat.R8_SNorm, new Vector3Int(4, 4, 4));
 
             string path = AssetDatabase.GetAssetPath(this);
             path = Path.ChangeExtension(path, "Atlas.asset");

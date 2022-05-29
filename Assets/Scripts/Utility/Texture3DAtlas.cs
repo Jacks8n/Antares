@@ -5,7 +5,8 @@ using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
 
 using static Antares.Graphics.ARenderLayouts;
-using static Antares.Graphics.AShaderSpecs;
+using static Antares.Graphics.ARenderUtilities;
+using static Antares.Graphics.AShaderSpecifications;
 
 namespace Antares.Utility
 {
@@ -132,12 +133,12 @@ namespace Antares.Utility
             ComputeShader blitCS = ShaderSpecsInstance.TextureUtilCS.Shader;
             int kernel = ShaderSpecsInstance.TextureUtilCS.BlitKernel;
 
-            cmd.SetComputeTextureParam(blitCS, kernel, ID_Destination, atlasRT);
+            cmd.SetComputeTextureParam(blitCS, kernel, Bindings.Destination, atlasRT);
             for (int i = 0; i < textures.Count; i++)
             {
                 Texture3D texture = textures[i];
-                cmd.SetComputeVectorParam(blitCS, ID_Offset, (Vector3)offsets[i]);
-                cmd.SetComputeTextureParam(blitCS, kernel, ID_Source, texture);
+                cmd.SetComputeVectorParam(blitCS, Bindings.Offset, (Vector3)offsets[i]);
+                cmd.SetComputeTextureParam(blitCS, kernel, Bindings.Source, texture);
                 cmd.DispatchCompute(blitCS, kernel, texture.width / TextureUtilCompute.BlitMipGroupSizeX, texture.height / TextureUtilCompute.BlitMipGroupSizeY, texture.depth / TextureUtilCompute.BlitMipGroupSizeZ);
             }
 

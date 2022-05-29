@@ -37,11 +37,8 @@ float SampleNormalizedSDFLocal(SamplerState state, float3 localPos, float mip)
 
 float3 SampleNormalLocal(SamplerState state, float3 localPos, float mip)
 {
-    const float2 offset = float2(1.0, -1.0);
-    return normalize(SampleNormalizedSDFLocal(state, localPos + offset.xxx, mip) * offset.xxx +
-                     SampleNormalizedSDFLocal(state, localPos + offset.yyx, mip) * offset.yyx +
-                     SampleNormalizedSDFLocal(state, localPos + offset.xyy, mip) * offset.xyy +
-                     SampleNormalizedSDFLocal(state, localPos + offset.yxy, mip) * offset.yxy);
+    const float3 uvw = localPos * SCENE_VOLUME_TEXEL;
+    return SampleNormal(state, uvw, mip);
 }
 #endif
 
@@ -59,6 +56,12 @@ float3 SampleNormal(float3 texel, float3 uvw, float mip)
                      SampleNormalizedSDF(uvw + offset.xyy * texel, mip) * offset.xyy +
                      SampleNormalizedSDF(uvw + offset.yxy * texel, mip) * offset.yxy);
 }
+
+float SampleNormalizedSDFLocal(float3 localPos, float mip)
+{
+    const float3 uvw = localPos * SCENE_VOLUME_TEXEL;
+    return SceneVolume.SampleLevel(SCENE_VOLUME_SAMPLER, uvw, mip);
+}
 #endif
 
 #if defined(SCENE_VOLUME_TEXEL) && defined(SCENE_VOLUME_SAMPLER)
@@ -71,18 +74,9 @@ float3 SampleNormal(float3 uvw, float mip)
                      SampleNormalizedSDF(SCENE_VOLUME_SAMPLER, uvw + offset.yxy * SCENE_VOLUME_TEXEL, mip) * offset.yxy);
 }
 
-float SampleNormalizedSDFLocal(float3 localPos, float mip)
-{
-    const float3 uvw = localPos * SCENE_VOLUME_TEXEL;
-    return SceneVolume.SampleLevel(SCENE_VOLUME_SAMPLER, uvw, mip);
-}
-
 float3 SampleNormalLocal(float3 localPos, float mip)
 {
-    const float2 offset = float2(1.0, -1.0);
-    return normalize(SampleNormalizedSDF(localPos + offset.xxx, mip) * offset.xxx +
-                     SampleNormalizedSDF(localPos + offset.yyx, mip) * offset.yyx +
-                     SampleNormalizedSDF(localPos + offset.xyy, mip) * offset.xyy +
-                     SampleNormalizedSDF(localPos + offset.yxy, mip) * offset.yxy);
+    const float3 uvw = localPos * SCENE_VOLUME_TEXEL;
+    return SampleNormal(uvw, mip);
 }
 #endif

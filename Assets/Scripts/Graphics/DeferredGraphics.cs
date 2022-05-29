@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace Antares.Graphics
 {
-    public partial class AShaderSpecs
+    public partial class AShaderSpecifications
     {
         [Serializable]
         public class DeferredGraphics : IShaderSpec

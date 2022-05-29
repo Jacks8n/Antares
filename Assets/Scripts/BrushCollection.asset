@@ -12,8 +12,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ce1fd55800445fe43b5f00b2a9289735, type: 3}
   m_Name: BrushCollection
   m_EditorClassIdentifier: 
-  <NumericalBrushAtlas>k__BackingField: {fileID: 8400000, guid: dbd219e875348af4c9eb38f1799c9299,
-    type: 2}
+  <NumericalBrushAtlas>k__BackingField: {fileID: 8400000, guid: dbd219e875348af4c9eb38f1799c9299, type: 2}
   <Brushes>k__BackingField:
   - Property:
       Transform:

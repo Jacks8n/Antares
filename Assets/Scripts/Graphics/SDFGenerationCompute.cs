@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace Antares.Graphics
 {
-    public partial class AShaderSpecs
+    public partial class AShaderSpecifications
     {
         [Serializable]
         public partial class SDFGenerationCompute : IComputeShaderSpec
@@ -63,7 +63,7 @@ namespace Antares.Graphics
                     const float tileRadiusFactor = (tileSizeInt - 1) * sqrt3Half + SDFSupremum;
                     const float gridRadiusFactor = (MatVolumeScale - 1) * sqrt3Half + SDFSupremum;
 
-                    float gridSize = scene.GridWorldSize;
+                    float gridSize = scene.GridSizeWorld;
                     BrushCullRadius = new Vector2(gridSize * tileRadiusFactor, gridSize * gridRadiusFactor);
 
                     SDFBrushCount = scene.BrusheCollection.Brushes.Length;
@@ -73,35 +73,14 @@ namespace Antares.Graphics
             [StructLayout(LayoutKind.Sequential, Pack = 1)]
             public struct MipGenerationParameters
             {
-                private readonly Vector2 SceneGridSize;
-
-                private readonly Vector2 SDFSupremum;
-
                 private readonly Vector3Int SceneVolumeSize;
 
-                public MipGenerationParameters(SDFScene scene, int mip)
+                public MipGenerationParameters(Vector3Int sceneVolumeSize, int mip)
                 {
                     Debug.Assert(mip >= 0 && mip < SceneMipCount);
 
-                    float gridSize = scene.GridWorldSize;
-                    if (mip == 0)
-                    {
-                        float supremum = AShaderSpecs.SDFSupremum * gridSize;
-                        SceneGridSize = new Vector2(0f, 0f);
-                        SDFSupremum = new Vector2(0f, 1f / supremum);
-                    }
-                    else
-                    {
-                        gridSize *= 1 << mip;
-                        SceneGridSize = new Vector2(gridSize, gridSize * gridSize);
-
-                        float prevMipSup = .5f * AShaderSpecs.SDFSupremum * gridSize;
-                        float supInv = 1f / AShaderSpecs.SDFSupremum / gridSize;
-                        SDFSupremum = new Vector2(prevMipSup, supInv);
-                    }
-
                     int scale = mip - 1;
-                    SceneVolumeSize = scene.Size;
+                    SceneVolumeSize = sceneVolumeSize;
                     SceneVolumeSize.x >>= scale;
                     SceneVolumeSize.y >>= scale;
                     SceneVolumeSize.z >>= scale;
@@ -143,9 +122,9 @@ namespace Antares.Graphics
 
             public int GenerateMipMapKernel { get; private set; }
 
-            public ConstantBufferSegment<SDFGenerationParameters> SDFGenerationParamsCBSegment { get; private set; }
+            public ConstantBufferSpans<SDFGenerationParameters> SDFGenerationParamsCBSpan { get; private set; }
 
-            public ConstantBufferSegment<MipGenerationParameters>[] MipGenerationParamsCBSegment { get; private set; }
+            public ConstantBufferSpans<MipGenerationParameters>[] MipGenerationParamsCBSpan { get; private set; }
 
             void IShaderSpec.OnAfterDeserialize<T>(T specs)
             {
@@ -154,10 +133,10 @@ namespace Antares.Graphics
                 GenerateSceneVolumeKernel = Shader.FindKernel("GenerateSceneVolume");
                 GenerateMipMapKernel = Shader.FindKernel("GenerateMipMap");
 
-                SDFGenerationParamsCBSegment = specs.RegisterConstantBuffer<SDFGenerationParameters>();
-                MipGenerationParamsCBSegment = new ConstantBufferSegment<MipGenerationParameters>[SceneMipCount];
+                SDFGenerationParamsCBSpan = specs.RegisterConstantBuffer<SDFGenerationParameters>();
+                MipGenerationParamsCBSpan = new ConstantBufferSpans<MipGenerationParameters>[SceneMipCount];
                 for (int i = 0; i < SceneMipCount; i++)
-                    MipGenerationParamsCBSegment[i] = specs.RegisterConstantBuffer<MipGenerationParameters>();
+                    MipGenerationParamsCBSpan[i] = specs.RegisterConstantBuffer<MipGenerationParameters>();
             }
         }
     }

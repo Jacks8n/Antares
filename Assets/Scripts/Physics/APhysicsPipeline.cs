@@ -1,118 +1,180 @@
 ﻿using System.Collections.Generic;
-using Antares.Physics;
+using Antares.Graphics;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
 
 using static Antares.Graphics.ARenderLayouts;
-using static Antares.Graphics.AShaderSpecs;
+using static Antares.Graphics.ARenderUtilities;
+using static Antares.Graphics.AShaderSpecifications;
 
-namespace Antares.Graphics
+namespace Antares.Physics
 {
-    public partial class ARenderPipeline
+    public class APhysicsPipeline
     {
-        public bool IsPhysicsSceneLoaded { get; private set; } = false;
+        public bool IsSceneLoaded { get; private set; } = false;
+
+        public int MaxAddParticleCount { get => 1024; }
+
+        private AShaderSpecifications _shaderSpecs { get => _renderPipeline.ShaderSpecs; }
+
+        private ComputeBuffer _constantBuffer { get => _renderPipeline.ConstantBuffer; }
+
+        private readonly ARenderPipeline _renderPipeline;
 
         private SDFPhysicsScene _physicsScene;
 
-        private RenderTexture _cellVolume;
+        private ComputeBuffer _fluidParticlePositionsBuffer;
+        private ComputeBuffer _fluidParticlePropertiesBuffer;
 
-        private ComputeBuffer _cellLinkedListBuffer;
+        private RenderTexture _fluidGridLevel0;
+        private RenderTexture _fluidGridLevel1;
+        private RenderTexture _fluidGridLevel2;
 
-        private ComputeBuffer _particlesBuffer;
+        private ComputeBuffer _fluidBlockParticleIndices;
 
-        private ComputeBuffer _particleTracksBuffer;
+        private ComputeBuffer _fluidGridAtomicLock;
 
-        private ComputeBuffer _particlePoolBuffer;
+        private ComputeBuffer _indirectArgsBuffer;
 
-        private ComputeBuffer _particleToCreateBuffer;
+        private ComputeBuffer _particlesToAdd;
 
-        private float _deltaTimePrev;
-
-        private int _particleCount;
-
-        public void LoadPhysicsScene(SDFPhysicsScene scene)
+        public APhysicsPipeline(ARenderPipeline renderPipeline)
         {
-            Debug.Assert(!IsPhysicsSceneLoaded);
+            _renderPipeline = renderPipeline;
+        }
+
+        public void LoadPhysicsScene(CommandBuffer cmd, SDFPhysicsScene scene)
+        {
+            Debug.Assert(!IsSceneLoaded);
             Debug.Assert(scene);
 
             _physicsScene = scene;
 
-            _cellVolume = CreateRWVolumeRT(GraphicsFormat.R32_UInt, scene.CellVolumeResolution, mipCount: 2);
-
             const int maxParticleCount = FluidSolverCompute.MaxParticleCount;
-            _cellLinkedListBuffer = new ComputeBuffer(maxParticleCount * 2, 4, ComputeBufferType.Default, ComputeBufferMode.Immutable);
-            _particlesBuffer = new ComputeBuffer(maxParticleCount * 3, 4, ComputeBufferType.Default, ComputeBufferMode.Immutable);
-            _particleTracksBuffer = new ComputeBuffer(maxParticleCount * 2, 4, ComputeBufferType.Raw, ComputeBufferMode.Immutable);
-            _particlePoolBuffer = new ComputeBuffer(maxParticleCount + 2, 4, ComputeBufferType.Default, ComputeBufferMode.Immutable);
-            _particleToCreateBuffer = new ComputeBuffer(FluidSolverCompute.MaxParticleCreateCount * 3, 4, ComputeBufferType.Default, ComputeBufferMode.SubUpdates);
+            _fluidParticlePositionsBuffer = new ComputeBuffer(4 + 2 * maxParticleCount * 16, 4, ComputeBufferType.Raw, ComputeBufferMode.Dynamic);
+            _fluidParticlePropertiesBuffer = new ComputeBuffer(maxParticleCount * 32, 4, ComputeBufferType.Raw, ComputeBufferMode.Dynamic);
+
+            _fluidGridLevel0 = CreateRWVolumeRT(GraphicsFormat.R32_SInt, FluidSolverCompute.GridSizeLevel0);
+            _fluidGridLevel1 = CreateRWVolumeRT(GraphicsFormat.R32_UInt, FluidSolverCompute.GridSizeLevel1);
+            _fluidGridLevel2 = CreateRWVolumeRT(GraphicsFormat.R32_UInt, FluidSolverCompute.GridSizeLevel2);
+
+            _fluidBlockParticleIndices = new ComputeBuffer(2 + FluidSolverCompute.BlockCountLevel0 * FluidSolverCompute.BlockParticleStride,
+                4, ComputeBufferType.Raw | ComputeBufferType.IndirectArguments, ComputeBufferMode.Dynamic);
+            _fluidGridAtomicLock = new ComputeBuffer(FluidSolverCompute.BlockCountLevel0, 4, ComputeBufferType.Default, ComputeBufferMode.Dynamic);
+
+            _indirectArgsBuffer = new ComputeBuffer(3, 4, ComputeBufferType.IndirectArguments | ComputeBufferType.Raw, ComputeBufferMode.Immutable);
+
+            _particlesToAdd = new ComputeBuffer(1024, 4, ComputeBufferType.Raw, ComputeBufferMode.Dynamic);
 
             // initialize buffers
             var fluidSolver = _shaderSpecs.FluidSolver;
             {
-                CommandBuffer cmd = CommandBufferPool.Get();
+                var param = new FluidSolverCompute.PhysicsSceneParameters(_physicsScene);
+                fluidSolver.PhysicsSceneParamsCBSpan.SetCBuffer(cmd, _constantBuffer, param);
 
-                var param = new FluidSolverCompute.PhysicsSceneParameters(_physicsScene, _scene);
-                fluidSolver.PhysicsSceneParamsCBSegment.SetCBuffer(cmd, _constantBuffer, param);
-
-                var shader = fluidSolver.Shader;
-                int kernel = fluidSolver.FillParticlePoolKernel;
-                {
-                    cmd.SetBufferData(_particlePoolBuffer, new uint[] { maxParticleCount + 2, 0 });
-                    cmd.SetComputeBufferParam(shader, kernel, ID_ParticlePool, _particlePoolBuffer);
-
-                    cmd.DispatchCompute(fluidSolver.Shader, kernel, maxParticleCount / 64, 1, 1);
-                }
+                cmd.SetBufferData(_fluidParticlePositionsBuffer, new uint[] { 0, 0, 0 });
             }
-
-            _deltaTimePrev = 0f;
-            _particleCount = 0;
 
             IsSceneLoaded = true;
         }
 
         public void UnloadPhysicsScene()
         {
-            Debug.Assert(IsPhysicsSceneLoaded);
+            Debug.Assert(IsSceneLoaded);
 
             _physicsScene = null;
 
-            _cellVolume.Release();
-            _cellLinkedListBuffer.Release();
-            _particlesBuffer.Release();
-            _particleTracksBuffer.Release();
-            _particlePoolBuffer.Release();
-            _particleToCreateBuffer.Release();
+            _fluidParticlePositionsBuffer.Release();
+            _fluidParticlePropertiesBuffer.Release();
+            _fluidBlockParticleIndices.Release();
+            _fluidGridAtomicLock.Release();
+            _indirectArgsBuffer.Release();
+            _particlesToAdd.Release();
 
-            IsPhysicsSceneLoaded = false;
-        }
+            _fluidGridLevel0.Release();
+            _fluidGridLevel1.Release();
+            _fluidGridLevel2.Release();
 
-        public void AddParticles(CommandBuffer cmd, List<Vector3> particles)
-        {
-
+            IsSceneLoaded = false;
         }
 
         public void Solve(CommandBuffer cmd, float deltaTime)
         {
-            var fluidSolver = _shaderSpecs.FluidSolver;
+            FluidSolverCompute fluidSolver = _shaderSpecs.FluidSolver;
             {
-                var param = new FluidSolverCompute.PhysicsFrameParameters(_physicsScene, deltaTime, _deltaTimePrev);
-                fluidSolver.PhysicsFrameParamCBSegment.SubUpdateCBuffer(_constantBuffer, param);
+                var param = new FluidSolverCompute.PhysicsFrameParameters(_physicsScene, deltaTime);
+                fluidSolver.PhysicsFrameParamsCBSpan.SetCBuffer(cmd, _constantBuffer, param);
             }
 
             ComputeShader shader = fluidSolver.Shader;
-            int[] kernels = new int[] { fluidSolver.SetupCLLKernel, fluidSolver.SolveConstraintsKernel };
-            for (int i = 0; i < 2; i++)
+            fluidSolver.PhysicsSceneParamsCBSpan.BindCBuffer(shader, Bindings.PhysicsSceneParameters, _constantBuffer);
+            fluidSolver.PhysicsFrameParamsCBSpan.BindCBuffer(shader, Bindings.PhysicsFrameParameters, _constantBuffer);
+
+            int kernel;
+
+            kernel = fluidSolver.GenerateIndirectArgsKernel;
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.IndirectArgs, _indirectArgsBuffer);
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticlePositions, _fluidParticlePositionsBuffer);
+            cmd.DispatchCompute(shader, kernel, 1, 1, 1);
+
+            kernel = fluidSolver.SortParticleKernel;
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticlePositions, _fluidParticlePositionsBuffer);
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidBlockParticleIndices, _fluidBlockParticleIndices);
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidGridAtomicLock, _fluidGridAtomicLock);
+            cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel1, _fluidGridLevel1);
+            cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel2, _fluidGridLevel2);
+            cmd.DispatchCompute(shader, kernel, _indirectArgsBuffer, 0);
+
+            kernel = fluidSolver.ParticleToGridKernel;
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticlePositions, _fluidParticlePositionsBuffer);
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticleProperties, _fluidParticlePropertiesBuffer);
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidBlockParticleIndices, _fluidBlockParticleIndices);
+            cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel0, _fluidGridLevel0);
+            cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel1, _fluidGridLevel1);
+            cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel2, _fluidGridLevel2);
+            cmd.DispatchCompute(shader, kernel, _fluidBlockParticleIndices, 0);
+
+            kernel = fluidSolver.SolveGridKernel;
+            cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel1, _fluidGridLevel0);
+            cmd.DispatchCompute(shader, kernel, _fluidBlockParticleIndices, 0);
+
+            kernel = fluidSolver.GridToParticleKernel;
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticlePositions, _fluidParticlePositionsBuffer);
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticleProperties, _fluidParticlePropertiesBuffer);
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidBlockParticleIndices, _fluidBlockParticleIndices);
+            cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel0, _fluidGridLevel0);
+            cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel1, _fluidGridLevel1);
+            cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel2, _fluidGridLevel2);
+            cmd.DispatchCompute(shader, kernel, _fluidBlockParticleIndices, 0);
+        }
+
+        public void AddParticles(CommandBuffer cmd, List<FluidSolverCompute.ParticleToAdd> particles, float mass = 1f)
+        {
+            FluidSolverCompute fluidSolver = _shaderSpecs.FluidSolver;
+
             {
-                int kernel = kernels[i];
-                cmd.SetComputeTextureParam(shader, kernel, ID_CellVolume, _cellVolume);
-                cmd.SetComputeBufferParam(shader, kernel, ID_CellLinkedList, _cellLinkedListBuffer);
-                cmd.SetComputeBufferParam(shader, kernel, ID_Particles, _particlesBuffer);
-                cmd.SetComputeBufferParam(shader, kernel, ID_ParticleTracks, _particleTracksBuffer);
-                //cmd.DispatchCompute(shader, kernel, );
+                var param = new FluidSolverCompute.AddParticlesParameters((uint)particles.Count, mass);
+                fluidSolver.AddParticlesParamsCBSpan.SetCBuffer(cmd, _constantBuffer, param);
             }
 
-            _deltaTimePrev = deltaTime;
+            cmd.SetBufferData(_particlesToAdd, particles);
+
+            ComputeShader shader = fluidSolver.Shader;
+            fluidSolver.AddParticlesParamsCBSpan.BindCBuffer(cmd, shader, Bindings.AddParticlesParameters, _constantBuffer);
+
+            int kernel = fluidSolver.AddParticlesKernel;
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.ParticlesToAdd, _particlesToAdd);
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticlePositions, _fluidParticlePositionsBuffer);
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticleProperties, _fluidParticlePropertiesBuffer);
+
+            int groupCount = (particles.Count + FluidSolverCompute.AddParticlesKernelSize - 1) / FluidSolverCompute.AddParticlesKernelSize;
+            cmd.DispatchCompute(shader, kernel, groupCount, 1, 1);
+        }
+
+        public void GenerateVolume(CommandBuffer cmd, RenderTexture targetVolume)
+        {
+            //_renderPipeline.GenerateVolumeMips(cmd, );
         }
     }
 }

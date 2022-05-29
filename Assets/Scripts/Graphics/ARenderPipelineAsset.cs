@@ -8,7 +8,7 @@ namespace Antares.Graphics
     public class ARenderPipelineAsset : RenderPipelineAsset
     {
         [SerializeField, Required]
-        private AShaderSpecs _shaderSpecs;
+        private AShaderSpecifications _shaderSpecs;
 
         protected override RenderPipeline CreatePipeline() => new ARenderPipeline(_shaderSpecs);
     }

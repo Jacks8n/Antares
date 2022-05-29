@@ -6,7 +6,7 @@ using UnityEngine;
 
 namespace Antares.Graphics
 {
-    public partial class AShaderSpecs
+    public partial class AShaderSpecifications
     {
         [Serializable]
         public class RayMarchingCompute : IComputeShaderSpec
@@ -91,14 +91,14 @@ namespace Antares.Graphics
 
             public int RayMarchingKernel { get; private set; }
 
-            public ConstantBufferSegment<RayMarchingParameters> RayMarchingParamsCBSegment { get; private set; }
+            public ConstantBufferSpans<RayMarchingParameters> RayMarchingParamsCBSpan { get; private set; }
 
             void IShaderSpec.OnAfterDeserialize<T>(T specs)
             {
                 TiledMarchingKernel = Shader.FindKernel("TiledMarching");
                 RayMarchingKernel = Shader.FindKernel("RayMarching");
 
-                RayMarchingParamsCBSegment = specs.RegisterConstantBuffer<RayMarchingParameters>();
+                RayMarchingParamsCBSpan = specs.RegisterConstantBuffer<RayMarchingParameters>();
             }
         }
     }

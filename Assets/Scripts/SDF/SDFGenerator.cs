@@ -8,7 +8,7 @@ namespace Antares.SDF
 {
     public static class SDFGenerator
     {
-        private const float UnitDistance = AShaderSpecs.SDFSupremum * 2f / (byte.MaxValue - byte.MinValue);
+        private const float UnitDistance = AShaderSpecifications.SDFSupremum * 2f / (byte.MaxValue - byte.MinValue);
 
         private const float InvUnitDistance = 1f / UnitDistance;
 

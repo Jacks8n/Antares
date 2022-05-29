@@ -1,13 +1,12 @@
 ﻿using System;
 using System.Runtime.InteropServices;
 using Antares.Physics;
-using Antares.SDF;
-using Sirenix.OdinInspector;
 using UnityEngine;
+using Sirenix.OdinInspector;
 
 namespace Antares.Graphics
 {
-    public partial class AShaderSpecs
+    public partial class AShaderSpecifications
     {
         [Serializable]
         public class FluidSolverCompute : IComputeShaderSpec
@@ -15,117 +14,112 @@ namespace Antares.Graphics
             [StructLayout(LayoutKind.Sequential, Pack = 1)]
             public struct PhysicsSceneParameters
             {
-                private readonly Matrix3x4 WorldToSceneTex;
+                private readonly Vector2 FluidGridResolution;
 
-                private readonly Vector4 CellVolumeTransform;
-
-                private readonly Vector3 SceneTexel;
-
-                private readonly float SDFSupremum;
-
-                private readonly float Stiffness;
-
-                private readonly Vector3 FluidBoundMin;
-                private readonly Vector3 FluidBoundMax;
-
-                private readonly int CellVolumeSize;
-
-                private readonly float ParticleKillZ;
-
-                public PhysicsSceneParameters(SDFPhysicsScene physicsScene, SDFScene scene)
+                public PhysicsSceneParameters(SDFPhysicsScene physicsScene)
                 {
-                    Matrix4x4 worldToScene = scene.WorldToScene;
-                    Vector3 texel = scene.SizeInv;
-                    WorldToSceneTex = new Matrix3x4(
-                        worldToScene.GetRow(0) * texel.x,
-                        worldToScene.GetRow(1) * texel.y,
-                        worldToScene.GetRow(2) * texel.z);
-
-                    Vector3 translation = physicsScene.CellVolumeTranslation;
-                    CellVolumeTransform = new Vector4(physicsScene.CellVolumeWorldGridInv.x, translation.x, translation.y, translation.z);
-
-                    SceneTexel = scene.SizeInv;
-
-                    SDFSupremum = scene.WorldSpaceSupremum;
-
-                    Stiffness = FluidSolverCompute.Stiffness;
-
-                    FluidBoundMin = scene.WorldSpaceBoundMin;
-                    FluidBoundMax = scene.WorldSpaceBoundMax;
-
-                    CellVolumeSize = physicsScene.CellVolumeResolution.x;
-
-                    ParticleKillZ = physicsScene.ParticleKillZ;
+                    FluidGridResolution = new Vector2(
+                        physicsScene.GridResolution,
+                        1f / physicsScene.GridSpacing);
                 }
             }
 
             [StructLayout(LayoutKind.Sequential, Pack = 1)]
             public struct PhysicsFrameParameters
             {
-                private readonly Vector3 TimeStep;
+                private readonly Vector2 TimeStep;
 
-                private readonly float FluidGravity;
+                private readonly Vector2 Padding;
 
-                public PhysicsFrameParameters(SDFPhysicsScene physics, float timeStep, float timeStepPrev)
+                private readonly Vector3 FluidGravity;
+
+                private readonly Vector3 FluidGridTranslation;
+
+                public PhysicsFrameParameters(SDFPhysicsScene physicsScene, float timeStep)
                 {
-                    TimeStep = new Vector3(timeStep, 1f / timeStep, timeStepPrev);
-
-                    FluidGravity = physics.Gravity;
+                    TimeStep = new Vector3(timeStep, 1f / timeStep);
+                    Padding = Vector2.zero;
+                    FluidGravity = physicsScene.Gravity;
+                    FluidGridTranslation = physicsScene.transform.position;
                 }
             }
 
             [StructLayout(LayoutKind.Sequential, Pack = 1)]
-            public struct CreateParticleParameters
+            public struct AddParticlesParameters
             {
-                private readonly uint CreateParticleCount;
+                private readonly uint ParticleCount;
 
-                public CreateParticleParameters(uint particleCount)
+                private readonly float Mass;
+                
+                /// <summary>
+                /// create parameters to add particles from an array
+                /// </summary>
+                public AddParticlesParameters(uint particleCount, float mass)
                 {
-                    CreateParticleCount = particleCount;
+                    ParticleCount = particleCount;
+                    Mass = mass;
                 }
             }
 
-            private const float Stiffness = 1f;
+            [StructLayout(LayoutKind.Sequential, Pack = 1)]
+            public struct ParticleToAdd
+            {
+                private readonly Vector3 Position;
 
-            private const float SPHParticleRadius = 0.2f;
+                private readonly Vector3 Velocity;
 
-            /// <summary>
-            /// must be aligned to size of kernels
-            /// </summary>
-            public const int MaxParticleCount = 65536;
+                public ParticleToAdd(Vector3 position, Vector3 velocity)
+                {
+                    Position = position;
+                    Velocity = velocity;
+                }
+            }
 
-            /// <summary>
-            /// must not be greater than <see cref="MaxParticleCount"/>
-            /// </summary>
-            public const int MaxParticleCreateCount = 4096;
+            public const int MaxParticleCount = 1 << 20;
+
+            public const int BlockCountLevel0 = 16 * 16 * 16;
+
+            public const int BlockParticleStride = 64;
+
+            public const int AddParticlesKernelSize = 128;
+
+            public static Vector3Int GridSizeLevel0 { get => new Vector3Int(64, 64, 64); }
+            public static Vector3Int GridSizeLevel1 { get => new Vector3Int(64, 64, 64); }
+            public static Vector3Int GridSizeLevel2 { get => new Vector3Int(16, 16, 16); }
 
             [field: SerializeField, LabelText(nameof(Shader))]
             public ComputeShader Shader { get; private set; }
 
-            public int SetupCLLKernel { get; private set; }
+            public int SortParticleKernel { get; private set; }
 
-            public int SolveConstraintsKernel { get; private set; }
+            public int ParticleToGridKernel { get; private set; }
 
-            public int FillParticlePoolKernel { get; private set; }
+            public int SolveGridKernel { get; private set; }
 
-            public int CreateParticlesKernel { get; private set; }
+            public int GridToParticleKernel { get; private set; }
 
-            public ConstantBufferSegment<PhysicsSceneParameters> PhysicsSceneParamsCBSegment { get; private set; }
+            public int GenerateIndirectArgsKernel { get; private set; }
 
-            public ConstantBufferSegment<PhysicsFrameParameters> PhysicsFrameParamCBSegment { get; private set; }
+            public int AddParticlesKernel { get; private set; }
 
-            public ConstantBufferSegment<CreateParticleParameters> CreateParticleParamsCBSegment { get; private set; }
+            public ConstantBufferSpans<PhysicsSceneParameters> PhysicsSceneParamsCBSpan { get; private set; }
+
+            public ConstantBufferSpans<PhysicsFrameParameters> PhysicsFrameParamsCBSpan { get; private set; }
+
+            public ConstantBufferSpans<AddParticlesParameters> AddParticlesParamsCBSpan { get; private set; }
 
             void IShaderSpec.OnAfterDeserialize<T>(T specs)
             {
-                SetupCLLKernel = Shader.FindKernel("SetupCLL");
-                SolveConstraintsKernel = Shader.FindKernel("SolveConstraints");
-                FillParticlePoolKernel = Shader.FindKernel("FillParticlePool");
-                CreateParticlesKernel = Shader.FindKernel("CreateParticles");
+                SortParticleKernel = Shader.FindKernel("SortParticle");
+                ParticleToGridKernel = Shader.FindKernel("ParticleToGrid");
+                SolveGridKernel = Shader.FindKernel("SolveGrid");
+                GridToParticleKernel = Shader.FindKernel("GridToParticle");
+                GenerateIndirectArgsKernel = Shader.FindKernel("GenerateIndirectArgs");
+                AddParticlesKernel = Shader.FindKernel("AddParticlesKernel");
 
-                PhysicsSceneParamsCBSegment = specs.RegisterConstantBuffer<PhysicsSceneParameters>();
-                PhysicsFrameParamCBSegment = specs.RegisterConstantBuffer<PhysicsFrameParameters>();
-                CreateParticleParamsCBSegment = specs.RegisterConstantBuffer<CreateParticleParameters>();
+                PhysicsSceneParamsCBSpan = specs.RegisterConstantBuffer<PhysicsSceneParameters>();
+                PhysicsFrameParamsCBSpan = specs.RegisterConstantBuffer<PhysicsFrameParameters>();
+                AddParticlesParamsCBSpan = specs.RegisterConstantBuffer<AddParticlesParameters>();
             }
         }
     }

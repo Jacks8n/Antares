@@ -9,15 +9,15 @@ using UnityEngine.Rendering;
 namespace Antares.Graphics
 {
     [CreateAssetMenu(menuName = "Rendering/ShaderSpecification")]
-    public partial class AShaderSpecs : ScriptableObject, AShaderSpecs.IShaderAggregator
+    public partial class AShaderSpecifications : ScriptableObject, AShaderSpecifications.IShaderAggregator
     {
-        public struct ConstantBufferSegment<T> where T : unmanaged
+        public struct ConstantBufferSpans<T> where T : unmanaged
         {
             public readonly int OffsetInBytes;
 
             public unsafe int Size => sizeof(T) < _constantBufferMimmumSize ? _constantBufferMimmumSize : sizeof(T);
 
-            public ConstantBufferSegment(int offsetInBytes)
+            public ConstantBufferSpans(int offsetInBytes)
             {
                 OffsetInBytes = offsetInBytes;
             }
@@ -74,7 +74,7 @@ namespace Antares.Graphics
 
         private interface IShaderAggregator
         {
-            ConstantBufferSegment<T> RegisterConstantBuffer<T>() where T : unmanaged;
+            ConstantBufferSpans<T> RegisterConstantBuffer<T>() where T : unmanaged;
         }
 
         private interface IShaderSpec
@@ -92,10 +92,10 @@ namespace Antares.Graphics
         public const float SDFSupremum = 4f;
     }
 
-    public partial class AShaderSpecs
+    public partial class AShaderSpecifications
     {
         [field: LabelText(nameof(ShaderSpecsInstance))]
-        public static AShaderSpecs ShaderSpecsInstance { get; private set; }
+        public static AShaderSpecifications ShaderSpecsInstance { get; private set; }
 
         public int ConstantBufferCount { get; private set; }
 
@@ -153,7 +153,7 @@ namespace Antares.Graphics
 #endif
         }
 
-        unsafe ConstantBufferSegment<T> IShaderAggregator.RegisterConstantBuffer<T>()
+        unsafe ConstantBufferSpans<T> IShaderAggregator.RegisterConstantBuffer<T>()
         {
             int offset = ConstantBufferCount;
 
@@ -161,7 +161,7 @@ namespace Antares.Graphics
             ConstantBufferCount = (ConstantBufferCount + _constantBufferAlignment) & ~_constantBufferAlignment;
 
             Debug.Log($"cbuffer in size of {sizeof(T)} registered at {offset}");
-            return new ConstantBufferSegment<T>(offset);
+            return new ConstantBufferSpans<T>(offset);
         }
     }
 }
