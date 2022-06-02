@@ -111,7 +111,7 @@ uint AddParticleCountAtomic(uint particleCount)
 
 uint GetFluidParticlePositionByteOffset(uint index, bool pingpong)
 {
-    const uint stride = sizeof(ParticlePositionIndexed);
+    const uint stride = 16; // sizeof(ParticlePositionIndexed)
     const uint pingpongOffset = pingpong ? FLUID_MAX_PARTICLE_COUNT : 0;
     return 16 + index * stride + pingpongOffset;
 }
@@ -291,7 +291,7 @@ extern RWTexture3D<uint> FluidGridLevel2;
 // layout:
 // { level 0 block count, unused{2}, level 1 block count, {block position, particle count, prefix sum of particle count, particle index*}* }
 // initial value:
-// { 0, 1, 1, 0, {x{3}, 0*}* }
+// { 0, 1, 1, 0, {x{3}, 0, 0, 0*}* }
 extern RWByteAddressBuffer FluidBlockParticleIndices;
 // initial value:
 // { 0* }
@@ -379,19 +379,19 @@ uint GetFluidBlockInfoByteOffset(uint blockIndex)
     return GetFluidBlockCountByteOffset(1) + 4 + blockIndex * FLUID_BLOCK_PARTICLE_STRIDE;
 }
 
-uint GetFluidBlockParticleCountByteOffset(uint blockIndex)
+uint GetFluidBlockPositionByteOffset(uint blockIndex)
 {
     return GetFluidBlockInfoByteOffset(blockIndex);
 }
 
-uint GetFluidBlockPositionByteOffset(uint blockIndex)
+uint GetFluidBlockParticleCountByteOffset(uint blockIndex)
 {
-    return GetFluidBlockInfoByteOffset(blockIndex) + 4;
+    return GetFluidBlockPositionByteOffset(blockIndex) + 12;
 }
 
 uint GetFluidBlockParticleCountPrefixSumByteOffset(uint blockIndex)
 {
-    return GetFluidBlockPositionByteOffset(blockIndex) + 12;
+    return GetFluidBlockParticleCountByteOffset(blockIndex) + 4;
 }
 
 uint GetFluidBlockParticleIndexByteOffset(uint blockIndex, uint particleIndex)
@@ -426,18 +426,19 @@ void SetFluidBlockParticleCountPrefixSum(uint blockIndex, uint prefixSum)
     FluidBlockParticleIndices.Store(byteOffset, prefixSum);
 }
 
-void GetFluidBlockInfo(uint blockIndexLevel0, out uint3 blockPosition, out uint particleCount)
+void GetFluidBlockInfo(uint blockIndexLevel0, out uint3 blockPositionLevel1, out uint particleCount)
 {
     const uint byteOffset = GetFluidBlockInfoByteOffset(blockIndexLevel0);
     const uint4 word = FluidBlockParticleIndices.Load4(byteOffset);
 
-    particleCount = word.x, FLUID_BLOCK_MAX_PARTICLE_COUNT;
-    blockPosition = word.yzw;
+    particleCount = min(word.x, FLUID_BLOCK_MAX_PARTICLE_COUNT);
+    blockPositionLevel1 = word.yzw;
 }
 
-void GetFluidBlockInfo(uint blockIndexLevel0, out uint3 blockPosition, out uint particleCount, out uint particleCountPrefixSum)
+// prefix sum of particle count is undefiend before particle to grid transfer
+void GetFluidBlockInfo(uint blockIndexLevel0, out uint3 blockPositionLevel1, out uint particleCount, out uint particleCountPrefixSum)
 {
-    GetFluidBlockInfo(blockIndexLevel0, blockPosition, particleCount);
+    GetFluidBlockInfo(blockIndexLevel0, blockPositionLevel1, particleCount);
     particleCountPrefixSum = GetFluidBlockParticleCountPrefixSum(blockIndexLevel0);
 }
 
@@ -448,7 +449,7 @@ uint GetFluidBlockParticleIndex(uint blockIndexLevel0, uint particleIndex)
 }
 
 // return: the allocated level n-1 index
-uint ActivateFluidBlockLevel0(uint3 blockIndexLevel1, uint3 blockPosition)
+uint ActivateFluidBlockLevel0(uint3 blockIndexLevel1, uint3 blockPositionLevel1)
 {
     uint indexSublevel = FluidGridLevel1[blockIndexLevel1];
     if (indexSublevel != FLUID_BLOCK_INDEX_NULL)
@@ -467,7 +468,10 @@ uint ActivateFluidBlockLevel0(uint3 blockIndexLevel1, uint3 blockPosition)
 
         const uint offset = GetFluidBlockPositionByteOffset(indexSublevel);
         // w component is the particle count
-        FluidBlockParticleIndices.Store4(offset, uint4(blockPosition, 0));
+        // N.B.:
+        // make sure GetFluidBlockPositionByteOffset(indexSublevel) == GetFluidBlockPositionByteOffset(indexSublevel) + 12
+        // if the assumption above doesn't hold, remember to modify here either.
+        FluidBlockParticleIndices.Store4(offset, uint4(blockPositionLevel1, 0));
     }
     else
     {
@@ -476,7 +480,7 @@ uint ActivateFluidBlockLevel0(uint3 blockIndexLevel1, uint3 blockPosition)
             indexSublevel = FluidGridLevel1[blockIndexLevel1];
         } while (indexSublevel == FLUID_BLOCK_INDEX_NULL);
     }
-    
+
     return indexSublevel;
 }
 

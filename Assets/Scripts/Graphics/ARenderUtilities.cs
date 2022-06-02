@@ -6,41 +6,40 @@ namespace Antares.Graphics
 {
     public static class ARenderUtilities
     {
-        public static readonly bool IsUVFlipped = false;
-
-        public static readonly Vector2 ScreenBlitScale = new Vector2(1f, IsUVFlipped ? -1f : 1f);
-        public static readonly Vector2 ScreenBlitOffset = new Vector2(0f, IsUVFlipped ? 1f : 0f);
+        public static Mesh FullScreenMesh
+        {
+            get
+            {
+                if (!_fullScreenMesh)
+                    _fullScreenMesh = new Mesh()
+                    {
+                        vertices = new Vector3[] { new Vector3(-1f, -1f), new Vector3(-1f, 3f), new Vector3(3f, -1f) },
+                        triangles = new int[] { 0, 1, 2 },
+                        uv = new Vector2[] { new Vector2(0f, 1f), new Vector2(0f, -1f), new Vector2(2f, 1f) }
+                    };
+                return _fullScreenMesh;
+            }
+        }
 
         private static Mesh _fullScreenMesh = null;
 
-        public static Mesh GetFullScreenMesh()
-        {
-            if (!_fullScreenMesh)
-                _fullScreenMesh = new Mesh()
-                {
-                    vertices = new Vector3[] { new Vector3(-1f, -1f), new Vector3(-1f, 3f), new Vector3(3f, -1f) },
-                    triangles = new int[] { 0, 1, 2 },
-                    uv = IsUVFlipped
-                    ? new Vector2[] { new Vector2(0f, 0f), new Vector2(0f, 2f), new Vector2(2f, 0f) }
-                    : new Vector2[] { new Vector2(0f, 1f), new Vector2(0f, -1f), new Vector2(2f, 1f) }
-                };
-            return _fullScreenMesh;
-        }
-
 #if UNITY_EDITOR
-        private static Mesh _fullScreenSceneViewMesh = null;
-
-        public static Mesh GetFullScreenSceneViewMesh()
+        public static Mesh FullScreenSceneViewMesh
         {
-            if (!_fullScreenSceneViewMesh)
-                _fullScreenSceneViewMesh = new Mesh()
-                {
-                    vertices = new Vector3[] { new Vector3(-1f, -1f), new Vector3(-1f, 3f), new Vector3(3f, -1f) },
-                    triangles = new int[] { 0, 1, 2 },
-                    uv = new Vector2[] { new Vector2(0f, 1f), new Vector2(0f, -1f), new Vector2(2f, 1f) }
-                };
-            return _fullScreenSceneViewMesh;
+            get
+            {
+                if (!_fullScreenSceneViewMesh)
+                    _fullScreenSceneViewMesh = new Mesh()
+                    {
+                        vertices = new Vector3[] { new Vector3(-1f, -1f), new Vector3(-1f, 3f), new Vector3(3f, -1f) },
+                        triangles = new int[] { 0, 1, 2 },
+                        uv = new Vector2[] { new Vector2(0f, 1f), new Vector2(0f, -1f), new Vector2(2f, 1f) }
+                    };
+                return _fullScreenSceneViewMesh;
+            }
         }
+
+        private static Mesh _fullScreenSceneViewMesh = null;
 #endif
 
         /// <summary>

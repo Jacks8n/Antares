@@ -20,11 +20,11 @@ namespace Antares.SDF
 
         public Vector3 SizeInv { get; private set; }
 
-        [field: SerializeField, Required, LabelText(nameof(BrusheCollection))]
+        [field: SerializeField, Required, LabelText(nameof(BrushCollection))]
         [field: VerticalGroup("Specification")]
-        public SDFBrushCollection BrusheCollection { get; private set; }
+        public SDFBrushCollection BrushCollection { get; private set; }
 
-        public bool IsEmpty => BrusheCollection.Brushes.Length == 0;
+        public bool IsEmpty => BrushCollection.Brushes.Length == 0;
 
         public Matrix4x4 SceneToWorld => transform.localToWorldMatrix;
 

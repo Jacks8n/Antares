@@ -52,16 +52,16 @@ namespace Antares.Physics
             _physicsScene = scene;
 
             const int maxParticleCount = FluidSolverCompute.MaxParticleCount;
-            _fluidParticlePositionsBuffer = new ComputeBuffer(4 + 2 * maxParticleCount * 16, 4, ComputeBufferType.Raw, ComputeBufferMode.Dynamic);
-            _fluidParticlePropertiesBuffer = new ComputeBuffer(maxParticleCount * 32, 4, ComputeBufferType.Raw, ComputeBufferMode.Dynamic);
+            _fluidParticlePositionsBuffer = new ComputeBuffer(4 + 2 * maxParticleCount * 16, 4, ComputeBufferType.Raw, ComputeBufferMode.Immutable);
+            _fluidParticlePropertiesBuffer = new ComputeBuffer(maxParticleCount * 32, 4, ComputeBufferType.Raw, ComputeBufferMode.Immutable);
 
             _fluidGridLevel0 = CreateRWVolumeRT(GraphicsFormat.R32_SInt, FluidSolverCompute.GridSizeLevel0);
             _fluidGridLevel1 = CreateRWVolumeRT(GraphicsFormat.R32_UInt, FluidSolverCompute.GridSizeLevel1);
             _fluidGridLevel2 = CreateRWVolumeRT(GraphicsFormat.R32_UInt, FluidSolverCompute.GridSizeLevel2);
 
             _fluidBlockParticleIndices = new ComputeBuffer(2 + FluidSolverCompute.BlockCountLevel0 * FluidSolverCompute.BlockParticleStride,
-                4, ComputeBufferType.Raw | ComputeBufferType.IndirectArguments, ComputeBufferMode.Dynamic);
-            _fluidGridAtomicLock = new ComputeBuffer(FluidSolverCompute.BlockCountLevel0, 4, ComputeBufferType.Default, ComputeBufferMode.Dynamic);
+                4, ComputeBufferType.Raw | ComputeBufferType.IndirectArguments, ComputeBufferMode.Immutable);
+            _fluidGridAtomicLock = new ComputeBuffer(FluidSolverCompute.BlockCountLevel0, 4, ComputeBufferType.Default, ComputeBufferMode.Immutable);
 
             _indirectArgsBuffer = new ComputeBuffer(3, 4, ComputeBufferType.IndirectArguments | ComputeBufferType.Raw, ComputeBufferMode.Immutable);
 
@@ -135,6 +135,15 @@ namespace Antares.Physics
             cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel2, _fluidGridLevel2);
             cmd.DispatchCompute(shader, kernel, _fluidBlockParticleIndices, 0);
 
+            SDFGenerationCompute sdfGeneration = _shaderSpecs.SDFGenerationCS;
+            shader = sdfGeneration.Shader;
+
+            kernel = sdfGeneration.GenerateFluidMipKernel;
+            // todo
+            cmd.DispatchCompute(shader, kernel, _fluidBlockParticleIndices, 0);
+
+            shader = fluidSolver.Shader;
+
             kernel = fluidSolver.SolveGridKernel;
             cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel1, _fluidGridLevel0);
             cmd.DispatchCompute(shader, kernel, _fluidBlockParticleIndices, 0);
@@ -151,6 +160,8 @@ namespace Antares.Physics
 
         public void AddParticles(CommandBuffer cmd, List<FluidSolverCompute.ParticleToAdd> particles, float mass = 1f)
         {
+            Debug.Assert(particles.Count <= FluidSolverCompute.MaxParticleCount);
+
             FluidSolverCompute fluidSolver = _shaderSpecs.FluidSolver;
 
             {
@@ -170,11 +181,6 @@ namespace Antares.Physics
 
             int groupCount = (particles.Count + FluidSolverCompute.AddParticlesKernelSize - 1) / FluidSolverCompute.AddParticlesKernelSize;
             cmd.DispatchCompute(shader, kernel, groupCount, 1, 1);
-        }
-
-        public void GenerateVolume(CommandBuffer cmd, RenderTexture targetVolume)
-        {
-            //_renderPipeline.GenerateVolumeMips(cmd, );
         }
     }
 }

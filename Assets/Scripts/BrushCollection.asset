@@ -16,7 +16,7 @@ MonoBehaviour:
   <Brushes>k__BackingField:
   - Property:
       Transform:
-        TranslationInv: {x: -18, y: -32.2, z: -18}
+        TranslationInv: {x: -75, y: -24.6, z: -33.51}
         ScaleInv: 1
         RotationInv: {x: -0, y: -0, z: -0, w: 1}
       <BrushType>k__BackingField: 1
@@ -25,7 +25,7 @@ MonoBehaviour:
     ParameterOffset: 0
   - Property:
       Transform:
-        TranslationInv: {x: -32.7, y: -18, z: -30.1}
+        TranslationInv: {x: -18, y: -32.2, z: -18}
         ScaleInv: 1
         RotationInv: {x: -0, y: -0, z: -0, w: 1}
       <BrushType>k__BackingField: 1
@@ -34,7 +34,7 @@ MonoBehaviour:
     ParameterOffset: 1
   - Property:
       Transform:
-        TranslationInv: {x: -27.02, y: -24.6, z: -33.51}
+        TranslationInv: {x: -32.7, y: -18, z: -30.1}
         ScaleInv: 1
         RotationInv: {x: -0, y: -0, z: -0, w: 1}
       <BrushType>k__BackingField: 1
@@ -43,7 +43,7 @@ MonoBehaviour:
     ParameterOffset: 2
   - Property:
       Transform:
-        TranslationInv: {x: -14.09, y: -18, z: -36.54}
+        TranslationInv: {x: -27.02, y: -24.6, z: -33.51}
         ScaleInv: 1
         RotationInv: {x: -0, y: -0, z: -0, w: 1}
       <BrushType>k__BackingField: 1
@@ -52,13 +52,22 @@ MonoBehaviour:
     ParameterOffset: 3
   - Property:
       Transform:
+        TranslationInv: {x: -14.09, y: -18, z: -36.54}
+        ScaleInv: 1
+        RotationInv: {x: -0, y: -0, z: -0, w: 1}
+      <BrushType>k__BackingField: 1
+      MaterialID: 0
+    ParameterCount: 1
+    ParameterOffset: 4
+  - Property:
+      Transform:
         TranslationInv: {x: -64.6, y: -15.87, z: -66.3}
         ScaleInv: 1
         RotationInv: {x: -0, y: -0, z: -0, w: 1}
       <BrushType>k__BackingField: 2
       MaterialID: 0
     ParameterCount: 3
-    ParameterOffset: 4
+    ParameterOffset: 5
   - Property:
       Transform:
         TranslationInv: {x: -41, y: -15.5, z: -60.8}
@@ -67,7 +76,7 @@ MonoBehaviour:
       <BrushType>k__BackingField: 2
       MaterialID: 0
     ParameterCount: 3
-    ParameterOffset: 7
+    ParameterOffset: 8
   - Property:
       Transform:
         TranslationInv: {x: -31.9, y: -35.24, z: -48.4}
@@ -76,7 +85,7 @@ MonoBehaviour:
       <BrushType>k__BackingField: 2
       MaterialID: 0
     ParameterCount: 3
-    ParameterOffset: 10
+    ParameterOffset: 11
   - Property:
       Transform:
         TranslationInv: {x: -50.5, y: -18, z: -82.59}
@@ -85,7 +94,7 @@ MonoBehaviour:
       <BrushType>k__BackingField: 1
       MaterialID: 0
     ParameterCount: 1
-    ParameterOffset: 13
+    ParameterOffset: 14
   - Property:
       Transform:
         TranslationInv: {x: -50.4, y: -15.5, z: -33.8}
@@ -94,8 +103,9 @@ MonoBehaviour:
       <BrushType>k__BackingField: 2
       MaterialID: 0
     ParameterCount: 3
-    ParameterOffset: 14
+    ParameterOffset: 15
   <BrushParameters>k__BackingField:
+  - 3
   - 10
   - 10
   - 10

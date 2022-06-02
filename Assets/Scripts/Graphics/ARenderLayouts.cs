@@ -111,20 +111,20 @@ namespace Antares.Graphics
 
                 attachments[Index_Depth] = new AttachmentDescriptor(Attachments.Format_Depth)
                 {
-                    loadAction = RenderBufferLoadAction.DontCare,
-                    storeAction = RenderBufferStoreAction.Store,
+                    loadAction = RenderBufferLoadAction.Clear,
+                    storeAction = RenderBufferStoreAction.DontCare,
                     clearDepth = 1f
                 };
                 attachments[Index_GBuffer0] = new AttachmentDescriptor(Attachments.Format_GBuffer0)
                 {
                     loadAction = RenderBufferLoadAction.Clear,
-                    storeAction = RenderBufferStoreAction.Store,
+                    storeAction = RenderBufferStoreAction.DontCare,
                     clearColor = Color.clear
                 };
                 attachments[Index_Shading] = new AttachmentDescriptor(Attachments.Format_Shading)
                 {
                     loadStoreTarget = new RenderTargetIdentifier(Bindings.Shading),
-                    loadAction = RenderBufferLoadAction.Clear,
+                    loadAction = RenderBufferLoadAction.DontCare,
                     storeAction = RenderBufferStoreAction.Store,
                     clearColor = clearColor
                 };

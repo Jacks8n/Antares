@@ -1,8 +1,9 @@
 ﻿using System;
 using System.Runtime.InteropServices;
 using Antares.Physics;
-using UnityEngine;
 using Sirenix.OdinInspector;
+using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace Antares.Graphics
 {
@@ -33,6 +34,8 @@ namespace Antares.Graphics
 
                 private readonly Vector3 FluidGravity;
 
+                private readonly float Padding2;
+
                 private readonly Vector3 FluidGridTranslation;
 
                 public PhysicsFrameParameters(SDFPhysicsScene physicsScene, float timeStep)
@@ -40,6 +43,7 @@ namespace Antares.Graphics
                     TimeStep = new Vector3(timeStep, 1f / timeStep);
                     Padding = Vector2.zero;
                     FluidGravity = physicsScene.Gravity;
+                    Padding2 = 0f;
                     FluidGridTranslation = physicsScene.transform.position;
                 }
             }
@@ -82,6 +86,8 @@ namespace Antares.Graphics
             public const int BlockParticleStride = 64;
 
             public const int AddParticlesKernelSize = 128;
+
+            public static int MaxAddParticleCount { get => AddParticlesKernelSize * SystemInfo.maxComputeWorkGroupSizeX; }
 
             public static Vector3Int GridSizeLevel0 { get => new Vector3Int(64, 64, 64); }
             public static Vector3Int GridSizeLevel1 { get => new Vector3Int(64, 64, 64); }

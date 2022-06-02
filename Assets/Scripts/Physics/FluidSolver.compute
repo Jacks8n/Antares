@@ -27,12 +27,14 @@
 #include "HLSLSupport.cginc"
 #include "FluidData.cginc"
 
-// begin constant buffer
+/// begin constant buffer
 
 CBUFFER_START(PhysicsSceneParameters)
     float2 FluidGridResolution;
     #define FLUID_GRID_RESOLUTION FluidGridResolution.x
     #define FLUID_GRID_RESOLUTION_INV FluidGridResolution.y
+
+    float MassGridToSDFThreshold;
 CBUFFER_END
 
 CBUFFER_START(PhysicsFrameParameters)
@@ -46,12 +48,14 @@ CBUFFER_START(PhysicsFrameParameters)
     float3 FluidGravity;
     #define GLOBAL_GRAVITY FluidGravity
 
+    float Padding2;
+
     float3 FluidGridTranslation;
 CBUFFER_END
 
-// end constant buffer
+/// end constant buffer
 
-// begin sort particle
+/// begin sort particle
 
 #define SORT_PARTICLE_KERNEL_SIZE 128
 
@@ -88,9 +92,9 @@ void SortParticle(uint3 id : SV_DispatchThreadID)
     }
 }
 
-// end sort particle
+/// end sort particle
 
-// begin particle to grid
+/// begin particle to grid
 
 #define PARTICLE_TO_GRID_KERNEL_SIZE 128
 #define FLUID_BLOCK_PADDING 2
@@ -146,10 +150,10 @@ void CalculateWeights(float3 gridToParticle, out float3 weight0, out float3 weig
 }
 
 void CalculateParticleGridTransfer(
-    float3 particlePosition, float3 blockPosition, out float3 blockSpacePos, out uint3 gridIndex,
+    float3 particlePosition, uint3 blockPositionLevel1, out float3 blockSpacePos, out uint3 gridIndex,
     out float3 gridToParticle, out float3 weight0, out float3 weight1, out float3 weight2)
 {
-    blockSpacePos = GetGridSpacePosition(particlePosition) - blockPosition;
+    blockSpacePos = GetGridSpacePosition(particlePosition) - blockPositionLevel1 * FLUID_BLOCK_SIZE_LEVEL0;
     gridIndex = uint3(blockSpacePos - float(0.5).xxx);
     gridToParticle = blockSpacePos - gridIndex;
 
@@ -196,9 +200,9 @@ void ParticleToGrid(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
         FluidGrid_GSM[i] = 0;
     }
 
+    uint3 blockPositionLevel1;
     uint particleCount;
-    uint3 blockPosition;
-    GetFluidBlockInfo(gid.x, blockPosition, particleCount);
+    GetFluidBlockInfo(gid.x, blockPositionLevel1, particleCount);
 
     if (!gi)
         SortParticleOffset_GSM = AddParticleCountAtomic(particleCount);
@@ -229,7 +233,7 @@ void ParticleToGrid(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
         float3 gridToParticle;
         float3 weights[3];
         CalculateParticleGridTransfer(
-            position.Position, blockPosition, blockSpacePos, gridIndex, gridToParticle,
+            position.Position, blockPositionLevel1, blockSpacePos, gridIndex, gridToParticle,
             weights[0], weights[1], weights[2]);
 
         const uint gridIndexEncoded = EncodeFluidGridIndexLevel0(gridIndex, FLUID_BLOCK_PADDING);
@@ -312,7 +316,7 @@ void ParticleToGrid(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
         float3 gridToParticle;
         float3 weights[3];
         CalculateParticleGridTransfer(
-            particle.GetPosition(), blockPosition, blockSpacePos, gridIndexOffset, gridToParticle,
+            particle.GetPosition(), blockPositionLevel1, blockSpacePos, gridIndexOffset, gridToParticle,
             weights[0], weights[1], weights[2]);
 
         const uint gridIndexOffsetEncoded = EncodeFluidGridIndexLevel0(gridIndexOffset, FLUID_BLOCK_PADDING);
@@ -397,7 +401,7 @@ void ParticleToGrid(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
         const uint3 srcGridIndex = DecodeFluidGridIndexLevel0(i, FLUID_BLOCK_PADDING);
 
         const uint3 blockOffset = uint3(srcGridIndex > FLUID_BLOCK_SIZE_LEVEL0);
-        const uint blockIndexLevel0Encoded = GetFluidBlockIndexLevel0(blockPosition + blockOffset);
+        const uint blockIndexLevel0Encoded = GetFluidBlockIndexLevel0(blockPositionLevel1 + blockOffset);
         const uint3 blockIndex = DecodeFluidBlockIndexLevel0(blockIndexLevel0Encoded);
 
         const uint3 gridIndexOffset = blockIndex * FLUID_BLOCK_SIZE_LEVEL0;
@@ -416,9 +420,9 @@ void ParticleToGrid(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
         SetFluidBlockParticleCountPrefixSum(gi.x, SortParticleOffset_GSM);
 }
 
-// end particle to grid
+/// end particle to grid
 
-// begin solve grid
+/// begin solve grid
 
 #define SOLVE_GRID_KERNEL_SIZE 8
 
@@ -448,9 +452,9 @@ void SolveGrid(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
     FluidGridLevel0[gridIndex + FLUID_GRID_CHANNEL3_OFFSET] = velocityEncoded.z;
 }
 
-// end solve grid
+/// end solve grid
 
-// begin grid to particle
+/// begin grid to particle
 
 #define GRID_TO_PARTICLE_KERNEL_SIZE 128
 
@@ -459,10 +463,10 @@ groupshared float3 GridVelocity_GSM[FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED];
 [numthreads(GRID_TO_PARTICLE_KERNEL_SIZE, 1, 1)]
 void GridToParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 {
-    uint3 blockPosition;
+    uint3 blockPositionLevel1;
     uint particleCount;
     uint particleOffset;
-    GetFluidBlockInfo(gid.x, blockPosition, particleCount, particleOffset);
+    GetFluidBlockInfo(gid.x, blockPositionLevel1, particleCount, particleOffset);
 
     uint i, j, k, l;
 
@@ -471,7 +475,7 @@ void GridToParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
         const uint3 srcGridIndex = DecodeFluidGridIndexLevel0(i, FLUID_BLOCK_PADDING);
 
         const uint3 blockOffset = uint3(srcGridIndex > FLUID_BLOCK_SIZE_LEVEL0);
-        const uint blockIndexLevel0Encoded = GetFluidBlockIndexLevel0(blockPosition + blockOffset);
+        const uint blockIndexLevel0Encoded = GetFluidBlockIndexLevel0(blockPositionLevel1 + blockOffset);
         const uint3 blockIndex = DecodeFluidBlockIndexLevel0(blockIndexLevel0Encoded);
 
         const uint3 gridIndexOffset = blockIndex * FLUID_BLOCK_SIZE_LEVEL0;
@@ -505,7 +509,7 @@ void GridToParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
         float3 gridToParticleOffset;
         float3 weights[3];
         CalculateParticleGridTransfer(
-            position.Position, blockPosition, blockSpacePos, gridIndexOffset, gridToParticleOffset,
+            position.Position, blockPositionLevel1, blockSpacePos, gridIndexOffset, gridToParticleOffset,
             weights[0], weights[1], weights[2]);
 
         const uint gridIndexOffsetEncoded = EncodeFluidGridIndexLevel0(gridIndexOffset, FLUID_BLOCK_PADDING);
@@ -540,11 +544,39 @@ void GridToParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
         SetFluidParticlePosition(particleIndex, position, !pingpongFlag);
         SetFluidParticleAffineVelocity(position.Index, affine, velocity);
     }
+
+    // convert grid of mass to sdf for rendering
+
+    // here're some candidates and their pros/cons:
+    //  1. fluid particle -> rendering spheres
+    //   + no need to set up data structure
+    //   - ray tracing not supported
+    //   - unsuitable for collision event
+    //  2. fluid grid -> sparse ray marching
+    //   + no need to set up data structure
+    //   - painful to optimize locality
+    //  3. fluid particle -> sdf -> ray marching
+    //   - it sounds stupid to read massive particles from distant globa memory once again
+    //  4. fluid grid -> sdf -> ray marching
+    //   + viable, why not? just do it here
+    // more specifically, the user defined iso-mass contour will be the zero-contour of sdf.
+    // the resulted narrow-band sdf is expanded or mipmapped afterward.
+
 }
 
-// end grid to particle
+/// end grid to particle
 
-// begin generate indirect args
+/// begin generate indirect args
+
+uint3 EncodeIndirectArgs(uint count)
+{
+    return uint3(count % 8192, (count + 8191) / 8192, 1);
+}
+
+uint DecodeIndirectArgs(uint3 groupID)
+{
+    return groupID.x + groupID.y * 8192;
+}
 
 extern RWByteAddressBuffer IndirectArgs;
 
@@ -554,14 +586,14 @@ void GenerateIndirectArgs()
     const uint particleCount = GetFluidParticleCount();
     const uint groupCount = (particleCount + SORT_PARTICLE_KERNEL_SIZE - 1) / SORT_PARTICLE_KERNEL_SIZE;
 
-    IndirectArgs.Store3(0, uint3(groupCount, 1, 1));
+    IndirectArgs.Store3(0, EncodeIndirectArgs(groupCount));
 
     InvertFluidParticlePositionPingPongFlag();
 }
 
-// end generate indirect args
+/// end generate indirect args
 
-// begin add particle
+/// begin add particle
 
 #define ADD_PARTICLES_KERNEL_SIZE 128
 
@@ -611,4 +643,4 @@ void AddParticles(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
     }
 }
 
-// end add particle
+/// end add particle

@@ -47,7 +47,7 @@ namespace Antares.Graphics
 
                 private readonly Vector2 BrushCullRadius;
 
-                private readonly int SDFBrushCount;
+                private readonly uint SDFBrushCount;
 
                 public SDFGenerationParameters(SDFScene scene)
                 {
@@ -66,7 +66,7 @@ namespace Antares.Graphics
                     float gridSize = scene.GridSizeWorld;
                     BrushCullRadius = new Vector2(gridSize * tileRadiusFactor, gridSize * gridRadiusFactor);
 
-                    SDFBrushCount = scene.BrusheCollection.Brushes.Length;
+                    SDFBrushCount = (uint)scene.BrushCollection.Brushes.Length;
                 }
             }
 
@@ -75,15 +75,13 @@ namespace Antares.Graphics
             {
                 private readonly Vector3Int SceneVolumeSize;
 
-                public MipGenerationParameters(Vector3Int sceneVolumeSize, int mip)
-                {
-                    Debug.Assert(mip >= 0 && mip < SceneMipCount);
+                private readonly uint DispatchArgumentsOffset;
 
-                    int scale = mip - 1;
-                    SceneVolumeSize = sceneVolumeSize;
-                    SceneVolumeSize.x >>= scale;
-                    SceneVolumeSize.y >>= scale;
-                    SceneVolumeSize.z >>= scale;
+                public MipGenerationParameters(Vector3Int mipVolumeSize, uint dispatchArgumentsOffset)
+                {
+                    SceneVolumeSize = mipVolumeSize;
+
+                    DispatchArgumentsOffset = dispatchArgumentsOffset;
                 }
             }
 
@@ -122,6 +120,8 @@ namespace Antares.Graphics
 
             public int GenerateMipMapKernel { get; private set; }
 
+            public int GenerateFluidMipKernel { get; private set; }
+
             public ConstantBufferSpans<SDFGenerationParameters> SDFGenerationParamsCBSpan { get; private set; }
 
             public ConstantBufferSpans<MipGenerationParameters>[] MipGenerationParamsCBSpan { get; private set; }
@@ -132,6 +132,7 @@ namespace Antares.Graphics
                 GenerateMipDispatchKernel = Shader.FindKernel("GenerateMipDispatch");
                 GenerateSceneVolumeKernel = Shader.FindKernel("GenerateSceneVolume");
                 GenerateMipMapKernel = Shader.FindKernel("GenerateMipMap");
+                GenerateFluidMipKernel = Shader.FindKernel("GenerateFluidMip");
 
                 SDFGenerationParamsCBSpan = specs.RegisterConstantBuffer<SDFGenerationParameters>();
                 MipGenerationParamsCBSpan = new ConstantBufferSpans<MipGenerationParameters>[SceneMipCount];
