@@ -4,6 +4,7 @@
 #pragma kernel GenerateMipDispatch
 #pragma kernel GenerateSceneVolume
 #pragma kernel GenerateMipMap
+#pragma kernel GenerateFluidMip
 
 #include "HLSLSupport.cginc"
 
@@ -124,14 +125,14 @@ struct SDFBrush
                                                                                 \
         if (IsLoadedToGSM())                                                    \
         {                                                                       \
-            [unroll]                                                            \
+            UNITY_UNROLL                                                            \
             for (uint i = 0; i < dim; i++)                                      \
                 value[i] = BrushParams_GSM[ParameterOffsetCount + offset +i]; \
         }                                                                       \
         else                                                                    \
-                            {                                                                       \
+                                                                                                                                                                {                                                                       \
             uint offset = GetParameterOffset_UAV(); \
-            [unroll]                                                            \
+            UNITY_UNROLL                                                            \
             for (uint i = 0; i < dim; i++)                                      \
                 value[i] = BrushParameters[offset +i]; \
         }                                                                       \
@@ -274,7 +275,7 @@ extern RWBuffer<uint> MipDispatches;
 void AllocateRange(RWBuffer<uint> buffer, uint n, uint bufferOffset, out uint indexOffset)
 {
     InterlockedAdd(buffer[bufferOffset], n, indexOffset);
-    InterlockedMax(buffer[bufferOffset +2], (n + indexOffset + 1023) / 1024);
+    InterlockedMax(buffer[bufferOffset +2], (n + indexOffset +1023) / 1024);
 
     indexOffset += bufferOffset;
 }
@@ -422,76 +423,82 @@ groupshared uint MipDispatches_GSM[4 * 4 * 4];
 groupshared uint MipDispatchCount_GSM = 0;
 groupshared uint MipDispatchOffset_GSM = 0;
 
-uint GetMipMask(uint3 tid)
-{
-    const uint offset = dot(tid, uint3(1, 6, 36));
-    
-    uint mask = 0, index;
-    [unroll]
-    for (uint i = 0; i < 3; i++)
-    [unroll]
-    for (uint j = 0; j < 3; j++)
-    [unroll]
-    for (uint k = 0; k < 3; k++)
-    {
-        index = offset +k + 6 * j + 36 * i;
-        mask |= PrevMip_GSM[index];
-    }
-    return mask;
-}
-
-void LoadMipMask(uint3 loadCoord, uint3 localLoadCoord, uint3 offset)
-{
-    const uint3 coord = loadCoord + offset;
-    if (all(coord * MAT_VOLUME_SCALE < SceneVolumeSize))
-    {
-        const uint loadIndex = dot((localLoadCoord + offset) / 2, uint3(1, 6, 36));
-        const uint mask = MaterialVolume.Load(int4(coord, 0));
-        InterlockedOr(PrevMip_GSM[loadIndex], mask);
-    }
-}
-
 // todo: tighter bound generation
 [numthreads(4, 4, 4)]
-void GenerateMipDispatch(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID, uint gi : SV_GroupIndex, uint3 id : SV_DispatchThreadID)
+void GenerateMipDispatch(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID, uint gi : SV_GroupIndex)
 {
+    const uint3 stride = uint3(1, 6, 36);
+    
     uint i, j, k;
     for (i = gi; i < 6 * 6 * 6; i += 64)
-    PrevMip_GSM[i] = 0;
+    {
+        PrevMip_GSM[i] = 0;
+    }
 
     GroupMemoryBarrierWithGroupSync();
-    
-    const uint3 tileCoord = gid * 8;
-    const uint3 localLoadCoord = tid * 3;
-    const uint3 loadCoord = tileCoord + localLoadCoord - uint(2).xxx;
-    
-    [unroll]
-    for (i = 0; i < 3; i++)
-    [unroll]
-    for (j = 0; j < 3; j++)
-    [unroll]
-    for (k = 0; k < 3; k++)
-    LoadMipMask(loadCoord, localLoadCoord, uint3(k, j, i));
-    
+
+    const uint3 loadGridOffset = gid * 4 + gtid - 1;
+    const uint3 loadBound = min(SceneVolumeSize / MAT_VOLUME_SCALE, gid * 4 + 5);
+    const uint storeIndexOffset = dot(max(gtid - 1, 0), stride);
+
+    UNITY_UNROLL
+    for (i = 0; i < 2; i++)
+    {
+        UNITY_UNROLL
+        for (j = 0; j < 2; j++)
+        {
+            UNITY_UNROLL
+            for (k = 0; k < 2; k++)
+            {
+                const uint3 loadIndex = uint3(i, j, k) * 4 + loadGridOffset;
+
+                if (all(loadIndex < loadBound))
+                {
+                    const uint storeIndex = storeIndexOffset +dot(uint3(i, j, k) * 4, stride);
+                    const uint mask = MaterialVolume.Load(int4(loadIndex, 0));
+
+                    InterlockedOr(PrevMip_GSM[storeIndex], mask);
+                }
+            }
+        }
+    }
+
     GroupMemoryBarrierWithGroupSync();
-    
-    const uint mask = GetMipMask(tid);
+
+    const uint loadIndexOffset = dot(gtid, stride);
+
+    uint mask = 0;
+    UNITY_UNROLL
+    for (i = 0; i < 3; i++)
+    {
+        UNITY_UNROLL
+        for (j = 0; j < 3; j++)
+        {
+            UNITY_UNROLL
+            for (k = 0; k < 3; k++)
+            {
+                const uint index = loadIndexOffset + dot(uint3(i, j, k), stride);
+
+                mask |= PrevMip_GSM[index];
+            }
+        }
+    }
     MaterialVolumeMip[id] = mask;
-    
+
     if (mask)
     {
         uint dispatchCount;
         InterlockedAdd(MipDispatchCount_GSM, 1, dispatchCount);
         MipDispatches_GSM[dispatchCount] = PackGridCoord(id);
     }
-    
+
     GroupMemoryBarrierWithGroupSync();
-    
+
     if (!gi)
         AllocateRange(MipDispatches, MipDispatchCount_GSM, DispatchArgumentsOffset, MipDispatchOffset_GSM);
-    
+
     GroupMemoryBarrierWithGroupSync();
-    
+
     if (gi < MipDispatchCount_GSM)
         SetDispatchElement(MipDispatches, gi, MipDispatches_GSM[gi], MipDispatchOffset_GSM);
 }
@@ -563,7 +570,7 @@ void GenerateSceneVolume(uint3 gid : SV_GroupID, uint3 tid : SV_GroupThreadID)
     if (isValid)
     {
         // parallel sdf union
-        [unroll]
+        UNITY_UNROLL
         for (uint i = 4; i; i /= 2)
         {
             if (threadOffset < i)
@@ -675,40 +682,56 @@ void GenerateMipMap(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex, uint3 tid :
         coord = UnpackGridCoord(GetDispatchElement(MipDispatches, dispatchID, DispatchArgumentsOffset)) * MAT_VOLUME_SCALE;
         coord += tid - uint(MAT_VOLUME_SCALE / 2).xxx;
         const uint3 prevMipCoord = coord * 2;
-        
+
         sdf = SampleAverage(prevMipCoord) * SDF_SUPREMUM;
         SDFMips_GSM[gi] = sdf;
     }
-    
+
     GroupMemoryBarrierWithGroupSync();
-    
+
     const uint2 xrange = (gi & ~7).xx + uint2(0, 7);
     // ((gi & ~63) + (gi % 8)).xx + uint2(0, 8 * 7)
     const uint2 yrange = (gi & ~56).xx + uint2(0, 8 * 7);
     const uint2 zrange = (gi % 64).xx + uint2(0, 64 * 7);
-    
+
     float x, y, z;
-    [unroll]
+    UNITY_UNROLL
     for (uint i = 0; i < 3; i++)
     {
-        if (abs(sdf) > SDF_SUPREMUM)
+        if (isValid)
         {
-            x = MinNeighbor(gi, 1, xrange);
-            y = MinNeighbor(gi, 8, yrange);
-            z = MinNeighbor(gi, 64, zrange);
-            sdf = Eikonal3(x, y, z);
-        }
-        
-        if (i < 2)
-        {
-            if (isValid)
+            if (abs(sdf) > SDF_SUPREMUM)
+            {
+                x = MinNeighbor(gi, 1, xrange);
+                y = MinNeighbor(gi, 8, yrange);
+                z = MinNeighbor(gi, 64, zrange);
+                sdf = Eikonal3(x, y, z);
+            }
+
+            if (i < 2)
                 SDFMips_GSM[gi] = sdf;
-            GroupMemoryBarrierWithGroupSync();
         }
+
+        GroupMemoryBarrierWithGroupSync();
     }
-    
+
     if (isValid && all(tid >= uint3(2, 2, 2) && tid < uint3(6, 6, 6)))
         SceneVolumeMip[coord] = SDFToSNorm(sdf) * 0.25;
 }
 
 /// end generate mipmap
+
+/// begin generate fluid mip
+
+#include "../Physics/FluidData.cginc"
+
+#define GENERATE_FLUID_MIP_KERNEL 8
+
+[numthreads(GENERATE_FLUID_MIP_KERNEL, GENERATE_FLUID_MIP_KERNEL, GENERATE_FLUID_MIP_KERNEL)]
+void GenerateFluidMip(uint3 gid : SV_GroupID, uint gtid : SV_GroupThreadID)
+{
+    // todo
+
+}
+
+/// end generate fluid mip

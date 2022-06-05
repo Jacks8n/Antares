@@ -201,24 +201,24 @@ void SetFluidParticleAffineVelocity(uint index, float3x3 affine, float3 velocity
 // it must be power of two
 #define FLUID_BLOCK_SIZE_LEVEL0 4
 #define FLUID_BLOCK_GRID_COUNT_LEVEL0 (FLUID_BLOCK_SIZE_LEVEL0 * FLUID_BLOCK_SIZE_LEVEL0 * FLUID_BLOCK_SIZE_LEVEL0)
-#define FLUID_BLOCK_COUNT_X_LEVEL0 16
-#define FLUID_BLOCK_COUNT_Y_LEVEL0 16
-#define FLUID_BLOCK_COUNT_Z_LEVEL0 16
+#define FLUID_BLOCK_COUNT_X_LEVEL0 64
+#define FLUID_BLOCK_COUNT_Y_LEVEL0 32
+#define FLUID_BLOCK_COUNT_Z_LEVEL0 32
 #define FLUID_BLOCK_COUNT_LEVEL0 (FLUID_BLOCK_COUNT_X_LEVEL0 * FLUID_BLOCK_COUNT_Y_LEVEL0 * FLUID_BLOCK_COUNT_Z_LEVEL0)
 #define FLUID_GRID_EXTENT_LEVEL0 (FLUID_BLOCK_SIZE_LEVEL0 * FLUID_BLOCK_COUNT_LEVEL0)
 
 #define FLUID_BLOCK_SIZE_LEVEL1 4
 #define FLUID_BLOCK_GRID_COUNT_LEVEL1 (FLUID_BLOCK_SIZE_LEVEL1 * FLUID_BLOCK_SIZE_LEVEL1 * FLUID_BLOCK_SIZE_LEVEL1)
-#define FLUID_BLOCK_COUNT_X_LEVEL1 16
-#define FLUID_BLOCK_COUNT_Y_LEVEL1 16
-#define FLUID_BLOCK_COUNT_Z_LEVEL1 16
+#define FLUID_BLOCK_COUNT_X_LEVEL1 64
+#define FLUID_BLOCK_COUNT_Y_LEVEL1 64
+#define FLUID_BLOCK_COUNT_Z_LEVEL1 64
 #define FLUID_BLOCK_COUNT_LEVEL1 (FLUID_BLOCK_COUNT_X_LEVEL1 * FLUID_BLOCK_COUNT_Y_LEVEL1 * FLUID_BLOCK_COUNT_Z_LEVEL1)
 #define FLUID_GRID_EXTENT_LEVEL1 (FLUID_BLOCK_SIZE_LEVEL1 * FLUID_BLOCK_COUNT_LEVEL1)
 
 // though it's named 'block', it represents each cell
-#define FLUID_BLOCK_COUNT_X_LEVEL2 16
-#define FLUID_BLOCK_COUNT_Y_LEVEL2 16
-#define FLUID_BLOCK_COUNT_Z_LEVEL2 16
+#define FLUID_BLOCK_COUNT_X_LEVEL2 256
+#define FLUID_BLOCK_COUNT_Y_LEVEL2 256
+#define FLUID_BLOCK_COUNT_Z_LEVEL2 256
 #define FLUID_BLOCK_COUNT_LEVEL2 uint3(FLUID_BLOCK_COUNT_X_LEVEL2, FLUID_BLOCK_COUNT_Y_LEVEL2, FLUID_BLOCK_COUNT_Z_LEVEL2)
 #define FLUID_GRID_EXTENT_LEVEL2 FLUID_BLOCK_COUNT_LEVEL2
 
@@ -277,10 +277,21 @@ float3 DecodeFluidGridMomentum(int3 value)
     return normalized * bound;
 }
 
-// these objects below constitute sparse grid structure.
-//  level 0             : tex3d, 4x4x4 eulerian grid blocks ((5x4cm)^3))
-//  level 1             : tex3d, 4x4x4 nodes ((20x4cm)^3)
-//  level 2             : tex3d, dense root
+// sparse transfer grid(updated in each physics frame):
+//  level 0  : 64*32*32 | 4x4x4 grids | 64mb(velocity/momemntum, mass)
+//  level 1  : 64^3     | 4x4x4 nodes | 64mb
+//  level 2  : 256^3    | dense root  | 64mb
+//  if dense : 4096^3   | dense grids | 1tb, which is impractical
+//
+// virtual volume  : (256*4*4*5cm)^3 = (204.8m)^3
+// physical volume : (64*4*5cm)^3 = (12.8m)^3
+//
+// sdf grid(updated in each rendering frame):
+//  mip 4 : stored in empty grid of mip 2 transfer grid. marked with msb
+//  mip 3 : temp
+//  mip 2 : stored in empty grid of mip 1 transfer grid. marked with msb
+//  mip 1 : temp
+//  mip 0 : stored in one of channels of mip 0 transfer grid
 
 // initial value: 0
 extern RWTexture3D<int> FluidGridLevel0;
@@ -289,7 +300,7 @@ extern RWTexture3D<uint> FluidGridLevel1;
 // initial value: FLUID_BLOCK_INDEX_NULL
 extern RWTexture3D<uint> FluidGridLevel2;
 // layout:
-// { level 0 block count, unused{2}, level 1 block count, {block position, particle count, prefix sum of particle count, particle index*}* }
+// { level 0 block count, indirect groups.yz, level 1 block count, {block position, particle count, prefix sum of particle count, particle index*}* }
 // initial value:
 // { 0, 1, 1, 0, {x{3}, 0, 0, 0*}* }
 extern RWByteAddressBuffer FluidBlockParticleIndices;

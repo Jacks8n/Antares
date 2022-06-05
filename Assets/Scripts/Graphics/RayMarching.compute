@@ -103,7 +103,6 @@ bool IsHit(float sdf, float t)
 
 void UpdateMip(float nsdf, inout float mip, inout float supremum)
 {
-#ifndef USE_MIP_RANGE
     if (abs(nsdf) == 1.0)
     {
         mip = min(mip + 2.0, SCENE_MIP_MAX);
@@ -114,7 +113,6 @@ void UpdateMip(float nsdf, inout float mip, inout float supremum)
         mip = max(mip - 2.0, 0);
         supremum = max(supremum * 0.25, SDF_SUP_MIN_W);
     }
-#endif
 }
 
 float3 SampleColor(float3 p)

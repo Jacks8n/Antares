@@ -417,7 +417,7 @@ void ParticleToGrid(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
     }
 
     if (!gi)
-        SetFluidBlockParticleCountPrefixSum(gi.x, SortParticleOffset_GSM);
+        SetFluidBlockParticleCountPrefixSum(gid.x, SortParticleOffset_GSM);
 }
 
 /// end particle to grid
@@ -544,24 +544,6 @@ void GridToParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
         SetFluidParticlePosition(particleIndex, position, !pingpongFlag);
         SetFluidParticleAffineVelocity(position.Index, affine, velocity);
     }
-
-    // convert grid of mass to sdf for rendering
-
-    // here're some candidates and their pros/cons:
-    //  1. fluid particle -> rendering spheres
-    //   + no need to set up data structure
-    //   - ray tracing not supported
-    //   - unsuitable for collision event
-    //  2. fluid grid -> sparse ray marching
-    //   + no need to set up data structure
-    //   - painful to optimize locality
-    //  3. fluid particle -> sdf -> ray marching
-    //   - it sounds stupid to read massive particles from distant globa memory once again
-    //  4. fluid grid -> sdf -> ray marching
-    //   + viable, why not? just do it here
-    // more specifically, the user defined iso-mass contour will be the zero-contour of sdf.
-    // the resulted narrow-band sdf is expanded or mipmapped afterward.
-
 }
 
 /// end grid to particle
