@@ -4,7 +4,6 @@
 #pragma kernel GenerateMipDispatch
 #pragma kernel GenerateSceneVolume
 #pragma kernel GenerateMipMap
-#pragma kernel GenerateFluidMip
 
 #include "HLSLSupport.cginc"
 
@@ -130,7 +129,7 @@ struct SDFBrush
                 value[i] = BrushParams_GSM[ParameterOffsetCount + offset +i]; \
         }                                                                       \
         else                                                                    \
-                                                                                                                                                                {                                                                       \
+                                                                                                                                                                                    {                                                                       \
             uint offset = GetParameterOffset_UAV(); \
             UNITY_UNROLL                                                            \
             for (uint i = 0; i < dim; i++)                                      \
@@ -477,7 +476,7 @@ void GenerateMipDispatch(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID,
             UNITY_UNROLL
             for (k = 0; k < 3; k++)
             {
-                const uint index = loadIndexOffset + dot(uint3(i, j, k), stride);
+                const uint index = loadIndexOffset +dot(uint3(i, j, k), stride);
 
                 mask |= PrevMip_GSM[index];
             }
@@ -720,18 +719,3 @@ void GenerateMipMap(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex, uint3 tid :
 }
 
 /// end generate mipmap
-
-/// begin generate fluid mip
-
-#include "../Physics/FluidData.cginc"
-
-#define GENERATE_FLUID_MIP_KERNEL 8
-
-[numthreads(GENERATE_FLUID_MIP_KERNEL, GENERATE_FLUID_MIP_KERNEL, GENERATE_FLUID_MIP_KERNEL)]
-void GenerateFluidMip(uint3 gid : SV_GroupID, uint gtid : SV_GroupThreadID)
-{
-    // todo
-
-}
-
-/// end generate fluid mip
