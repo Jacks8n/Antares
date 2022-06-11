@@ -6,6 +6,7 @@
 #pragma kernel GenerateMipMap
 
 #include "HLSLSupport.cginc"
+#include "SDFUtil.cginc"
 
 /// begin definations used by multiple kernels
 
@@ -505,13 +506,6 @@ void GenerateMipDispatch(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID,
 /// end generate mipmap dispatch
 
 /// begin generate scene volume
-
-float SmoothMin(float a, float b)
-{
-    const float k = -16.0;
-    const float invk = 1.0 / k;
-    return invk * log2(exp2(k * a) + exp2(k * b)) - invk;
-}
 
 float SDFToSNorm(float sdf)
 {

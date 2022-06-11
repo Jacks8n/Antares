@@ -6,9 +6,12 @@
 #pragma once
 
 #define FLUID_MAX_PARTICLE_COUNT (1 << 20)
+
 #define FLUID_EOS_BULK_MODULUS 50.0
 #define FLUID_EOS_REST_DENSITY 4.0
 #define FLUID_VISCOSITY_COEFFICIENT 0.1
+
+#define FLUID_PARTICLE_RADIUS 1.5
 
 struct ParticlePositionIndexed
 {
@@ -67,18 +70,38 @@ struct ParticleProperties
     }
 };
 
-// layout: { particle count, ping-pong flag, prefix sum of particle count, unused, (indexed position{n}){2} }
-// initial value: { n, 0, 0, x, <valid indexed position>{n}, x{n} }
+// layout: { particle count, indirect arg{3}, ping-pong flag, prefix sum of particle count, (indexed position{n}){2} }
+// initial value: { n, 1, 0, 0, 0, 0, <valid indexed position>{n}, x{n} }
 extern RWByteAddressBuffer FluidParticlePositions;
 // layout: { ((alignas(32) particle properties){n} }
 // initial value: { <valid particle properties>{n}, x* }
 extern RWByteAddressBuffer FluidParticleProperties;
 
-// begin particle access
+/// begin particle access
 
 uint GetFluidParticleCountByteOffset()
 {
     return 0;
+}
+
+// to parallelize sorting particles, a buffer whose size is twice as the number of particles are used.
+// the buffer is splitted into low and high parts. and this function returns whether the high part is
+// used at the beginning of each iteration.
+uint GetFluidParticlePositionPingPongFlagByteOffset()
+{
+    return 16;
+}
+
+uint GetFluidParticleCountPrefixSumByteOffset()
+{
+    return GetFluidParticlePositionPingPongFlagByteOffset() + 4;
+}
+
+uint GetFluidParticlePositionByteOffset(uint index, bool pingpong)
+{
+    const uint stride = 16; // compressed size of ParticlePositionIndexed
+    const uint pingpongOffset = pingpong ? FLUID_MAX_PARTICLE_COUNT : 0;
+    return GetFluidParticleCountPrefixSumByteOffset() + 4 + index * stride + pingpongOffset;
 }
 
 uint GetFluidParticleCount()
@@ -87,33 +110,34 @@ uint GetFluidParticleCount()
     return min(FluidParticlePositions.Load(byteOffset), FLUID_MAX_PARTICLE_COUNT);
 }
 
-// to parallelize sorting particles, a buffer whose size is twice as the number of particles are used.
-// the buffer is splitted into low and high parts. and this function returns whether the high part is
-// used at the beginning of each iteration.
 bool GetFluidParticlePositionPingPongFlag()
 {
-    return FluidParticlePositions.Load(4);
+    const uint byteOffset = GetFluidParticlePositionPingPongFlagByteOffset()
+    return FluidParticlePositions.Load(byteOffset);
 }
 
 void InvertFluidParticlePositionPingPongFlag()
 {
+    const uint byteOffset = GetFluidParticlePositionPingPongFlagByteOffset()
     const bool pingpongFlag = GetFluidParticlePositionPingPongFlag();
-    FluidParticlePositions.Store(4, !pingpongFlag);
+
+    FluidParticlePositions.Store(byteOffset, !pingpongFlag);
 }
 
-uint AddParticleCountAtomic(uint particleCount)
+void ResetAccumulateParticleCount()
 {
+    const uint byteOffset = GetFluidParticleCountPrefixSumByteOffset();
+    FluidParticleProperties.Store(byteOffset, 0);
+}
+
+uint AccumulateParticleCountAtomic(uint particleCount)
+{
+    const uint byteOffset = GetFluidParticleCountPrefixSumByteOffset();
+
     uint total;
-    FluidParticleProperties.InterlockedAdd(8, particleCount, total);
+    FluidParticleProperties.InterlockedAdd(byteOffset, particleCount, total);
 
     return total;
-}
-
-uint GetFluidParticlePositionByteOffset(uint index, bool pingpong)
-{
-    const uint stride = 16; // sizeof(ParticlePositionIndexed)
-    const uint pingpongOffset = pingpong ? FLUID_MAX_PARTICLE_COUNT : 0;
-    return 16 + index * stride + pingpongOffset;
 }
 
 ParticlePositionIndexed GetFluidParticlePosition(uint index, bool pingpong)
@@ -196,7 +220,7 @@ void SetFluidParticleAffineVelocity(uint index, float3x3 affine, float3 velocity
     FluidParticleProperties.Store3(offset +16, word1);
 }
 
-// end particle access
+/// end particle access
 
 // it must be power of two
 #define FLUID_BLOCK_SIZE_LEVEL0 4
@@ -234,50 +258,68 @@ void SetFluidParticleAffineVelocity(uint index, float3x3 affine, float3 velocity
 // mass
 #define FLUID_GRID_CHANNEL0_OFFSET uint3(0, 0, 0)
 // velocity/momentum
-#define FLUID_GRID_CHANNEL1_OFFSET uint3(0, FLUID_BLOCK_COUNT_X_LEVEL0 * FLUID_BLOCK_SIZE_LEVEL0, 0)
-#define FLUID_GRID_CHANNEL2_OFFSET uint3(0, FLUID_BLOCK_COUNT_X_LEVEL0 * FLUID_BLOCK_SIZE_LEVEL0 * 2, 0)
-#define FLUID_GRID_CHANNEL3_OFFSET uint3(0, FLUID_BLOCK_COUNT_X_LEVEL0 * FLUID_BLOCK_SIZE_LEVEL0 * 3, 0)
+#define FLUID_GRID_CHANNEL1_OFFSET uint3(FLUID_BLOCK_COUNT_X_LEVEL0 * FLUID_BLOCK_SIZE_LEVEL0, 0, 0)
+#define FLUID_GRID_CHANNEL2_OFFSET uint3(FLUID_BLOCK_COUNT_X_LEVEL0 * FLUID_BLOCK_SIZE_LEVEL0 * 2, 0, 0)
+#define FLUID_GRID_CHANNEL3_OFFSET uint3(FLUID_BLOCK_COUNT_X_LEVEL0 * FLUID_BLOCK_SIZE_LEVEL0 * 3, 0, 0)
 // sdf
-#define FLUID_GRID_CHANNEL4_OFFSET uint3(0, FLUID_BLOCK_COUNT_X_LEVEL0 * FLUID_BLOCK_SIZE_LEVEL0 * 4, 0)
+#define FLUID_GRID_CHANNEL4_OFFSET uint3(FLUID_BLOCK_COUNT_X_LEVEL0 * FLUID_BLOCK_SIZE_LEVEL0 * 4, 0, 0)
 
 // to perform atomic operations, nomalized and converted to integer are the values to be written to level 0 grid
+#define FLUID_GRID_ENCODED_VALUE_MAX int(1 << 30)
 #define FLUID_GRID_BOUND_MASS 1024.0
 #define FLUID_GRID_BOUND_MOMENTUM float3(8192.0, 8192.0, 8192.0)
+#define FLUID_GRID_BOUND_SDF 3.0
+
+#define DEF_ENCODE_DECODE_GRID_VALUE(channel) \
+int##channel EncodeGridValue(float##channel value, float bound, float normMin, float normMax) \
+{ \
+    const float normalization = 1.0 / bound; \
+    const float intMax = float(FLUID_GRID_ENCODED_VALUE_MAX); \
+    const float##channel normalized = clamp(normalization * value, normMin, normMax); \
+    return int##channel(normalized * intMax); \
+} \
+float##channel DecodeGridValue(int##channel value, float bound) \
+{ \
+    const float intMaxInv = 1.0 / float(FLUID_GRID_ENCODED_VALUE_MAX); \
+    const float##channel normalized = value * intMaxInv; \
+    return normalized * bound; \
+}
+
+DEF_ENCODE_DECODE_GRID_VALUE(1)
+DEF_ENCODE_DECODE_GRID_VALUE(2)
+DEF_ENCODE_DECODE_GRID_VALUE(3)
+DEF_ENCODE_DECODE_GRID_VALUE(4)
+
+#undef DEF_ENCODE_DECODE_GRID_VALUE
 
 int EncodeFluidGridMass(float mass)
 {
-    const float normalization = 1.0 / FLUID_GRID_BOUND_MASS;
-    const float intMax = float(1 << 30);
-
-    const float normalized = clamp(normalization * mass, 0.0, 1.0);
-    return int(normalized * intMax);
+    return EncodeGridValue(mass, FLUID_GRID_BOUND_MASS, 0.0, 1.0);
 }
 
 int3 EncodeFluidGridMomentum(float3 velocity)
 {
-    const float normalization = 1.0 / FLUID_GRID_BOUND_MOMENTUM;
-    const float intMax = float(1 << 30);
+    return EncodeGridValue(velocity, FLUID_GRID_BOUND_MOMENTUM, -1.0, 1.0);
+}
 
-    const float3 normalized = clamp(normalization * velocity, -1.0, 1.0);
-    return int3(normalized * intMax);
+int EncodeFluidGridSDF(float sdf)
+{
+    return EncodeGridValue(sdf, FLUID_GRID_BOUND_SDF, -1.0, 1.0);
 }
 
 float DecodeFluidGridMass(int value)
 {
-    const float bound = FLUID_GRID_BOUND_MASS;
-    const float intMaxInv = 1.0 / float(1 << 30);
-
-    const float normalized = value * intMaxInv;
-    return normalized * bound;
+    return DecodeGridValue(value, FLUID_GRID_BOUND_MASS);
 }
 
 float3 DecodeFluidGridMomentum(int3 value)
 {
-    const float3 bound = FLUID_GRID_BOUND_MOMENTUM;
-    const float intMaxInv = 1.0 / float(1 << 30);
+    return DecodeGridValue(value, FLUID_GRID_BOUND_MOMENTUM);
+}
 
-    const float3 normalized = value * intMaxInv;
-    return normalized * bound;
+float DecodeFluidGridSDF(int value)
+{
+    return DecodeGridValue(value, FLUID_GRID_BOUND_SDF);
 }
 
 // sparse transfer grid(updated in each physics frame):
@@ -292,9 +334,9 @@ float3 DecodeFluidGridMomentum(int3 value)
 // initial value: 0
 extern RWTexture3D<int> FluidGridLevel0;
 // initial value: 0
-extern RWTexture3D<uint> FluidGridLevel1;
+extern RWTexture3D<int> FluidGridLevel1;
 // initial value: 0
-extern RWTexture3D<uint> FluidGridLevel2;
+extern RWTexture3D<int> FluidGridLevel2;
 
 // layout:
 // {
@@ -305,24 +347,24 @@ extern RWTexture3D<uint> FluidGridLevel2;
 // { 0, 1, 1, 0, 1, 1, {x{3}, 0, 0, 0*}* }
 extern RWByteAddressBuffer FluidBlockParticleIndices;
 // initial value:
-// { 0* }
+// { <flag>* }
 extern RWBuffer<uint> FluidGridAtomicLock;
 
-// begin grid access
+/// begin grid access
 
-int3 GetFluidGridPositionLevel0(float3 particleGridSpacePosition)
+int3 GetFluidGridPositionNearest(float3 gridSpacePosition)
 {
-    return int3(floor(particleGridSpacePosition - 0.5));
+    return int3(round(gridSpacePosition));
 }
 
-void GetFluidGridPositions(int3 gridPositionLevel0, out uint3 gridPositionLevel1, out uint3 gridPositionLevel2, out uint3 gridOffsetLevel1)
+void GetFluidGridPositions(uint3 gridPositionLevel0, out uint3 gridPositionLevel1, out uint3 gridPositionLevel2, out uint3 gridOffsetLevel1)
 {
     gridPositionLevel1 = gridPositionLevel0 / FLUID_BLOCK_SIZE_LEVEL0;
     gridPositionLevel2 = gridPositionLevel1 / FLUID_BLOCK_SIZE_LEVEL1;
     gridOffsetLevel1 = gridPositionLevel1 % FLUID_BLOCK_SIZE_LEVEL1;
 }
 
-void GetFluidGridPositions(int3 gridPositionLevel0, out uint3 gridPositionLevel2, out uint3 gridOffsetLevel1)
+void GetFluidGridPositions(uint3 gridPositionLevel0, out uint3 gridPositionLevel2, out uint3 gridOffsetLevel1)
 {
     uint3 _;
     GetFluidGridPositions(gridPositionLevel0, _, gridPositionLevel2, gridOffsetLevel1);
@@ -330,11 +372,11 @@ void GetFluidGridPositions(int3 gridPositionLevel0, out uint3 gridPositionLevel2
 
 uint EncodeGridIndexLinear(uint index, uint2 blockSizeXY)
 {
-    const uint3 offset = uint3(1, blockSizeXY.x, blockSizeXY.x * blockSizeXY.y)
+    const uint3 offset = uint3(1, blockSizeXY.x, blockSizeXY.x * blockSizeXY.y);
     return dot(offset, index);
 }
 
-uint3 DecodeGridIndexLinear(uint index, uint3 blockSizeXY)
+uint3 DecodeGridIndexLinear(uint index, uint2 blockSizeXY)
 {
     const uint x = index % blockSizeXY.x;
     const uint y = (index / blockSizeXY.x) % blockSizeXY.y;
@@ -343,17 +385,27 @@ uint3 DecodeGridIndexLinear(uint index, uint3 blockSizeXY)
     return uint3(x, y, z);
 }
 
+uint EncodeFluidBlockIndex(uint index, uint2 blockSizeXY)
+{
+    return uint(1 << 31) | EncodeGridIndexLinear(index, blockSizeXY);
+}
+
+uint3 DecodeFluidBlockIndex(uint index, uint2 blockSizeXY)
+{
+    return DecodeGridIndexLinear(index & (uint(1 << 31) - 1), blockSizeXY);
+}
+
 // there are some limits on the dimension of textures, so non-zero-level blocks are
 // not arranged in a long-cube manner. consequently encoding/decoding is required.
 // it forms a bijection between continuous indices and indices of grid blocks.
 #define DEF_ENCODE_DECODE_FLUID_BLOCK_INDEX_FUNC(level) \
 uint EncodeFluidBlockIndexLevel##level(uint3 index) \
 { \
-    return EncodeGridIndexLinear(index, uint2(FLUID_BLOCK_COUNT_X_LEVEL##level, FLUID_BLOCK_COUNT_Y_LEVEL##level)); \
+    return EncodeFluidBlockIndex(index, uint2(FLUID_BLOCK_COUNT_X_LEVEL##level, FLUID_BLOCK_COUNT_Y_LEVEL##level)); \
 } \
 uint3 DecodeFluidBlockIndexLevel##level(uint index) \
 { \
-    return DecodeGridIndexLinear(index, uint2(FLUID_BLOCK_COUNT_X_LEVEL##level, FLUID_BLOCK_COUNT_Y_LEVEL##level)); \
+    return DecodeFluidBlockIndex(index, uint2(FLUID_BLOCK_COUNT_X_LEVEL##level, FLUID_BLOCK_COUNT_Y_LEVEL##level)); \
 }
 
 DEF_ENCODE_DECODE_FLUID_BLOCK_INDEX_FUNC(0)
@@ -366,7 +418,7 @@ DEF_ENCODE_DECODE_FLUID_BLOCK_INDEX_FUNC(2)
 uint EncodeFluidGridIndexLevel##level(uint3 index, uint3 padding) \
 { \
     const uint3 size = FLUID_BLOCK_SIZE_LEVEL##level + padding; \
-    return uint(1 << 31) | EncodeGridIndexLinear(index, size); \
+    return EncodeGridIndexLinear(index, size); \
 } \
 uint EncodeFluidGridIndexLevel##level(uint3 index, uint padding) \
 { \
@@ -379,7 +431,7 @@ uint EncodeFluidGridIndexLevel##level(uint3 index) \
 uint3 DecodeFluidGridIndexLevel##level(uint index, uint3 padding) \
 { \
     const uint3 size = FLUID_BLOCK_SIZE_LEVEL##level + padding; \
-    return DecodeGridIndexLinear(index & (uint(1 << 31) - 1), size); \
+    return DecodeGridIndexLinear(index, size); \
 } \
 uint3 DecodeFluidGridIndexLevel##level(uint index, uint padding) \
 { \
@@ -398,7 +450,7 @@ DEF_ENCODE_DECODE_FLUID_GRID_INDEX_FUNC(1)
 bool IsValidFluidBlockIndex(uint index)
 {
     const uint msb = 1 << 31;
-    return !(index & msb);
+    return index & msb;
 }
 
 uint GetFluidBlockCountByteOffset(uint level)
@@ -481,19 +533,19 @@ uint GetFluidBlockParticleIndex(uint blockIndexLevel0, uint particleIndex)
 }
 
 // return: the allocated level n-1 index
-uint ActivateFluidBlockLevel0(uint3 blockIndexLevel1, uint3 gridPositionLevel1)
+uint ActivateFluidBlockLevel0(uint3 blockIndexLevel1, uint3 gridPositionLevel1, bool atomicFlag)
 {
     uint indexSublevel = FluidGridLevel1[blockIndexLevel1];
     if (!IsValidFluidBlockIndex(indexSublevel))
         return indexSublevel;
 
-    uint initialized;
+    uint acquired;
     const uint atomicIndex = EncodeFluidBlockIndexLevel1(blockIndexLevel1);
     InterlockedCompareExchange(
         FluidGridAtomicLock[atomicIndex + FLUID_GRID_ATOMIC_LOCK_OFFSET_LEVEL1],
-        0, 1, initialized);
+        atomicFlag, !atomicFlag, acquired);
     
-    if (!initialized)
+    if (acquired == atomicFlag)
     {
         FluidBlockParticleIndices.InterlockedAdd(GetFluidBlockCountByteOffset(0), 1, indexSublevel);
         FluidGridLevel1[blockIndexLevel1] = indexSublevel;
@@ -545,7 +597,7 @@ uint ActivateFluidBlockLevel1(uint3 gridIndexLevel2)
     return indexSublevel;
 }
 
-bool ActivateFluidBlock(int3 gridPositionLevel0, out uint blockIndexLevel0)
+bool ActivateFluidBlock(int3 gridPositionLevel0, bool atomicFlag, out uint blockIndexLevel0)
 {
     if (any(gridPositionLevel0 < 0 || gridPositionLevel0 >= FLUID_VIRTUAL_GRID_EXTENT - FLUID_BLOCK_SIZE_LEVEL0))
         return false;
@@ -558,7 +610,7 @@ bool ActivateFluidBlock(int3 gridPositionLevel0, out uint blockIndexLevel0)
     const uint blockIndexLevel1Encoded = ActivateFluidBlockLevel1(gridPositionLevel2);
     const uint3 gridIndexLevel1 = DecodeFluidBlockIndexLevel1(blockIndexLevel1Encoded) * FLUID_BLOCK_SIZE_LEVEL1 + gridOffsetLevel1;
 
-    blockIndexLevel0 = ActivateFluidBlockLevel0(gridIndexLevel1, gridPositionLevel1);
+    blockIndexLevel0 = ActivateFluidBlockLevel0(gridIndexLevel1, gridPositionLevel1, atomicFlag);
     return true;
 }
 
@@ -574,10 +626,10 @@ uint GetFluidBlockIndexLevel0Unchecked(uint3 gridPositionLevel1)
     return FluidGridLevel1[gridIndexLevel1];
 }
 
-void AddParticleToFluidBlock(int3 gridPositionLevel0, uint particleIndex)
+void AddParticleToFluidBlock(int3 gridPositionLevel0, uint particleIndex, bool atomicFlag)
 {
     uint blockIndexLevel0;
-    if (!ActivateFluidBlock(gridPositionLevel0, blockIndexLevel0))
+    if (!ActivateFluidBlock(gridPositionLevel0, blockIndexLevel0, atomicFlag))
         return;
 
     const uint particleCountByteOffset = GetFluidBlockParticleCountByteOffset(blockIndexLevel0);
@@ -592,4 +644,4 @@ void AddParticleToFluidBlock(int3 gridPositionLevel0, uint particleIndex)
     }
 }
 
-// end grid access
+/// end grid access

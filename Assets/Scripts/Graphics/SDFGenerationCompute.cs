@@ -120,11 +120,9 @@ namespace Antares.Graphics
 
             public int GenerateMipMapKernel { get; private set; }
 
-            public int GenerateFluidMipKernel { get; private set; }
+            public ConstantBufferSpan<SDFGenerationParameters> SDFGenerationParamsCBSpan { get; private set; }
 
-            public ConstantBufferSpans<SDFGenerationParameters> SDFGenerationParamsCBSpan { get; private set; }
-
-            public ConstantBufferSpans<MipGenerationParameters>[] MipGenerationParamsCBSpan { get; private set; }
+            public ConstantBufferSpan<MipGenerationParameters>[] MipGenerationParamsCBSpan { get; private set; }
 
             void IShaderSpec.OnAfterDeserialize<T>(T specs)
             {
@@ -132,10 +130,9 @@ namespace Antares.Graphics
                 GenerateMipDispatchKernel = Shader.FindKernel("GenerateMipDispatch");
                 GenerateSceneVolumeKernel = Shader.FindKernel("GenerateSceneVolume");
                 GenerateMipMapKernel = Shader.FindKernel("GenerateMipMap");
-                GenerateFluidMipKernel = Shader.FindKernel("GenerateFluidMip");
 
                 SDFGenerationParamsCBSpan = specs.RegisterConstantBuffer<SDFGenerationParameters>();
-                MipGenerationParamsCBSpan = new ConstantBufferSpans<MipGenerationParameters>[SceneMipCount];
+                MipGenerationParamsCBSpan = new ConstantBufferSpan<MipGenerationParameters>[SceneMipCount];
                 for (int i = 0; i < SceneMipCount; i++)
                     MipGenerationParamsCBSpan[i] = specs.RegisterConstantBuffer<MipGenerationParameters>();
             }

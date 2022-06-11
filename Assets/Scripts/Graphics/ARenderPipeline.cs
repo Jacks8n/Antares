@@ -1,4 +1,5 @@
-﻿using Antares.SDF;
+﻿using Antares.Physics;
+using Antares.SDF;
 using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
@@ -27,6 +28,8 @@ namespace Antares.Graphics
 
         private SDFScene _scene;
 
+        private APhysicsPipeline _physicsPipeline;
+
         public ARenderPipeline(AShaderSpecifications shaderSpecs)
         {
             ShaderSpecs = shaderSpecs;
@@ -42,6 +45,14 @@ namespace Antares.Graphics
             base.Dispose(disposing);
         }
 
+        public APhysicsPipeline GetPhysicsPipeline()
+        {
+            if (_physicsPipeline == null)
+                _physicsPipeline = new APhysicsPipeline(ShaderSpecs, ConstantBuffer);
+
+            return _physicsPipeline;
+        }
+
         public void LoadScene(SDFScene scene)
         {
             Debug.Assert(!IsSceneLoaded);
@@ -49,7 +60,7 @@ namespace Antares.Graphics
 
             if (scene.IsEmpty)
                 return;
-            
+
             _scene = scene;
 
             // resize textures
@@ -63,7 +74,7 @@ namespace Antares.Graphics
             }
 
             if (ConstantBuffer == null || !ConstantBuffer.IsValid())
-                ConstantBuffer = new ComputeBuffer(ShaderSpecs.ConstantBufferCount, ShaderSpecs.ConstantBufferStride, ComputeBufferType.Constant, ComputeBufferMode.SubUpdates);
+                ConstantBuffer = new ComputeBuffer(ShaderSpecs.ConstantBufferStrideCount, ShaderSpecs.ConstantBufferStride, ComputeBufferType.Constant, ComputeBufferMode.SubUpdates);
 
             CommandBuffer cmd = CommandBufferPool.Get();
 
@@ -359,6 +370,17 @@ namespace Antares.Graphics
                     DrawingSettings drawingSettings = new DrawingSettings(new ShaderTagId("Deferred"), sortingSettings);
 
                     context.DrawRenderers(cullingResults, ref drawingSettings, ref filteringSettings);
+
+                    context.EndSubPass();
+                }
+
+                // draw fluid
+                {
+                    using (var colors = new NativeArray<int>(new int[] { RenderPass0.Index_GBuffer0 }, Allocator.Temp))
+                        context.BeginSubPass(colors, isDepthStencilReadOnly: false);
+
+                    _physicsPipeline.RenderDebugParticles(cmd);
+                    context.ExecuteCommandBuffer(cmd);
 
                     context.EndSubPass();
                 }

@@ -1,13 +1,19 @@
 ﻿#pragma kernel Blit
 #pragma kernel Clear
+#pragma kernel ClearInt
+#pragma kernel ClearBuffer
 
 #include "HLSLSupport.cginc"
 
 uint3 Offset;
 float Value;
+int ValueInt;
+uint3 Bound;
 
-Texture3D<snorm float> Source;
-RWTexture3D<snorm float> Destination;
+extern Texture3D<snorm float> Source;
+extern RWTexture3D<snorm float> Destination;
+extern RWTexture3D<int> DestinationInt;
+extern RWTexture3D<int> DestinationBuffer;
 
 [numthreads(8, 8, 8)]
 void Blit(uint3 id : SV_DispatchThreadID)
@@ -18,5 +24,20 @@ void Blit(uint3 id : SV_DispatchThreadID)
 [numthreads(8, 8, 8)]
 void Clear(uint3 id : SV_DispatchThreadID)
 {
-    Destination[id] = Value;
+    if(all(id < Bound))
+        Destination[id] = Value;
+}
+
+[numthreads(8, 8, 8)]
+void ClearInt(uint3 id : SV_DispatchThreadID)
+{
+    if(all(id < Bound))
+        DestinationInt[id] = ValueInt;
+}
+
+[numthreads(64, 1, 1)]
+void ClearBuffer(uint3 id : SV_DispatchThreadID)
+{
+    if(id.x < Bound.x)
+        DestinationBuffer[id.x] = ValueInt;
 }

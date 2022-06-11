@@ -11,13 +11,13 @@ namespace Antares.Graphics
     [CreateAssetMenu(menuName = "Rendering/ShaderSpecification")]
     public partial class AShaderSpecifications : ScriptableObject, AShaderSpecifications.IShaderAggregator
     {
-        public struct ConstantBufferSpans<T> where T : unmanaged
+        public struct ConstantBufferSpan<T> where T : unmanaged
         {
             public readonly int OffsetInBytes;
 
             public unsafe int Size => sizeof(T) < _constantBufferMimmumSize ? _constantBufferMimmumSize : sizeof(T);
 
-            public ConstantBufferSpans(int offsetInBytes)
+            public ConstantBufferSpan(int offsetInBytes)
             {
                 OffsetInBytes = offsetInBytes;
             }
@@ -43,6 +43,16 @@ namespace Antares.Graphics
             public void BindCBuffer(ComputeShader shader, int cbufferID, ComputeBuffer cbuffer)
             {
                 shader.SetConstantBuffer(cbufferID, cbuffer, OffsetInBytes, Size);
+            }
+
+            public void BindCBuffer(CommandBuffer cmd, int cbufferID, ComputeBuffer cbuffer)
+            {
+                cmd.SetGlobalConstantBuffer(cbuffer, cbufferID, OffsetInBytes, Size);
+            }
+
+            public void BindCBuffer(MaterialPropertyBlock materialPropertyBlock, int cbufferID, ComputeBuffer cbuffer)
+            {
+                materialPropertyBlock.SetConstantBuffer(cbufferID, cbuffer, OffsetInBytes, Size);
             }
         }
 
@@ -74,7 +84,7 @@ namespace Antares.Graphics
 
         private interface IShaderAggregator
         {
-            ConstantBufferSpans<T> RegisterConstantBuffer<T>() where T : unmanaged;
+            ConstantBufferSpan<T> RegisterConstantBuffer<T>() where T : unmanaged;
         }
 
         private interface IShaderSpec
@@ -97,7 +107,9 @@ namespace Antares.Graphics
         [field: LabelText(nameof(ShaderSpecsInstance))]
         public static AShaderSpecifications ShaderSpecsInstance { get; private set; }
 
-        public int ConstantBufferCount { get; private set; }
+        private const int _constantBufferMimmumSize = 16;
+
+        public int ConstantBufferStrideCount { get; private set; }
 
         // todo: compatibility?
         public int ConstantBufferStride => 4;
@@ -117,9 +129,16 @@ namespace Antares.Graphics
         [field: SerializeField, LabelText(nameof(FluidSolver))]
         public FluidSolverCompute FluidSolver { get; private set; }
 
+        [field: SerializeField, LabelText(nameof(DebugFluidParticle))]
+        public DebugFluidParticleGraphics DebugFluidParticle { get; private set; }
+
         private int _constantBufferAlignment;
 
-        private const int _constantBufferMimmumSize = 16;
+#if UNITY_EDITOR
+
+        private int _initializedShaderCount;
+
+#endif
 
         private void OnEnable()
         {
@@ -127,16 +146,26 @@ namespace Antares.Graphics
             Debug.Assert((_constantBufferAlignment & (_constantBufferAlignment + 1)) == 0);
             Debug.Assert(ConstantBufferStride <= _constantBufferAlignment);
 
-            ConstantBufferCount = 0;
+#if UNITY_EDITOR
+            _initializedShaderCount = 0;
+#endif
+
+            ConstantBufferStrideCount = 0;
 
             InitializeSpec(TextureUtilCS);
             InitializeSpec(SDFGenerationCS);
             InitializeSpec(RayMarchingCS);
             InitializeSpec(Deferred);
+            InitializeSpec(FluidSolver);
+            InitializeSpec(DebugFluidParticle);
 
-            ConstantBufferCount = (ConstantBufferCount + ConstantBufferStride - 1) / ConstantBufferStride;
+            ConstantBufferStrideCount = (ConstantBufferStrideCount + ConstantBufferStride - 1) / ConstantBufferStride;
 
             ShaderSpecsInstance = this;
+
+#if UNITY_EDITOR
+            CheckInitialization();
+#endif
         }
 
         private void InitializeSpec<T>(T shaderSpec) where T : IShaderSpec
@@ -150,18 +179,41 @@ namespace Antares.Graphics
                     OnEnable();
                     SDFScene.Instance.enabled = false;
                 });
+
+            _initializedShaderCount++;
 #endif
         }
 
-        unsafe ConstantBufferSpans<T> IShaderAggregator.RegisterConstantBuffer<T>()
+        unsafe ConstantBufferSpan<T> IShaderAggregator.RegisterConstantBuffer<T>()
         {
-            int offset = ConstantBufferCount;
+            int offset = ConstantBufferStrideCount;
 
-            ConstantBufferCount += sizeof(T);
-            ConstantBufferCount = (ConstantBufferCount + _constantBufferAlignment) & ~_constantBufferAlignment;
+            ConstantBufferStrideCount += sizeof(T);
+            ConstantBufferStrideCount = (ConstantBufferStrideCount + _constantBufferAlignment) & ~_constantBufferAlignment;
 
             Debug.Log($"cbuffer in size of {sizeof(T)} registered at {offset}");
-            return new ConstantBufferSpans<T>(offset);
+            return new ConstantBufferSpan<T>(offset);
         }
+
+#if UNITY_EDITOR
+        private void CheckInitialization()
+        {
+            var shaderType = typeof(IShaderSpec);
+
+            int totalShaderCount = 0;
+            var properties = typeof(AShaderSpecifications).GetProperties();
+            for (int i = 0; i < properties.Length; i++)
+            {
+                var property = properties[i];
+                var type = property.PropertyType;
+
+                if (shaderType.IsAssignableFrom(type))
+                    totalShaderCount++;
+            }
+
+            Debug.Assert(totalShaderCount == _initializedShaderCount,
+                $"total shader count: {totalShaderCount}, actually initialized shader count: {_initializedShaderCount}");
+        }
+#endif
     }
 }

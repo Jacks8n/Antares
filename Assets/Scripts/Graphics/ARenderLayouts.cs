@@ -35,9 +35,17 @@ namespace Antares.Graphics
 
             public static int Destination { get; } = Shader.PropertyToID(nameof(Destination));
 
+            public static int DestinationInt { get; } = Shader.PropertyToID(nameof(DestinationInt));
+
+            public static int DestinationBuffer { get; } = Shader.PropertyToID(nameof(DestinationBuffer));
+
+            public static int Bound { get; } = Shader.PropertyToID(nameof(Bound));
+
             public static int Offset { get; } = Shader.PropertyToID(nameof(Offset));
 
             public static int Value { get; } = Shader.PropertyToID(nameof(Value));
+
+            public static int ValueInt { get; } = Shader.PropertyToID(nameof(ValueInt));
 
             public static int SDFBrushes { get; } = Shader.PropertyToID(nameof(SDFBrushes));
 
@@ -78,6 +86,8 @@ namespace Antares.Graphics
             public static int PhysicsFrameParameters { get; } = Shader.PropertyToID(nameof(PhysicsFrameParameters));
 
             public static int AddParticlesParameters { get; } = Shader.PropertyToID(nameof(AddParticlesParameters));
+
+            public static int DebugFluidParticleParameters { get; } = Shader.PropertyToID(nameof(DebugFluidParticleParameters));
 
             public static readonly int[] NonAttachmentRTs = new int[] {
                 TiledRM,

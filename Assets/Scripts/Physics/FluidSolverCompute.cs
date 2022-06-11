@@ -1,9 +1,7 @@
 ﻿using System;
 using System.Runtime.InteropServices;
-using Antares.Physics;
 using Sirenix.OdinInspector;
 using UnityEngine;
-using UnityEngine.Rendering;
 
 namespace Antares.Graphics
 {
@@ -17,7 +15,7 @@ namespace Antares.Graphics
             {
                 private readonly Vector2 FluidGridResolution;
 
-                public PhysicsSceneParameters(SDFPhysicsScene physicsScene)
+                public PhysicsSceneParameters(Physics.APhysicsScene physicsScene)
                 {
                     FluidGridResolution = new Vector2(
                         physicsScene.GridResolution,
@@ -38,7 +36,7 @@ namespace Antares.Graphics
 
                 private readonly Vector3 FluidGridTranslation;
 
-                public PhysicsFrameParameters(SDFPhysicsScene physicsScene, float timeStep)
+                public PhysicsFrameParameters(Physics.APhysicsScene physicsScene, float timeStep)
                 {
                     TimeStep = new Vector3(timeStep, 1f / timeStep);
                     Padding = Vector2.zero;
@@ -54,7 +52,7 @@ namespace Antares.Graphics
                 private readonly uint ParticleCount;
 
                 private readonly float Mass;
-                
+
                 /// <summary>
                 /// create parameters to add particles from an array
                 /// </summary>
@@ -81,7 +79,15 @@ namespace Antares.Graphics
 
             public const int MaxParticleCount = 1 << 20;
 
-            public const int BlockCountLevel0 = 16 * 16 * 16;
+            public const int BlockCountLevel0 = 64 * 32 * 32;
+
+            public const int BlockCountLevel1 = 64 * 32 * 32;
+
+            public const int BlockSizeLevel0 = 4;
+
+            public const int BlockSizeLevel1 = 4;
+
+            public const int GridChannelCount = 5;
 
             public const int BlockParticleStride = 64;
 
@@ -89,9 +95,9 @@ namespace Antares.Graphics
 
             public static int MaxAddParticleCount { get => AddParticlesKernelSize * SystemInfo.maxComputeWorkGroupSizeX; }
 
-            public static Vector3Int GridSizeLevel0 { get => new Vector3Int(64, 64, 64); }
-            public static Vector3Int GridSizeLevel1 { get => new Vector3Int(64, 64, 64); }
-            public static Vector3Int GridSizeLevel2 { get => new Vector3Int(16, 16, 16); }
+            public static Vector3Int GridSizeLevel0 { get => new Vector3Int(64 * GridChannelCount, 32, 32) * BlockSizeLevel0; }
+            public static Vector3Int GridSizeLevel1 { get => new Vector3Int(64 * GridChannelCount, 32, 32) * BlockSizeLevel1; }
+            public static Vector3Int GridSizeLevel2 { get => new Vector3Int(256, 256, 256); }
 
             [field: SerializeField, LabelText(nameof(Shader))]
             public ComputeShader Shader { get; private set; }
@@ -100,28 +106,37 @@ namespace Antares.Graphics
 
             public int ParticleToGridKernel { get; private set; }
 
-            public int SolveGridKernel { get; private set; }
+            public int SolveGridLevel0Kernel { get; private set; }
+
+            public int SolveGridLevel1Kernel { get; private set; }
 
             public int GridToParticleKernel { get; private set; }
 
             public int GenerateIndirectArgsKernel { get; private set; }
 
+            public int ClearFluidGridLevel0 { get; private set; }
+
+            public int ClearFluidGridLevel1 { get; private set; }
+
             public int AddParticlesKernel { get; private set; }
 
-            public ConstantBufferSpans<PhysicsSceneParameters> PhysicsSceneParamsCBSpan { get; private set; }
+            public ConstantBufferSpan<PhysicsSceneParameters> PhysicsSceneParamsCBSpan { get; private set; }
 
-            public ConstantBufferSpans<PhysicsFrameParameters> PhysicsFrameParamsCBSpan { get; private set; }
+            public ConstantBufferSpan<PhysicsFrameParameters> PhysicsFrameParamsCBSpan { get; private set; }
 
-            public ConstantBufferSpans<AddParticlesParameters> AddParticlesParamsCBSpan { get; private set; }
+            public ConstantBufferSpan<AddParticlesParameters> AddParticlesParamsCBSpan { get; private set; }
 
             void IShaderSpec.OnAfterDeserialize<T>(T specs)
             {
                 SortParticleKernel = Shader.FindKernel("SortParticle");
                 ParticleToGridKernel = Shader.FindKernel("ParticleToGrid");
-                SolveGridKernel = Shader.FindKernel("SolveGrid");
+                SolveGridLevel0Kernel = Shader.FindKernel("SolveGridLevel0");
+                SolveGridLevel1Kernel = Shader.FindKernel("SolveGridLevel1");
                 GridToParticleKernel = Shader.FindKernel("GridToParticle");
                 GenerateIndirectArgsKernel = Shader.FindKernel("GenerateIndirectArgs");
-                AddParticlesKernel = Shader.FindKernel("AddParticlesKernel");
+                ClearFluidGridLevel0 = Shader.FindKernel("ClearFluidGridLevel0");
+                ClearFluidGridLevel1 = Shader.FindKernel("ClearFluidGridLevel1");
+                AddParticlesKernel = Shader.FindKernel("AddParticles");
 
                 PhysicsSceneParamsCBSpan = specs.RegisterConstantBuffer<PhysicsSceneParameters>();
                 PhysicsFrameParamsCBSpan = specs.RegisterConstantBuffer<PhysicsFrameParameters>();

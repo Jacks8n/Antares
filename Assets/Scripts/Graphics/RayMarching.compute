@@ -2,6 +2,7 @@
 
 #pragma kernel TiledMarching
 #pragma kernel RayMarching
+#pragma kernel RayMarchingFluid
 
 #include "HLSLSupport.cginc"
 
@@ -313,3 +314,107 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
 }
 
 /// end ray marching
+
+/// begin ray marching fluid
+
+#include "../Physics/FluidData.cginc"
+
+#define RAY_MARCHING_FLUID_KERNEL_SIZE 8
+
+groupshared const uint2 FluidBlockCounts_GSM[2] = {
+    uint2(FLUID_BLOCK_COUNT_X_LEVEL0, FLUID_BLOCK_COUNT_Y_LEVEL0),
+    uint2(FLUID_BLOCK_COUNT_X_LEVEL1, FLUID_BLOCK_COUNT_Y_LEVEL1)
+};
+groupshared const uint FluidBlockSizes_GSM[2] = {
+    FLUID_BLOCK_SIZE_LEVEL0, FLUID_BLOCK_SIZE_LEVEL1
+};
+
+extern Texture3D<int> FluidGridLevels[3];
+
+[numthreads(RAY_MARCHING_FLUID_KERNEL_SIZE, RAY_MARCHING_FLUID_KERNEL_SIZE, 1)]
+void RayMarchingFluid(uint3 id : SV_DispatchThreadID)
+{
+    const float3 o = GetCameraPos();
+    const float3 d = GetRayDirection(id.xy);
+
+    const float3 invd = 1.0 / d;
+    float3 t0 = -o * invd;
+    float3 t1 = SCENE_SIZE * invd + t0;
+    float3 tmin = min(t0, t1);
+    float3 tmax = max(t0, t1);
+
+    const float end = min(min(tmax.x, tmax.y), min(tmax.z, 1 << 15));
+    float t = max(max(tmin.x, tmin.y), max(tmin.z, 0.0));
+
+    const float dmax = max(max(d.x, d.y), d.z);
+
+    uint i, mip = 2;
+    int word;
+    uint3 mipIndices[2];
+    float lastSDF[2];
+    for (i = 0; i < MAX_RAY_MARCHING_STEP; i++)
+    {
+        const float3 p = o + d * t;
+        const int3 gridPositionLevel0 = GetFluidGridPositionNearest(p);
+
+        uint3 gridPositionLevel2;
+        uint3 gridOffsetLevel1;
+        GetFluidGridPositions(gridPositionLevel0, gridPositionLevel2, gridOffsetLevel1);
+
+        const uint3 gridOffsetLevel0 = gridPositionLevel0 % FLUID_BLOCK_SIZE_LEVEL0;
+
+        uint3 loadIndex;
+        if (mip == 2)
+        {
+            loadIndex = gridPositionLevel2;
+        }
+        else if (mip == 1)
+        {
+            loadIndex = mipIndices[2] * FLUID_BLOCK_SIZE_LEVEL1 + gridOffsetLevel1;
+        }
+        else
+        {
+            loadIndex = mipIndices[1] * FLUID_BLOCK_SIZE_LEVEL0 + gridOffsetLevel0;
+        }
+
+        float3 pd = p * dmax;
+        {
+            const int word = FluidGridLevels[mip].Load(int4(loadIndex, 0));
+
+            if (mip)
+            {
+                if (IsValidFluidBlockIndex(word))
+                {
+                    mipIndices[mip - 1] = DecodeFluidBlockIndex(word, FluidBlockSizes_GSM[mip - 1]);
+                    mip--;
+                }
+                else if (mip == 1)
+                {
+                    const int sdfEncoded = FluidGridLevels[1].Load(int4(loadIndex + FLUID_GRID_CHANNEL4_OFFSET, 0));
+                    lastSDF[1] = DecodeFluidGridSDF(sdfEncoded);
+                }
+            }
+            else
+            {
+                const int sdfEncoded = FluidGridLevels[0].Sample(loadIndex + FLUID_GRID_CHANNEL4_OFFSET, 0);
+                const float sdf = DecodeFluidGridSDF(sdfEncoded);
+
+                // todo
+                // multi-level sdf
+            }
+
+            const bool3 step = (pd += d) > dmax;
+            loadIndex += step;
+            pd -= step;
+        }
+
+        if (t >= end)
+            break;a
+    }
+
+    float3 normal = 0.0;
+
+    SceneRM1[id.xy] = float4(abs(normal).xxx, 1.0);
+}
+
+/// end ray marching fluid

@@ -1,4 +1,5 @@
 ﻿using Antares.Graphics;
+using Antares.Physics;
 using Sirenix.OdinInspector;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -16,13 +17,17 @@ namespace Antares.SDF
         [field: VerticalGroup("Specification")]
         public Vector3Int Size { get; private set; }
 
-        public Vector3 SizeInFloat { get; private set; }
-
-        public Vector3 SizeInv { get; private set; }
-
         [field: SerializeField, Required, LabelText(nameof(BrushCollection))]
         [field: VerticalGroup("Specification")]
         public SDFBrushCollection BrushCollection { get; private set; }
+
+        [field: SerializeField, Required, LabelText(nameof(PhysicsScene))]
+        [field: VerticalGroup("Specification")]
+        public APhysicsScene PhysicsScene { get; private set; }
+
+        public Vector3 SizeInFloat { get; private set; }
+
+        public Vector3 SizeInv { get; private set; }
 
         public bool IsEmpty => BrushCollection.Brushes.Length == 0;
 
