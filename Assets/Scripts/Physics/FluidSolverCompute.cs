@@ -18,7 +18,7 @@ namespace Antares.Graphics
                 public PhysicsSceneParameters(Physics.APhysicsScene physicsScene)
                 {
                     FluidGridResolution = new Vector2(
-                        physicsScene.GridResolution,
+                        physicsScene.GridSpacing,
                         1f / physicsScene.GridSpacing);
                 }
             }

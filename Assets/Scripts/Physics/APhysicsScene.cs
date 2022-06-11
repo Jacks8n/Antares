@@ -17,10 +17,8 @@ namespace Antares.Physics
         [field: SerializeField, LabelText(nameof(Gravity))]
         public Vector3 Gravity { get; set; } = new Vector3(0f, 0f, -9.8f);
 
-        [field: VerticalGroup("Specification"), SerializeField, LabelText(nameof(GridResolution))]
-        public int GridResolution { get; private set; }
-
-        public float GridSpacing { get => 1f / GridResolution; }
+        [field: VerticalGroup("Specification"), SerializeField, LabelText(nameof(GridSpacing))]
+        public float GridSpacing { get; private set; } = 1f;
 
         private CommandBuffer _cmd;
 

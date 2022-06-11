@@ -13,7 +13,7 @@ uint3 Bound;
 extern Texture3D<snorm float> Source;
 extern RWTexture3D<snorm float> Destination;
 extern RWTexture3D<int> DestinationInt;
-extern RWTexture3D<int> DestinationBuffer;
+extern RWBuffer<int> DestinationBuffer;
 
 [numthreads(8, 8, 8)]
 void Blit(uint3 id : SV_DispatchThreadID)

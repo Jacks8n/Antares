@@ -334,6 +334,9 @@ extern Texture3D<int> FluidGridLevels[3];
 [numthreads(RAY_MARCHING_FLUID_KERNEL_SIZE, RAY_MARCHING_FLUID_KERNEL_SIZE, 1)]
 void RayMarchingFluid(uint3 id : SV_DispatchThreadID)
 {
+    // todo 
+    // not finished
+
     const float3 o = GetCameraPos();
     const float3 d = GetRayDirection(id.xy);
 
@@ -352,65 +355,66 @@ void RayMarchingFluid(uint3 id : SV_DispatchThreadID)
     int word;
     uint3 mipIndices[2];
     float lastSDF[2];
-    for (i = 0; i < MAX_RAY_MARCHING_STEP; i++)
-    {
-        const float3 p = o + d * t;
-        const int3 gridPositionLevel0 = GetFluidGridPositionNearest(p);
 
-        uint3 gridPositionLevel2;
-        uint3 gridOffsetLevel1;
-        GetFluidGridPositions(gridPositionLevel0, gridPositionLevel2, gridOffsetLevel1);
+    // for (i = 0; i < MAX_RAY_MARCHING_STEP; i++)
+    // {
+    //     const float3 p = o + d * t;
+    //     const int3 gridPositionLevel0 = GetFluidGridPositionNearest(p);
 
-        const uint3 gridOffsetLevel0 = gridPositionLevel0 % FLUID_BLOCK_SIZE_LEVEL0;
+    //     uint3 gridPositionLevel2;
+    //     uint3 gridOffsetLevel1;
+    //     GetFluidGridPositions(gridPositionLevel0, gridPositionLevel2, gridOffsetLevel1);
 
-        uint3 loadIndex;
-        if (mip == 2)
-        {
-            loadIndex = gridPositionLevel2;
-        }
-        else if (mip == 1)
-        {
-            loadIndex = mipIndices[2] * FLUID_BLOCK_SIZE_LEVEL1 + gridOffsetLevel1;
-        }
-        else
-        {
-            loadIndex = mipIndices[1] * FLUID_BLOCK_SIZE_LEVEL0 + gridOffsetLevel0;
-        }
+    //     const uint3 gridOffsetLevel0 = gridPositionLevel0 % FLUID_BLOCK_SIZE_LEVEL0;
 
-        float3 pd = p * dmax;
-        {
-            const int word = FluidGridLevels[mip].Load(int4(loadIndex, 0));
+    //     uint3 loadIndex;
+    //     if (mip == 2)
+    //     {
+    //         loadIndex = gridPositionLevel2;
+    //     }
+    //     else if (mip == 1)
+    //     {
+    //         loadIndex = mipIndices[2] * FLUID_BLOCK_SIZE_LEVEL1 + gridOffsetLevel1;
+    //     }
+    //     else
+    //     {
+    //         loadIndex = mipIndices[1] * FLUID_BLOCK_SIZE_LEVEL0 + gridOffsetLevel0;
+    //     }
 
-            if (mip)
-            {
-                if (IsValidFluidBlockIndex(word))
-                {
-                    mipIndices[mip - 1] = DecodeFluidBlockIndex(word, FluidBlockSizes_GSM[mip - 1]);
-                    mip--;
-                }
-                else if (mip == 1)
-                {
-                    const int sdfEncoded = FluidGridLevels[1].Load(int4(loadIndex + FLUID_GRID_CHANNEL4_OFFSET, 0));
-                    lastSDF[1] = DecodeFluidGridSDF(sdfEncoded);
-                }
-            }
-            else
-            {
-                const int sdfEncoded = FluidGridLevels[0].Sample(loadIndex + FLUID_GRID_CHANNEL4_OFFSET, 0);
-                const float sdf = DecodeFluidGridSDF(sdfEncoded);
+    //     float3 pd = p * dmax;
+    //     {
+    //         const int word = FluidGridLevels[mip].Load(int4(loadIndex, 0));
 
-                // todo
-                // multi-level sdf
-            }
+    //         if (mip)
+    //         {
+    //             if (IsValidFluidBlockIndex(word))
+    //             {
+    //                 mipIndices[mip - 1] = DecodeFluidBlockIndex(word, FluidBlockSizes_GSM[mip - 1]);
+    //                 mip--;
+    //             }
+    //             else if (mip == 1)
+    //             {
+    //                 const int sdfEncoded = FluidGridLevels[1].Load(int4(loadIndex + FLUID_GRID_CHANNEL4_OFFSET, 0));
+    //                 lastSDF[1] = DecodeFluidGridSDF(sdfEncoded);
+    //             }
+    //         }
+    //         else
+    //         {
+    //             const int sdfEncoded = FluidGridLevels[0].Load(int4(loadIndex + FLUID_GRID_CHANNEL4_OFFSET, 0));
+    //             const float sdf = DecodeFluidGridSDF(sdfEncoded);
 
-            const bool3 step = (pd += d) > dmax;
-            loadIndex += step;
-            pd -= step;
-        }
+    //             // todo
+    //             // multi-level sdf
+    //         }
 
-        if (t >= end)
-            break;a
-    }
+    //         const bool3 step = (pd += d) > dmax;
+    //         loadIndex += step;
+    //         pd -= step;
+    //     }
+
+    //     if (t >= end)
+    //         break;
+    // }
 
     float3 normal = 0.0;
 

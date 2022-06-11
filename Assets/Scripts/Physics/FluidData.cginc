@@ -112,22 +112,23 @@ uint GetFluidParticleCount()
 
 bool GetFluidParticlePositionPingPongFlag()
 {
-    const uint byteOffset = GetFluidParticlePositionPingPongFlagByteOffset()
+    const uint byteOffset = GetFluidParticlePositionPingPongFlagByteOffset();
     return FluidParticlePositions.Load(byteOffset);
 }
 
 void InvertFluidParticlePositionPingPongFlag()
 {
-    const uint byteOffset = GetFluidParticlePositionPingPongFlagByteOffset()
+    const uint byteOffset = GetFluidParticlePositionPingPongFlagByteOffset();
     const bool pingpongFlag = GetFluidParticlePositionPingPongFlag();
 
-    FluidParticlePositions.Store(byteOffset, !pingpongFlag);
+    FluidParticlePositions.Store(byteOffset, uint(!pingpongFlag));
 }
 
 void ResetAccumulateParticleCount()
 {
     const uint byteOffset = GetFluidParticleCountPrefixSumByteOffset();
-    FluidParticleProperties.Store(byteOffset, 0);
+
+    FluidParticlePositions.Store(byteOffset, 0);
 }
 
 uint AccumulateParticleCountAtomic(uint particleCount)
@@ -629,7 +630,7 @@ uint GetFluidBlockIndexLevel0Unchecked(uint3 gridPositionLevel1)
 void AddParticleToFluidBlock(int3 gridPositionLevel0, uint particleIndex, bool atomicFlag)
 {
     uint blockIndexLevel0;
-    if (!ActivateFluidBlock(gridPositionLevel0, blockIndexLevel0, atomicFlag))
+    if (!ActivateFluidBlock(gridPositionLevel0, atomicFlag, blockIndexLevel0))
         return;
 
     const uint particleCountByteOffset = GetFluidBlockParticleCountByteOffset(blockIndexLevel0);

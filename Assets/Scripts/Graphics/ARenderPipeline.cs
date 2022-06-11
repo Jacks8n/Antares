@@ -375,6 +375,7 @@ namespace Antares.Graphics
                 }
 
                 // draw fluid
+                if (_physicsPipeline != null)
                 {
                     using (var colors = new NativeArray<int>(new int[] { RenderPass0.Index_GBuffer0 }, Allocator.Temp))
                         context.BeginSubPass(colors, isDepthStencilReadOnly: false);

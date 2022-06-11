@@ -13,6 +13,7 @@ Shader "Unlit/DebugParticle"
             #pragma vertex vert
             #pragma geometr geom
             #pragma fragment frag
+            #pragma target 4.5
 
             #include "UnityCG.cginc"
             #include "../Physics/FluidData.cginc"
@@ -24,7 +25,7 @@ Shader "Unlit/DebugParticle"
 
             struct v2g
             {
-                float3 center;
+                float3 center : TEXCOORD0;
             };
 
             struct g2f
@@ -63,17 +64,17 @@ Shader "Unlit/DebugParticle"
 
                 g2f o;
 
-                o.wpos = center + right + ParticleUp;
+                o.wpos = p + right + ParticleUp;
                 o.vertex = UnityWorldToClipPos(o.wpos);
                 o.uv = float2(1.0, 1.0);
                 triangles.Append(o);
 
-                o.wpos = center - right + ParticleUp;
+                o.wpos = p - right + ParticleUp;
                 o.vertex = UnityWorldToClipPos(o.wpos);
                 o.uv = float2(0.0, 1.0);
                 triangles.Append(o);
 
-                o.wpos = center + right - ParticleUp;
+                o.wpos = p + right - ParticleUp;
                 o.vertex = UnityWorldToClipPos(o.wpos);
                 o.uv = float2(1.0, 0.0);
                 triangles.Append(o);
@@ -81,12 +82,12 @@ Shader "Unlit/DebugParticle"
 
                 triangles.Append(o);
 
-                o.wpos = center - right + ParticleUp;
+                o.wpos = p - right + ParticleUp;
                 o.vertex = UnityWorldToClipPos(o.wpos);
                 o.uv = float2(0.0, 1.0);
                 triangles.Append(o);
                 
-                o.wpos = center - right - ParticleUp;
+                o.wpos = p - right - ParticleUp;
                 o.vertex = UnityWorldToClipPos(o.wpos);
                 o.uv = float2(0.0, 0.0);
                 triangles.Append(o);
