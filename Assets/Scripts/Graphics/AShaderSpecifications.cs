@@ -15,7 +15,7 @@ namespace Antares.Graphics
         {
             public readonly int OffsetInBytes;
 
-            public unsafe int Size => sizeof(T) < _constantBufferMimmumSize ? _constantBufferMimmumSize : sizeof(T);
+            public unsafe int Size => sizeof(T);
 
             public ConstantBufferSpan(int offsetInBytes)
             {
@@ -32,7 +32,7 @@ namespace Antares.Graphics
             public void SetCBuffer(CommandBuffer cmd, ComputeBuffer cbuffer, T data)
             {
                 using var tmp = new NativeArray<T>(new T[] { data }, Allocator.Temp);
-                cmd.SetBufferData(cbuffer, tmp.Reinterpret<byte>(), 0, OffsetInBytes, Size);
+                cmd.SetBufferData(cbuffer, tmp.Reinterpret<byte>(Size), 0, OffsetInBytes, Size);
             }
 
             public void BindCBuffer(CommandBuffer cmd, ComputeShader shader, int cbufferID, ComputeBuffer cbuffer)

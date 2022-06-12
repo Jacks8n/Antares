@@ -45,7 +45,8 @@ namespace Antares.Physics
         {
             Instance = null;
 
-            PhysicsPipeline.UnloadPhysicsScene();
+            if (PhysicsPipeline != null)
+                PhysicsPipeline.UnloadPhysicsScene();
             _cmd.Dispose();
         }
 
@@ -53,6 +54,8 @@ namespace Antares.Physics
         {
             if (PhysicsPipeline.IsSceneLoaded)
             {
+                _cmd.Clear();
+
                 PhysicsPipeline.Solve(_cmd, Time.fixedDeltaTime);
 
                 PhysicsFrameFence = _cmd.CreateGraphicsFence(GraphicsFenceType.AsyncQueueSynchronisation, SynchronisationStageFlags.ComputeProcessing);
@@ -60,5 +63,35 @@ namespace Antares.Physics
                 UnityEngine.Graphics.ExecuteCommandBufferAsync(_cmd, ComputeQueueType.Default);
             }
         }
+
+#if UNITY_EDITOR
+
+        [Button]
+        private void AddParticles()
+        {
+            if (!enabled)
+            {
+                Debug.LogWarning($"enable {nameof(APhysicsScene)} before adding particles");
+                return;
+            }
+
+            _cmd.Clear();
+
+            var particles = ListPool<AShaderSpecifications.FluidSolverCompute.ParticleToAdd>.Get();
+            for (int i = 0; i < 64; i++)
+            {
+                Vector3 position = new Vector3(Random.value, Random.value, Random.value) * 10f;
+                Vector3 velocity = new Vector3(Random.value, Random.value, Random.value) * 2f - Vector3.one;
+
+                particles.Add(new AShaderSpecifications.FluidSolverCompute.ParticleToAdd(position, velocity));
+            }
+
+            PhysicsPipeline.AddParticles(_cmd, particles);
+            ListPool<AShaderSpecifications.FluidSolverCompute.ParticleToAdd>.Release(particles);
+
+            UnityEngine.Graphics.ExecuteCommandBuffer(_cmd);
+        }
+
+#endif
     }
 }

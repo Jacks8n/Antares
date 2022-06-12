@@ -57,7 +57,7 @@ namespace Antares.Physics
             _physicsScene = scene;
 
             const int maxParticleCount = FluidSolverCompute.MaxParticleCount;
-            _fluidParticlePositionsBuffer = new ComputeBuffer(6 + 2 * 4 * maxParticleCount, 4, ComputeBufferType.Raw | ComputeBufferType.IndirectArguments, ComputeBufferMode.Immutable);
+            _fluidParticlePositionsBuffer = new ComputeBuffer(6 + 2 * 4 * maxParticleCount, 4, ComputeBufferType.Raw, ComputeBufferMode.Immutable);
             _fluidParticlePropertiesBuffer = new ComputeBuffer(maxParticleCount * 8, 4, ComputeBufferType.Raw, ComputeBufferMode.Immutable);
 
             _fluidGridLevel0 = CreateRWVolumeRT(GraphicsFormat.R32_SInt, FluidSolverCompute.GridSizeLevel0);
@@ -69,12 +69,12 @@ namespace Antares.Physics
             _shaderSpecs.TextureUtilCS.ClearVolume(cmd, _fluidGridLevel1, 0);
 
             _fluidBlockParticleIndices = new ComputeBuffer(6 + FluidSolverCompute.BlockCountLevel0 * FluidSolverCompute.BlockParticleStride,
-                4, ComputeBufferType.Raw | ComputeBufferType.IndirectArguments, ComputeBufferMode.Dynamic);
+                4, ComputeBufferType.Raw, ComputeBufferMode.Dynamic);
 
             _fluidGridAtomicLock = new ComputeBuffer(FluidSolverCompute.BlockCountLevel0 + FluidSolverCompute.BlockCountLevel1, 4, ComputeBufferType.Default, ComputeBufferMode.Immutable);
             _shaderSpecs.TextureUtilCS.ClearBuffer(cmd, _fluidGridAtomicLock, 0);
 
-            _indirectArgsBuffer = new ComputeBuffer(3, 4, ComputeBufferType.IndirectArguments | ComputeBufferType.Raw, ComputeBufferMode.Immutable);
+            _indirectArgsBuffer = new ComputeBuffer(3, 4, ComputeBufferType.IndirectArguments, ComputeBufferMode.Immutable);
 
             _particlesToAdd = new ComputeBuffer(MaxAddParticleCount, 4, ComputeBufferType.Raw, ComputeBufferMode.Dynamic);
 
