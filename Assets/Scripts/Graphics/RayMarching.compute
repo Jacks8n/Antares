@@ -1,4 +1,5 @@
-﻿#pragma enable_d3d11_debug_symbols
+﻿#pragma use_dxc
+//#pragma enable_d3d11_debug_symbols
 
 #pragma kernel TiledMarching
 #pragma kernel RayMarching
@@ -337,24 +338,24 @@ void RayMarchingFluid(uint3 id : SV_DispatchThreadID)
     // todo 
     // not finished
 
-    const float3 o = GetCameraPos();
-    const float3 d = GetRayDirection(id.xy);
+    // const float3 o = GetCameraPos();
+    // const float3 d = GetRayDirection(id.xy);
 
-    const float3 invd = 1.0 / d;
-    float3 t0 = -o * invd;
-    float3 t1 = SCENE_SIZE * invd + t0;
-    float3 tmin = min(t0, t1);
-    float3 tmax = max(t0, t1);
+    // const float3 invd = 1.0 / d;
+    // float3 t0 = -o * invd;
+    // float3 t1 = SCENE_SIZE * invd + t0;
+    // float3 tmin = min(t0, t1);
+    // float3 tmax = max(t0, t1);
 
-    const float end = min(min(tmax.x, tmax.y), min(tmax.z, 1 << 15));
-    float t = max(max(tmin.x, tmin.y), max(tmin.z, 0.0));
+    // const float end = min(min(tmax.x, tmax.y), min(tmax.z, 1 << 15));
+    // float t = max(max(tmin.x, tmin.y), max(tmin.z, 0.0));
 
-    const float dmax = max(max(d.x, d.y), d.z);
+    // const float dmax = max(max(d.x, d.y), d.z);
 
-    uint i, mip = 2;
-    int word;
-    uint3 mipIndices[2];
-    float lastSDF[2];
+    // uint i, mip = 2;
+    // int word;
+    // uint3 mipIndices[2];
+    // float lastSDF[2];
 
     // for (i = 0; i < MAX_RAY_MARCHING_STEP; i++)
     // {
@@ -416,9 +417,9 @@ void RayMarchingFluid(uint3 id : SV_DispatchThreadID)
     //         break;
     // }
 
-    float3 normal = 0.0;
+    // float3 normal = 0.0;
 
-    SceneRM1[id.xy] = float4(abs(normal).xxx, 1.0);
+    // SceneRM1[id.xy] = float4(abs(normal).xxx, 1.0);
 }
 
 /// end ray marching fluid

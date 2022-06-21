@@ -20,8 +20,6 @@ namespace Antares.Graphics
 
         public AShaderSpecifications ShaderSpecs { get; private set; }
 
-        public ComputeBuffer ConstantBuffer { get; private set; }
-
         private RenderTexture _sceneVolume;
 
         private RenderTexture _materialVolume;
@@ -33,14 +31,16 @@ namespace Antares.Graphics
         public ARenderPipeline(AShaderSpecifications shaderSpecs)
         {
             ShaderSpecs = shaderSpecs;
+
+            Instance = this;
         }
 
         protected override void Dispose(bool disposing)
         {
-            if (disposing)
-                return;
-
-            UnloadScene();
+            if (!disposing)
+            {
+                UnloadScene();
+            }
 
             base.Dispose(disposing);
         }
@@ -48,7 +48,7 @@ namespace Antares.Graphics
         public APhysicsPipeline GetPhysicsPipeline()
         {
             if (_physicsPipeline == null)
-                _physicsPipeline = new APhysicsPipeline(ShaderSpecs, ConstantBuffer);
+                _physicsPipeline = new APhysicsPipeline();
 
             return _physicsPipeline;
         }
@@ -73,9 +73,6 @@ namespace Antares.Graphics
                 _materialVolume = CreateRWVolumeRT(GraphicsFormat.R16_UInt, matVolumeSize, SceneMipCount);
             }
 
-            if (ConstantBuffer == null || !ConstantBuffer.IsValid())
-                ConstantBuffer = new ComputeBuffer(ShaderSpecs.ConstantBufferStrideCount, ShaderSpecs.ConstantBufferStride, ComputeBufferType.Constant, ComputeBufferMode.SubUpdates);
-
             CommandBuffer cmd = CommandBufferPool.Get();
 
             // clear volumes
@@ -98,7 +95,7 @@ namespace Antares.Graphics
                 for (int i = 0; i < brushes.Length; i++)
                     mappedBrushes[i] = new SDFGenerationCompute.SDFBrush(brushes[i].Property, brushes[i].ParameterCount, brushes[i].ParameterOffset);
                 brushBuffer.SetData(mappedBrushes);
-
+                
                 brushParameterBuffer = new ComputeBuffer(brushParams.Length, sizeof(float), ComputeBufferType.Structured, ComputeBufferMode.Immutable);
                 brushParameterBuffer.SetData(brushParams);
             }
@@ -117,12 +114,9 @@ namespace Antares.Graphics
                 SDFGenerationCompute sdfGeneration = ShaderSpecs.SDFGenerationCS;
                 ComputeShader shader = sdfGeneration.Shader;
 
-                // set global params
-                {
-                    sdfGeneration.SDFGenerationParamsCBSpan.SubUpdateCBuffer(ConstantBuffer, new SDFGenerationCompute.SDFGenerationParameters(_scene));
-                    sdfGeneration.SDFGenerationParamsCBSpan.BindCBuffer(cmd, shader, Bindings.SDFGenerationParameters, ConstantBuffer);
-                }
-
+                // bind cbuffers
+                ConstantBuffer.Push(cmd, new SDFGenerationCompute.SDFGenerationParameters(_scene), shader, Bindings.SDFGenerationParameters);
+                
                 // generate material volume mip 0
                 int kernel = sdfGeneration.GenerateMatVolumeKernel;
                 {
@@ -137,18 +131,21 @@ namespace Antares.Graphics
                     cmd.DispatchCompute(shader, kernel, dispatchSize.x, dispatchSize.y, dispatchSize.z);
                 }
 
+                kernel = sdfGeneration.GenerateIndirectArgsKernel;
+                {
+                    cmd.SetComputeBufferParam(shader, kernel, Bindings.IndirectArgs, dispatchCoordsBuffer);
+                    cmd.SetComputeIntParam(shader, Bindings.IndirectArgsOffset, 0);
+                    cmd.DispatchCompute(shader, kernel, 1, 1, 1);
+                }
+
                 // generate scene volume mip 0
                 kernel = sdfGeneration.GenerateSceneVolumeKernel;
                 {
-                    var parameters = new SDFGenerationCompute.MipGenerationParameters(sceneVolumeSize, 0);
-                    sdfGeneration.MipGenerationParamsCBSpan[0].SubUpdateCBuffer(ConstantBuffer, parameters);
-                    sdfGeneration.MipGenerationParamsCBSpan[0].BindCBuffer(cmd, shader, Bindings.MipGenerationParameters, ConstantBuffer);
-
                     cmd.SetComputeTextureParam(shader, kernel, Bindings.MaterialVolume, _materialVolume);
                     cmd.SetComputeTextureParam(shader, kernel, Bindings.SceneVolume, _sceneVolume);
+                    cmd.SetComputeTextureParam(shader, kernel, Bindings.BrushAtlas, brushCollection.NumericalBrushAtlas);
                     cmd.SetComputeBufferParam(shader, kernel, Bindings.SDFBrushes, brushBuffer);
                     cmd.SetComputeBufferParam(shader, kernel, Bindings.BrushParameters, brushParameterBuffer);
-                    cmd.SetComputeTextureParam(shader, kernel, Bindings.BrushAtlas, brushCollection.NumericalBrushAtlas);
                     cmd.SetComputeBufferParam(shader, kernel, Bindings.BrushIndices, brushIndicesBuffer);
                     DispatchIndirect(cmd, shader, kernel, Bindings.DispatchCoords, dispatchCoordsBuffer);
                 }
@@ -182,12 +179,13 @@ namespace Antares.Graphics
             Debug.Assert(sceneVolume.mipmapCount > 1, "no need to generate mips");
 
             int mipCount = sceneVolume.mipmapCount;
-            Vector3Int sceneVolumeSize = GetVolumeRTSize(sceneVolume);
             Vector3Int matVolumeSize = GetVolumeRTSize(materialVolume);
+
+            SDFGenerationCompute sdfGeneration = ShaderSpecs.SDFGenerationCS;
 
             // allocate indirect buffers
             int matVolumeGridCount = matVolumeSize.x * matVolumeSize.y * matVolumeSize.z;
-            uint dispatchArgumentsOffset = 0;
+            int dispatchArgumentsOffset = 0;
             {
                 long a = 1 << (3 * (mipCount - 1));
                 int maxDispatchCount = (int)((a - 1) * matVolumeGridCount / (7 * a));
@@ -195,17 +193,16 @@ namespace Antares.Graphics
                 indirectBuffer = new ComputeBuffer(maxDispatchCount + 4 * (mipCount - 1), 4, ComputeBufferType.IndirectArguments | ComputeBufferType.Default, ComputeBufferMode.Immutable);
                 for (int i = 0; i < mipCount - 1; i++)
                 {
-                    // todo
-                    // not initialized
-                    InitializeIndirectBuffer(cmd, indirectBuffer, (int)dispatchArgumentsOffset);
+                    InitializeIndirectBuffer(cmd, indirectBuffer, dispatchArgumentsOffset);
 
                     matVolumeGridCount /= 8;
-                    dispatchArgumentsOffset += (uint)GetIndirectBufferSize(matVolumeGridCount);
+                    dispatchArgumentsOffset += GetIndirectBufferSize(matVolumeGridCount);
                 }
             }
 
-            SDFGenerationCompute sdfGeneration = ShaderSpecs.SDFGenerationCS;
             ComputeShader shader = sdfGeneration.Shader;
+
+            ConstantBuffer.Set<SDFGenerationCompute.MipGenerationParameters>(cmd, shader, Bindings.MipGenerationParameters);
 
             matVolumeGridCount = matVolumeSize.x * matVolumeSize.y * matVolumeSize.z;
             dispatchArgumentsOffset = 0;
@@ -213,60 +210,76 @@ namespace Antares.Graphics
             Vector3Int threadGroups = matVolumeSize / SDFGenerationCompute.GenerateMipDispatchKernelSize;
             for (int i = 0; i < mipCount - 1; i++)
             {
-                var parameters = new SDFGenerationCompute.MipGenerationParameters(sceneVolumeSize, dispatchArgumentsOffset);
-                sdfGeneration.MipGenerationParamsCBSpan[i + 1].SubUpdateCBuffer(ConstantBuffer, parameters);
-                sdfGeneration.MipGenerationParamsCBSpan[i + 1].BindCBuffer(cmd, shader, Bindings.MipGenerationParameters, ConstantBuffer);
+                var parameters = new SDFGenerationCompute.MipGenerationParameters(matVolumeSize, (uint)dispatchArgumentsOffset);
+                ConstantBuffer.UpdateData(cmd, parameters);
 
                 // generate material volume non-zero mips
                 int kernel = sdfGeneration.GenerateMipDispatchKernel;
-                cmd.SetComputeBufferParam(shader, kernel, Bindings.MipDispatches, indirectBuffer);
-                cmd.SetComputeTextureParam(shader, kernel, Bindings.MaterialVolume, materialVolume, i);
-                cmd.SetComputeTextureParam(shader, kernel, Bindings.MaterialVolumeMip, materialVolume, i + 1);
+                {
+                    cmd.SetComputeBufferParam(shader, kernel, Bindings.MipDispatches, indirectBuffer);
+                    cmd.SetComputeTextureParam(shader, kernel, Bindings.MaterialVolume, materialVolume, i);
+                    cmd.SetComputeTextureParam(shader, kernel, Bindings.MaterialVolumeMip, materialVolume, i + 1);
 
-                threadGroups /= 2;
-                cmd.DispatchCompute(shader, kernel, threadGroups.x, threadGroups.y, threadGroups.z);
+                    threadGroups /= 2;
+                    cmd.DispatchCompute(shader, kernel, threadGroups.x, threadGroups.y, threadGroups.z);
+                }
+
+                kernel = sdfGeneration.GenerateIndirectArgsKernel;
+                {
+                    cmd.SetComputeBufferParam(shader, kernel, Bindings.IndirectArgs, indirectBuffer);
+                    cmd.SetComputeIntParam(shader, Bindings.IndirectArgsOffset, dispatchArgumentsOffset);
+                    cmd.DispatchCompute(shader, kernel, 1, 1, 1);
+                }
 
                 // generate scene volume non-zero mips
                 kernel = sdfGeneration.GenerateMipMapKernel;
-                cmd.SetComputeBufferParam(shader, kernel, Bindings.MipDispatches, indirectBuffer);
-                cmd.SetComputeTextureParam(shader, kernel, Bindings.SceneVolume, sceneVolume, i);
-                cmd.SetComputeTextureParam(shader, kernel, Bindings.SceneVolumeMip, sceneVolume, i + 1);
+                {
+                    cmd.SetComputeBufferParam(shader, kernel, Bindings.MipDispatches, indirectBuffer);
+                    cmd.SetComputeTextureParam(shader, kernel, Bindings.SceneVolume, sceneVolume, i);
+                    cmd.SetComputeTextureParam(shader, kernel, Bindings.SceneVolumeMip, sceneVolume, i + 1);
+                    DispatchIndirect(cmd, shader, sdfGeneration.GenerateMipMapKernel, Bindings.MipDispatches, indirectBuffer, (uint)dispatchArgumentsOffset);
+                }
 
-                DispatchIndirect(cmd, shader, sdfGeneration.GenerateMipMapKernel, Bindings.MipDispatches, indirectBuffer, dispatchArgumentsOffset);
-
+                matVolumeSize /= 2;
                 matVolumeGridCount /= 8;
-                dispatchArgumentsOffset += (uint)GetIndirectBufferSize(matVolumeGridCount);
+                dispatchArgumentsOffset += GetIndirectBufferSize(matVolumeGridCount);
             }
         }
 
         public void UnloadScene()
         {
             if (!IsSceneLoaded)
-            {
-                Debug.Log("scene is double unloaded");
                 return;
-            }
+
+            _scene = null;
 
             _sceneVolume.Release();
             _materialVolume.Release();
-            ConstantBuffer.Release();
 
             IsSceneLoaded = false;
         }
 
         protected override void Render(ScriptableRenderContext context, Camera[] cameras)
         {
-            if (!IsSceneLoaded || !_scene.enabled)
+            if (!IsSceneLoaded)
+                return;
+
+            if (_physicsPipeline != null && _physicsPipeline.IsSceneLoaded)
             {
+                BeginCaptureSceneView();
+                CommandBuffer foo = CommandBufferPool.Get();
+                APhysicsScene.Instance.AddTestParticles(foo);
+                UGraphics.ExecuteCommandBuffer(foo);
+                CommandBufferPool.Release(foo);
+                EndCaptureSceneView();
                 UnloadScene();
                 return;
             }
 
-            //var window = UnityEditor.EditorWindow.GetWindow<UnityEditor.SceneView>();
-            //UnityEditorInternal.RenderDoc.BeginCaptureRenderDoc(window);
+            //BeginCaptureSceneView();
             //LoadScene(_scene);
-            //UnityEditorInternal.RenderDoc.EndCaptureRenderDoc(window);
-            //_scene = null;
+            //EndCaptureSceneView();
+            //UnloadScene();
             //return;
 
             CommandBuffer cmd = CommandBufferPool.Get();
@@ -300,8 +313,7 @@ namespace Antares.Graphics
                     int tileCountX = width / RayMarchingCompute.MarchingTileSize, tileCountY = height / RayMarchingCompute.MarchingTileSize;
                     {
                         var parameters = new RayMarchingCompute.RayMarchingParameters(camera, _scene, invWidth, invHeight);
-                        rayMarching.RayMarchingParamsCBSpan.SubUpdateCBuffer(ConstantBuffer, parameters);
-                        rayMarching.RayMarchingParamsCBSpan.BindCBuffer(cmdCompute, shader, Bindings.RayMarchingParameters, ConstantBuffer);
+                        ConstantBuffer.Push(cmdCompute, parameters, shader, Bindings.RayMarchingParameters);
                     }
 
                     // tiled marching
@@ -375,12 +387,12 @@ namespace Antares.Graphics
                 }
 
                 // draw fluid
-                if (_physicsPipeline != null)
+                if (_physicsPipeline != null && _physicsPipeline.IsSceneLoaded)
                 {
                     using (var colors = new NativeArray<int>(new int[] { RenderPass0.Index_GBuffer0 }, Allocator.Temp))
                         context.BeginSubPass(colors, isDepthStencilReadOnly: false);
 
-                    _physicsPipeline.RenderDebugParticles(cmd);
+                    _physicsPipeline.RenderDebugParticles(cmd, camera);
                     context.ExecuteCommandBuffer(cmd);
 
                     context.EndSubPass();

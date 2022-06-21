@@ -4,7 +4,7 @@ using UnityEngine.Experimental.Rendering;
 
 namespace Antares.Graphics
 {
-    public static class ARenderUtilities
+    public static partial class ARenderUtilities
     {
         public static Mesh FullScreenMesh
         {
@@ -22,25 +22,6 @@ namespace Antares.Graphics
         }
 
         private static Mesh _fullScreenMesh = null;
-
-#if UNITY_EDITOR
-        public static Mesh FullScreenSceneViewMesh
-        {
-            get
-            {
-                if (!_fullScreenSceneViewMesh)
-                    _fullScreenSceneViewMesh = new Mesh()
-                    {
-                        vertices = new Vector3[] { new Vector3(-1f, -1f), new Vector3(-1f, 3f), new Vector3(3f, -1f) },
-                        triangles = new int[] { 0, 1, 2 },
-                        uv = new Vector2[] { new Vector2(0f, 1f), new Vector2(0f, -1f), new Vector2(2f, 1f) }
-                    };
-                return _fullScreenSceneViewMesh;
-            }
-        }
-
-        private static Mesh _fullScreenSceneViewMesh = null;
-#endif
 
         /// <summary>
         /// maps the dimension of volume to physical size

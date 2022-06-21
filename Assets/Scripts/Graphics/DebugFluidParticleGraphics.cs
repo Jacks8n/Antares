@@ -30,11 +30,8 @@ namespace Antares.Graphics
             [field: SerializeField, LabelText(nameof(Material))]
             public Material Material { get; private set; }
 
-            public ConstantBufferSpan<DebugFluidParticleParameters> DebugFluidParticleParamsCBSpan { get; private set; }
-
-            void IShaderSpec.OnAfterDeserialize<T>(T specs)
+            void IShaderSpec.Initialize()
             {
-                DebugFluidParticleParamsCBSpan = specs.RegisterConstantBuffer<DebugFluidParticleParameters>();
             }
         }
     }

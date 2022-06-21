@@ -79,6 +79,8 @@ namespace Antares.Graphics
 
             public static int IndirectArgs { get; } = Shader.PropertyToID(nameof(IndirectArgs));
 
+            public static int IndirectArgsOffset { get; } = Shader.PropertyToID(nameof(IndirectArgsOffset));
+
             public static int ParticlesToAdd { get; } = Shader.PropertyToID(nameof(ParticlesToAdd));
 
             public static int PhysicsSceneParameters { get; } = Shader.PropertyToID(nameof(PhysicsSceneParameters));

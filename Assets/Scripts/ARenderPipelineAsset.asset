@@ -12,4 +12,4 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e062296443f1d014383bf1f01def3bd9, type: 3}
   m_Name: ARenderPipelineAsset
   m_EditorClassIdentifier: 
-  _shaderSpecs: {fileID: 11400000, guid: 02f3e2cd9499baf43bce33aeb61c6ba5, type: 2}
+  _shaderSpecs: {fileID: 11400000, guid: 2ba4a6ff09f6ed84d947df5ddbf94835, type: 2}

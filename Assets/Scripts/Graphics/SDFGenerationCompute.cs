@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using Antares.SDF;
 using Sirenix.OdinInspector;
 using UnityEngine;
+using UnityEngine.Rendering;
 
 namespace Antares.Graphics
 {
@@ -73,13 +74,13 @@ namespace Antares.Graphics
             [StructLayout(LayoutKind.Sequential, Pack = 1)]
             public struct MipGenerationParameters
             {
-                private readonly Vector3Int SceneVolumeSize;
+                private readonly Vector3Int PrevMipVolumeSize;
 
                 private readonly uint DispatchArgumentsOffset;
 
-                public MipGenerationParameters(Vector3Int mipVolumeSize, uint dispatchArgumentsOffset)
+                public MipGenerationParameters(Vector3Int prevMipVolumeSize, uint dispatchArgumentsOffset)
                 {
-                    SceneVolumeSize = mipVolumeSize;
+                    PrevMipVolumeSize = prevMipVolumeSize;
 
                     DispatchArgumentsOffset = dispatchArgumentsOffset;
                 }
@@ -120,21 +121,15 @@ namespace Antares.Graphics
 
             public int GenerateMipMapKernel { get; private set; }
 
-            public ConstantBufferSpan<SDFGenerationParameters> SDFGenerationParamsCBSpan { get; private set; }
+            public int GenerateIndirectArgsKernel { get; private set; }
 
-            public ConstantBufferSpan<MipGenerationParameters>[] MipGenerationParamsCBSpan { get; private set; }
-
-            void IShaderSpec.OnAfterDeserialize<T>(T specs)
+            void IShaderSpec.Initialize()
             {
                 GenerateMatVolumeKernel = Shader.FindKernel("GenerateMatVolume");
                 GenerateMipDispatchKernel = Shader.FindKernel("GenerateMipDispatch");
                 GenerateSceneVolumeKernel = Shader.FindKernel("GenerateSceneVolume");
                 GenerateMipMapKernel = Shader.FindKernel("GenerateMipMap");
-
-                SDFGenerationParamsCBSpan = specs.RegisterConstantBuffer<SDFGenerationParameters>();
-                MipGenerationParamsCBSpan = new ConstantBufferSpan<MipGenerationParameters>[SceneMipCount];
-                for (int i = 0; i < SceneMipCount; i++)
-                    MipGenerationParamsCBSpan[i] = specs.RegisterConstantBuffer<MipGenerationParameters>();
+                GenerateIndirectArgsKernel = Shader.FindKernel("GenerateIndirectArgs");
             }
         }
     }

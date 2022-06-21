@@ -16,13 +16,9 @@ namespace Antares.Physics
 
         public int MaxAddParticleCount { get => 1024; }
 
-        private readonly AShaderSpecifications _shaderSpecs;
-
-        private readonly ComputeBuffer _constantBuffer;
-
-        private readonly MaterialPropertyBlock _debugFluidParticleMaterialProperties;
-
         private APhysicsScene _physicsScene;
+
+        private AShaderSpecifications _shaderSpecs;
 
         private ComputeBuffer _fluidParticlePositionsBuffer;
         private ComputeBuffer _fluidParticlePropertiesBuffer;
@@ -39,16 +35,6 @@ namespace Antares.Physics
 
         private ComputeBuffer _particlesToAdd;
 
-        public APhysicsPipeline(AShaderSpecifications shaderSpecs, ComputeBuffer constantBuffer)
-        {
-            _shaderSpecs = shaderSpecs;
-            _constantBuffer = constantBuffer;
-
-            _debugFluidParticleMaterialProperties = new MaterialPropertyBlock();
-            _shaderSpecs.DebugFluidParticle.DebugFluidParticleParamsCBSpan.BindCBuffer(
-                _debugFluidParticleMaterialProperties, Bindings.DebugFluidParticleParameters, _constantBuffer);
-        }
-
         public void LoadPhysicsScene(CommandBuffer cmd, APhysicsScene scene)
         {
             Debug.Assert(!IsSceneLoaded);
@@ -56,9 +42,11 @@ namespace Antares.Physics
 
             _physicsScene = scene;
 
+            _shaderSpecs = ARenderPipeline.Instance.ShaderSpecs;
+
             const int maxParticleCount = FluidSolverCompute.MaxParticleCount;
-            _fluidParticlePositionsBuffer = new ComputeBuffer(6 + 2 * 4 * maxParticleCount, 4, ComputeBufferType.Raw, ComputeBufferMode.Immutable);
-            _fluidParticlePropertiesBuffer = new ComputeBuffer(maxParticleCount * 8, 4, ComputeBufferType.Raw, ComputeBufferMode.Immutable);
+            _fluidParticlePositionsBuffer = new ComputeBuffer(6 + 2 * 4 * maxParticleCount, 4, ComputeBufferType.Structured | ComputeBufferType.IndirectArguments, ComputeBufferMode.Immutable);
+            _fluidParticlePropertiesBuffer = new ComputeBuffer(maxParticleCount, 32, ComputeBufferType.Raw, ComputeBufferMode.Immutable);
 
             _fluidGridLevel0 = CreateRWVolumeRT(GraphicsFormat.R32_SInt, FluidSolverCompute.GridSizeLevel0);
             _fluidGridLevel1 = CreateRWVolumeRT(GraphicsFormat.R32_UInt, FluidSolverCompute.GridSizeLevel1);
@@ -69,20 +57,22 @@ namespace Antares.Physics
             _shaderSpecs.TextureUtilCS.ClearVolume(cmd, _fluidGridLevel1, 0);
 
             _fluidBlockParticleIndices = new ComputeBuffer(6 + FluidSolverCompute.BlockCountLevel0 * FluidSolverCompute.BlockParticleStride,
-                4, ComputeBufferType.Raw, ComputeBufferMode.Dynamic);
+                4, ComputeBufferType.Structured | ComputeBufferType.IndirectArguments, ComputeBufferMode.Dynamic);
 
-            _fluidGridAtomicLock = new ComputeBuffer(FluidSolverCompute.BlockCountLevel0 + FluidSolverCompute.BlockCountLevel1, 4, ComputeBufferType.Default, ComputeBufferMode.Immutable);
+            _fluidGridAtomicLock = new ComputeBuffer(FluidSolverCompute.BlockCountLevel0 + FluidSolverCompute.BlockCountLevel1, 4, ComputeBufferType.Structured, ComputeBufferMode.Immutable);
             _shaderSpecs.TextureUtilCS.ClearBuffer(cmd, _fluidGridAtomicLock, 0);
 
-            _indirectArgsBuffer = new ComputeBuffer(3, 4, ComputeBufferType.IndirectArguments, ComputeBufferMode.Immutable);
+            _indirectArgsBuffer = new ComputeBuffer(3, 4, ComputeBufferType.Structured | ComputeBufferType.IndirectArguments, ComputeBufferMode.Immutable);
 
-            _particlesToAdd = new ComputeBuffer(MaxAddParticleCount, 4, ComputeBufferType.Raw, ComputeBufferMode.Dynamic);
+            unsafe
+            {
+                _particlesToAdd = new ComputeBuffer(MaxAddParticleCount * (sizeof(FluidSolverCompute.ParticleToAdd) / 4), 4, ComputeBufferType.Raw, ComputeBufferMode.Dynamic);
+            }
 
             // initialize buffers
-            var fluidSolver = _shaderSpecs.FluidSolver;
             {
-                var param = new FluidSolverCompute.PhysicsSceneParameters(_physicsScene);
-                fluidSolver.PhysicsSceneParamsCBSpan.SetCBuffer(cmd, _constantBuffer, param);
+                var parameters = new FluidSolverCompute.PhysicsSceneParameters(_physicsScene);
+                ConstantBuffer.UpdateData(cmd, parameters);
 
                 cmd.SetBufferData(_fluidParticlePositionsBuffer, new uint[] { 0, 0, 0 });
             }
@@ -94,6 +84,7 @@ namespace Antares.Physics
         {
             Debug.Assert(IsSceneLoaded);
 
+            _shaderSpecs = null;
             _physicsScene = null;
 
             _fluidParticlePositionsBuffer.Release();
@@ -115,14 +106,15 @@ namespace Antares.Physics
             _shaderSpecs.TextureUtilCS.ClearVolume(cmd, _fluidGridLevel2, 0);
 
             FluidSolverCompute fluidSolver = _shaderSpecs.FluidSolver;
-            {
-                var param = new FluidSolverCompute.PhysicsFrameParameters(_physicsScene, deltaTime);
-                fluidSolver.PhysicsFrameParamsCBSpan.SetCBuffer(cmd, _constantBuffer, param);
-            }
-
             ComputeShader shader = fluidSolver.Shader;
-            fluidSolver.PhysicsSceneParamsCBSpan.BindCBuffer(shader, Bindings.PhysicsSceneParameters, _constantBuffer);
-            fluidSolver.PhysicsFrameParamsCBSpan.BindCBuffer(shader, Bindings.PhysicsFrameParameters, _constantBuffer);
+
+            // set constant buffers
+            {
+                ConstantBuffer.Set<FluidSolverCompute.PhysicsSceneParameters>(cmd, shader, Bindings.PhysicsSceneParameters);
+
+                var parameter = new FluidSolverCompute.PhysicsFrameParameters(_physicsScene, deltaTime);
+                ConstantBuffer.Push(cmd, parameter, shader, Bindings.PhysicsFrameParameters);
+            }
 
             int kernel;
 
@@ -183,16 +175,14 @@ namespace Antares.Physics
             Debug.Assert(particles.Count <= FluidSolverCompute.MaxParticleCount);
 
             FluidSolverCompute fluidSolver = _shaderSpecs.FluidSolver;
+            ComputeShader shader = fluidSolver.Shader;
 
             {
-                var param = new FluidSolverCompute.AddParticlesParameters((uint)particles.Count, mass);
-                fluidSolver.AddParticlesParamsCBSpan.SetCBuffer(cmd, _constantBuffer, param);
+                var parameters = new FluidSolverCompute.AddParticlesParameters((uint)particles.Count, mass);
+                ConstantBuffer.Push(cmd, parameters, shader, Bindings.AddParticlesParameters);
             }
 
             cmd.SetBufferData(_particlesToAdd, particles);
-
-            ComputeShader shader = fluidSolver.Shader;
-            fluidSolver.AddParticlesParamsCBSpan.BindCBuffer(cmd, shader, Bindings.AddParticlesParameters, _constantBuffer);
 
             int kernel = fluidSolver.AddParticlesKernel;
             cmd.SetComputeBufferParam(shader, kernel, Bindings.ParticlesToAdd, _particlesToAdd);
@@ -203,12 +193,16 @@ namespace Antares.Physics
             cmd.DispatchCompute(shader, kernel, groupCount, 1, 1);
         }
 
-        public void RenderDebugParticles(CommandBuffer cmd)
+        public void RenderDebugParticles(CommandBuffer cmd, Camera camera, float particleSize = 0.1f)
         {
             DebugFluidParticleGraphics debugFluidParticle = _shaderSpecs.DebugFluidParticle;
 
+            var parameters = new DebugFluidParticleGraphics.DebugFluidParticleParameters(
+                camera.transform.position, camera.transform.up * particleSize);
+            ConstantBuffer.PushGlobal(cmd, parameters, Bindings.DebugFluidParticleParameters);
+
             cmd.DrawProceduralIndirect(Matrix4x4.identity, debugFluidParticle.Material, 0,
-                MeshTopology.Points, _fluidParticlePositionsBuffer, 0, _debugFluidParticleMaterialProperties);
+                MeshTopology.Points, _fluidParticlePositionsBuffer, 0);
         }
     }
 }

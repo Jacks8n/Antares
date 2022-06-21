@@ -12,7 +12,7 @@ namespace Antares.Graphics
             [field: SerializeField, LabelText(nameof(Material))]
             public Material Material { get; private set; }
 
-            void IShaderSpec.OnAfterDeserialize<T>(T specs)
+            void IShaderSpec.Initialize()
             {
             }
         }

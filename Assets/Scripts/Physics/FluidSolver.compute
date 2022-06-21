@@ -15,14 +15,14 @@
 //  - nanovdb implementation: https://github.com/AcademySoftwareFoundation/openvdb/blob/feature/nanovdb/nanovdb/nanovdb/nanovdb/NanoVDB.h
 
 #pragma use_dxc
-#pragma enable_d3d11_debug_symbols
+//#pragma enable_d3d11_debug_symbols
 
+#pragma kernel GenerateIndirectArgs
 #pragma kernel SortParticle
 #pragma kernel ParticleToGrid
 #pragma kernel SolveGridLevel0
 #pragma kernel SolveGridLevel1
 #pragma kernel GridToParticle
-#pragma kernel GenerateIndirectArgs
 #pragma kernel ClearFluidGridLevel0
 #pragma kernel ClearFluidGridLevel1
 #pragma kernel AddParticles
@@ -61,6 +61,37 @@ CBUFFER_END
 
 #define SORT_PARTICLE_KERNEL_SIZE 128
 
+/// begin generate indirect args
+
+uint3 GetIndirectGroupCounts(uint count)
+{
+    return uint3(count % 64, (count + 64 - 1) / 64, 1);
+}
+
+uint GetIndirectGroupIndex(uint3 groupID)
+{
+    return groupID.x + groupID.y * 64;
+}
+
+extern RWBuffer<uint> IndirectArgs;
+
+[numthreads(1, 1, 1)]
+void GenerateIndirectArgs()
+{
+    const uint particleCount = GetFluidParticleCount();
+    const uint totalGroupCount = (particleCount + SORT_PARTICLE_KERNEL_SIZE - 1) / SORT_PARTICLE_KERNEL_SIZE;
+
+    const uint3 groupCounts = GetIndirectGroupCounts(totalGroupCount);
+    IndirectArgs[0] = groupCounts.x;
+    IndirectArgs[1] = groupCounts.y;
+    IndirectArgs[2] = groupCounts.z;
+
+    InvertFluidParticlePositionPingPongFlag();
+    ResetAccumulateParticleCount();
+}
+
+/// end generate indirect args
+
 float3 Square(float3 x)
 {
     return x * x;
@@ -79,18 +110,21 @@ float3 GetGridSpacePosition(float3 worldSpacePosition)
 }
 
 [numthreads(SORT_PARTICLE_KERNEL_SIZE, 1, 1)]
-void SortParticle(uint3 id : SV_DispatchThreadID)
+void SortParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 {
     const uint particleCount = GetFluidParticleCount();
-    const bool pingpongFlag = GetFluidParticlePositionPingPongFlag();
 
-    uint i;
-    for (i = id.x; i < particleCount; i += SORT_PARTICLE_KERNEL_SIZE)
+    const uint groupIndex = GetIndirectGroupIndex(gid);
+    const uint particleIndex = groupIndex * SORT_PARTICLE_KERNEL_SIZE + gi;
+
+    if (particleIndex < particleCount)
     {
-        const ParticlePositionIndexed position = GetFluidParticlePosition(i, pingpongFlag);
+        const bool pingpongFlag = GetFluidParticlePositionPingPongFlag();
 
+        const ParticlePositionIndexed position = GetFluidParticlePosition(particleIndex, pingpongFlag);
         const int3 gridPosition = int3(floor(GetGridSpacePosition(position.Position) - 0.5));
-        AddParticleToFluidBlock(gridPosition, i, pingpongFlag);
+
+        AddParticleToFluidBlock(gridPosition, particleIndex, pingpongFlag);
     }
 }
 
@@ -769,34 +803,6 @@ void GridToParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 
 /// end grid to particle
 
-/// begin generate indirect args
-
-uint3 EncodeIndirectArgs(uint count)
-{
-    return uint3(count % 8192, (count + 8191) / 8192, 1);
-}
-
-uint DecodeIndirectArgs(uint3 groupID)
-{
-    return groupID.x + groupID.y * 8192;
-}
-
-extern RWByteAddressBuffer IndirectArgs;
-
-[numthreads(1, 1, 1)]
-void GenerateIndirectArgs()
-{
-    const uint particleCount = GetFluidParticleCount();
-    const uint groupCount = (particleCount + SORT_PARTICLE_KERNEL_SIZE - 1) / SORT_PARTICLE_KERNEL_SIZE;
-
-    IndirectArgs.Store3(0, EncodeIndirectArgs(groupCount));
-
-    InvertFluidParticlePositionPingPongFlag();
-    ResetAccumulateParticleCount();
-}
-
-/// end generate indirect args
-
 /// begin clear fluid grid
 
 #define CLEAR_FLUID_GRID_LEVEL0_KERNEL_SIZE FLUID_BLOCK_SIZE_LEVEL0
@@ -807,11 +813,11 @@ void ClearFluidGridLevel0(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
     const uint3 blockIndex = DecodeFluidBlockIndexLevel0(gid.x);
     const uint3 gridOffset = blockIndex + gtid;
 
-    FluidGridLevel0[gridOffset + FLUID_GRID_CHANNEL0_OFFSET] = 0;
-    FluidGridLevel0[gridOffset + FLUID_GRID_CHANNEL1_OFFSET] = 0;
-    FluidGridLevel0[gridOffset + FLUID_GRID_CHANNEL2_OFFSET] = 0;
-    FluidGridLevel0[gridOffset + FLUID_GRID_CHANNEL3_OFFSET] = 0;
-    FluidGridLevel0[gridOffset + FLUID_GRID_CHANNEL4_OFFSET] = 0;
+    FluidGridLevel0[gridOffset +FLUID_GRID_CHANNEL0_OFFSET] = 0;
+    FluidGridLevel0[gridOffset +FLUID_GRID_CHANNEL1_OFFSET] = 0;
+    FluidGridLevel0[gridOffset +FLUID_GRID_CHANNEL2_OFFSET] = 0;
+    FluidGridLevel0[gridOffset +FLUID_GRID_CHANNEL3_OFFSET] = 0;
+    FluidGridLevel0[gridOffset +FLUID_GRID_CHANNEL4_OFFSET] = 0;
 }
 
 #define CLEAR_FLUID_GRID_LEVEL1_KERNEL_SIZE FLUID_BLOCK_SIZE_LEVEL1
@@ -822,11 +828,11 @@ void ClearFluidGridLevel1(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
     const uint3 blockIndex = DecodeFluidBlockIndexLevel1(gid.x);
     const uint3 gridOffset = blockIndex + gtid;
 
-    FluidGridLevel1[gridOffset + FLUID_GRID_CHANNEL0_OFFSET] = 0;
-    FluidGridLevel1[gridOffset + FLUID_GRID_CHANNEL1_OFFSET] = 0;
-    FluidGridLevel1[gridOffset + FLUID_GRID_CHANNEL2_OFFSET] = 0;
-    FluidGridLevel1[gridOffset + FLUID_GRID_CHANNEL3_OFFSET] = 0;
-    FluidGridLevel1[gridOffset + FLUID_GRID_CHANNEL4_OFFSET] = 0;
+    FluidGridLevel1[gridOffset +FLUID_GRID_CHANNEL0_OFFSET] = 0;
+    FluidGridLevel1[gridOffset +FLUID_GRID_CHANNEL1_OFFSET] = 0;
+    FluidGridLevel1[gridOffset +FLUID_GRID_CHANNEL2_OFFSET] = 0;
+    FluidGridLevel1[gridOffset +FLUID_GRID_CHANNEL3_OFFSET] = 0;
+    FluidGridLevel1[gridOffset +FLUID_GRID_CHANNEL4_OFFSET] = 0;
 }
 
 /// end clear fluid grid
@@ -841,7 +847,7 @@ CBUFFER_START(AddParticlesParameters)
     float Mass;
 CBUFFER_END
 
-extern RWByteAddressBuffer ParticlesToAdd;
+extern ByteAddressBuffer ParticlesToAdd;
 
 groupshared uint AddParticleOffset_GSM;
 
@@ -853,8 +859,8 @@ void AddParticles(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 
     if (!gi)
     {
-        const uint byteOffset = GetFluidParticleCountByteOffset();
-        FluidParticlePositions.InterlockedAdd(byteOffset, groupParticleCount, AddParticleOffset_GSM);
+        const uint offset = GetFluidParticleCountOffset();
+        InterlockedAdd(FluidParticlePositions[offset], groupParticleCount, AddParticleOffset_GSM);
     }
 
     GroupMemoryBarrierWithGroupSync();

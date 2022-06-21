@@ -120,27 +120,17 @@ namespace Antares.Graphics
 
             public int AddParticlesKernel { get; private set; }
 
-            public ConstantBufferSpan<PhysicsSceneParameters> PhysicsSceneParamsCBSpan { get; private set; }
-
-            public ConstantBufferSpan<PhysicsFrameParameters> PhysicsFrameParamsCBSpan { get; private set; }
-
-            public ConstantBufferSpan<AddParticlesParameters> AddParticlesParamsCBSpan { get; private set; }
-
-            void IShaderSpec.OnAfterDeserialize<T>(T specs)
+            void IShaderSpec.Initialize()
             {
+                GenerateIndirectArgsKernel = Shader.FindKernel("GenerateIndirectArgs");
                 SortParticleKernel = Shader.FindKernel("SortParticle");
                 ParticleToGridKernel = Shader.FindKernel("ParticleToGrid");
                 SolveGridLevel0Kernel = Shader.FindKernel("SolveGridLevel0");
                 SolveGridLevel1Kernel = Shader.FindKernel("SolveGridLevel1");
                 GridToParticleKernel = Shader.FindKernel("GridToParticle");
-                GenerateIndirectArgsKernel = Shader.FindKernel("GenerateIndirectArgs");
                 ClearFluidGridLevel0 = Shader.FindKernel("ClearFluidGridLevel0");
                 ClearFluidGridLevel1 = Shader.FindKernel("ClearFluidGridLevel1");
                 AddParticlesKernel = Shader.FindKernel("AddParticles");
-
-                PhysicsSceneParamsCBSpan = specs.RegisterConstantBuffer<PhysicsSceneParameters>();
-                PhysicsFrameParamsCBSpan = specs.RegisterConstantBuffer<PhysicsFrameParameters>();
-                AddParticlesParamsCBSpan = specs.RegisterConstantBuffer<AddParticlesParameters>();
             }
         }
     }

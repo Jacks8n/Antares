@@ -26,7 +26,7 @@ namespace Antares.Graphics
 
             public const int ClearKernelSize = 8;
 
-            public const int ClearBufferKernelSize = 8;
+            public const int ClearBufferKernelSize = 64;
 
             public int BlitKernel { get; private set; }
 
@@ -78,11 +78,12 @@ namespace Antares.Graphics
                 cmd.DispatchCompute(Shader, ClearBufferKernel, group, 1, 1);
             }
 
-            void IShaderSpec.OnAfterDeserialize<T>(T specs)
+            void IShaderSpec.Initialize()
             {
                 BlitKernel = Shader.FindKernel("Blit");
                 ClearKernel = Shader.FindKernel("Clear");
                 ClearIntKernel = Shader.FindKernel("ClearInt");
+                ClearBufferKernel = Shader.FindKernel("ClearBuffer");
             }
         }
     }

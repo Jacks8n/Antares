@@ -12,15 +12,11 @@ namespace Antares.Physics
 
         public APhysicsPipeline PhysicsPipeline { get; private set; }
 
-        public GraphicsFence PhysicsFrameFence { get; private set; }
-
         [field: SerializeField, LabelText(nameof(Gravity))]
         public Vector3 Gravity { get; set; } = new Vector3(0f, 0f, -9.8f);
 
         [field: VerticalGroup("Specification"), SerializeField, LabelText(nameof(GridSpacing))]
         public float GridSpacing { get; private set; } = 1f;
-
-        private CommandBuffer _cmd;
 
         private void OnEnable()
         {
@@ -29,10 +25,14 @@ namespace Antares.Physics
 
             if (RenderPipelineManager.currentPipeline is ARenderPipeline renderPipeline)
             {
-                _cmd = new CommandBuffer();
+                CommandBuffer cmd = CommandBufferPool.Get();
 
                 PhysicsPipeline = renderPipeline.GetPhysicsPipeline();
-                PhysicsPipeline.LoadPhysicsScene(_cmd, this);
+                PhysicsPipeline.LoadPhysicsScene(cmd, this);
+
+                UnityEngine.Graphics.ExecuteCommandBuffer(cmd);
+
+                CommandBufferPool.Release(cmd);
             }
             else
                 Debug.LogWarning($"current rendering pipeline is not {nameof(ARenderPipeline)}, " +
@@ -47,35 +47,31 @@ namespace Antares.Physics
 
             if (PhysicsPipeline != null)
                 PhysicsPipeline.UnloadPhysicsScene();
-            _cmd.Dispose();
         }
 
         private void FixedUpdate()
         {
             if (PhysicsPipeline.IsSceneLoaded)
             {
-                _cmd.Clear();
+                CommandBuffer cmd = CommandBufferPool.Get();
 
-                PhysicsPipeline.Solve(_cmd, Time.fixedDeltaTime);
+                PhysicsPipeline.Solve(cmd, Time.fixedDeltaTime);
 
-                PhysicsFrameFence = _cmd.CreateGraphicsFence(GraphicsFenceType.AsyncQueueSynchronisation, SynchronisationStageFlags.ComputeProcessing);
+                UnityEngine.Graphics.ExecuteCommandBuffer(cmd);
 
-                UnityEngine.Graphics.ExecuteCommandBufferAsync(_cmd, ComputeQueueType.Default);
+                CommandBufferPool.Release(cmd);
             }
         }
 
 #if UNITY_EDITOR
 
-        [Button]
-        private void AddParticles()
+        public void AddTestParticles(CommandBuffer cmd)
         {
             if (!enabled)
             {
                 Debug.LogWarning($"enable {nameof(APhysicsScene)} before adding particles");
                 return;
             }
-
-            _cmd.Clear();
 
             var particles = ListPool<AShaderSpecifications.FluidSolverCompute.ParticleToAdd>.Get();
             for (int i = 0; i < 64; i++)
@@ -86,10 +82,19 @@ namespace Antares.Physics
                 particles.Add(new AShaderSpecifications.FluidSolverCompute.ParticleToAdd(position, velocity));
             }
 
-            PhysicsPipeline.AddParticles(_cmd, particles);
+            PhysicsPipeline.AddParticles(cmd, particles);
             ListPool<AShaderSpecifications.FluidSolverCompute.ParticleToAdd>.Release(particles);
+        }
 
-            UnityEngine.Graphics.ExecuteCommandBuffer(_cmd);
+        [Button]
+        private void AddTestParticles()
+        {
+            CommandBuffer cmd = CommandBufferPool.Get();
+
+            AddTestParticles(cmd);
+            UnityEngine.Graphics.ExecuteCommandBuffer(cmd);
+
+            CommandBufferPool.Release(cmd);
         }
 
 #endif

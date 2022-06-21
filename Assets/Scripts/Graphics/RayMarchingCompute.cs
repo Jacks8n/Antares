@@ -93,15 +93,11 @@ namespace Antares.Graphics
 
             public int RayMarchingFluidKernel { get; private set; }
 
-            public ConstantBufferSpan<RayMarchingParameters> RayMarchingParamsCBSpan { get; private set; }
-
-            void IShaderSpec.OnAfterDeserialize<T>(T specs)
+            void IShaderSpec.Initialize()
             {
                 TiledMarchingKernel = Shader.FindKernel("TiledMarching");
                 RayMarchingKernel = Shader.FindKernel("RayMarching");
                 RayMarchingFluidKernel = Shader.FindKernel("RayMarchingFluid");
-
-                RayMarchingParamsCBSpan = specs.RegisterConstantBuffer<RayMarchingParameters>();
             }
         }
     }

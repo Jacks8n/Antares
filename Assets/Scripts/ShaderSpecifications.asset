@@ -7,10 +7,10 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 0}
-  m_Enabled: 0
+  m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 5f7452bce6fa27e438273b6d126d2461, type: 3}
-  m_Name: ShaderSpecs
+  m_Name: ShaderSpecifications
   m_EditorClassIdentifier: 
   <TextureUtilCS>k__BackingField:
     <Shader>k__BackingField: {fileID: 7200000, guid: 89bf5cc4c17638f41bbef72a7ab374f3, type: 3}
@@ -21,6 +21,6 @@ MonoBehaviour:
   <Deferred>k__BackingField:
     <Material>k__BackingField: {fileID: 2100000, guid: 7eedcf4b565fb594bb7c70e05883af23, type: 2}
   <FluidSolver>k__BackingField:
-    <Shader>k__BackingField: {fileID: 7200000, guid: 714527d7ddf7d23458df1d4d99b9a1bd, type: 3}
+    <Shader>k__BackingField: {fileID: 7200000, guid: e66fc16e865ce1a4380fb0d907a45886, type: 3}
   <DebugFluidParticle>k__BackingField:
     <Material>k__BackingField: {fileID: 2100000, guid: dda532582c775904f8f5742efb0f4b4c, type: 2}
