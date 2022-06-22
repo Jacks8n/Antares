@@ -26,6 +26,8 @@ namespace Antares.Graphics
 
         private SDFScene _scene;
 
+        private MaterialPropertyBlock _shadingPropertyBlock;
+
         private APhysicsPipeline _physicsPipeline;
 
         public ARenderPipeline(AShaderSpecifications shaderSpecs)
@@ -244,6 +246,8 @@ namespace Antares.Graphics
                 matVolumeGridCount /= 8;
                 dispatchArgumentsOffset += GetIndirectBufferSize(matVolumeGridCount);
             }
+
+            _shadingPropertyBlock = new MaterialPropertyBlock();
         }
 
         public void UnloadScene()
@@ -269,6 +273,7 @@ namespace Antares.Graphics
                 BeginCaptureSceneView();
                 CommandBuffer foo = CommandBufferPool.Get();
                 APhysicsScene.Instance.AddTestParticles(foo);
+                _physicsPipeline.Solve(foo, 0.1f);
                 UGraphics.ExecuteCommandBuffer(foo);
                 CommandBufferPool.Release(foo);
                 EndCaptureSceneView();
@@ -394,6 +399,7 @@ namespace Antares.Graphics
 
                     _physicsPipeline.RenderDebugParticles(cmd, camera);
                     context.ExecuteCommandBuffer(cmd);
+                    cmd.Clear();
 
                     context.EndSubPass();
                 }
@@ -407,13 +413,15 @@ namespace Antares.Graphics
                     }
 
                     cmd.WaitOnAsyncGraphicsFence(rmFence, SynchronisationStage.PixelProcessing);
+
 #if UNITY_EDITOR
                     Mesh fullscreen = camera.cameraType == CameraType.SceneView ? FullScreenSceneViewMesh : FullScreenMesh;
 #else
                     Mesh fullscreen = GetFullScreenMesh();
 #endif
 
-                    cmd.DrawMesh(fullscreen, Matrix4x4.identity, ShaderSpecs.Deferred.Material);
+                    _shadingPropertyBlock.SetVector(Bindings.FrameBufferSize, new Vector4(width, height, 0f, 0f));
+                    cmd.DrawMesh(fullscreen, Matrix4x4.identity, ShaderSpecs.Deferred.Material, 0, 0, _shadingPropertyBlock);
                     context.ExecuteCommandBuffer(cmd);
                     cmd.Clear();
 

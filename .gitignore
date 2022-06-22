@@ -62,3 +62,4 @@ crashlytics-build.properties
 
 # Ignore Sirenix products, e.g. Odin Inspector, due to license
 [Aa]ssets/Plugins/Sirenix*
+*.rdc

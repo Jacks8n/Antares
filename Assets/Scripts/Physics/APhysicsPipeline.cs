@@ -74,7 +74,9 @@ namespace Antares.Physics
                 var parameters = new FluidSolverCompute.PhysicsSceneParameters(_physicsScene);
                 ConstantBuffer.UpdateData(cmd, parameters);
 
-                cmd.SetBufferData(_fluidParticlePositionsBuffer, new uint[] { 0, 0, 0 });
+                cmd.SetBufferData(_fluidBlockParticleIndices, new uint[] { 0, 1, 1, 0, 1, 1 });
+                cmd.SetBufferData(_fluidParticlePositionsBuffer, new uint[] { 1, 0, 0, 0, 1 });
+                cmd.SetGlobalBuffer(Bindings.FluidParticlePositions, _fluidParticlePositionsBuffer);
             }
 
             IsSceneLoaded = true;
@@ -193,7 +195,7 @@ namespace Antares.Physics
             cmd.DispatchCompute(shader, kernel, groupCount, 1, 1);
         }
 
-        public void RenderDebugParticles(CommandBuffer cmd, Camera camera, float particleSize = 0.1f)
+        public void RenderDebugParticles(CommandBuffer cmd, Camera camera, float particleSize = .25f)
         {
             DebugFluidParticleGraphics debugFluidParticle = _shaderSpecs.DebugFluidParticle;
 

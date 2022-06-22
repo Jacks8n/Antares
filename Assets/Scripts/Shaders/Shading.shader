@@ -38,9 +38,9 @@
             SamplerState Sampler_Clamp_Point;
             UNITY_DECLARE_FRAMEBUFFER_INPUT_FLOAT(0);
             UNITY_DECLARE_FRAMEBUFFER_INPUT_FLOAT(1);
+            float2 FrameBufferSize; 
             Texture2D<float4> SceneRM0;
             Texture2D<float4> SceneRM1;
-            float3x4 UVToScene;
 
             v2f vert(appdata v) {
                 v2f o;
@@ -52,8 +52,9 @@
 
             float4 frag(v2f i) : SV_TARGET0
             {
-                float4 color_rast = UNITY_READ_FRAMEBUFFER_INPUT(0, i.uv);
-                float depth_rast = UNITY_READ_FRAMEBUFFER_INPUT(1, i.uv);
+                int2 uvInt = int2(floor(i.uv * FrameBufferSize));
+                float4 color_rast = UNITY_READ_FRAMEBUFFER_INPUT(0, uvInt);
+                float depth_rast = UNITY_READ_FRAMEBUFFER_INPUT(1, uvInt);
 
                 float4 rm0 = SceneRM0.Sample(Sampler_Clamp_Point, i.uv);
                 float4 rm1 = SceneRM1.Sample(Sampler_Clamp_Point, i.uv);
@@ -64,7 +65,13 @@
 
                 float3 lum = vn * -dot(refl, view) * rm0.rgb;
 
-                return rm0;
+                float3 col;
+                col = color_rast.a > 0.0 ? color_rast : rm0.rgb;
+
+                float alpha;
+                alpha = max(rm0.a, color_rast.a);
+                
+                return float4(col, alpha);
             }
             ENDCG
         }

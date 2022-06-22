@@ -15,7 +15,7 @@
 //  - nanovdb implementation: https://github.com/AcademySoftwareFoundation/openvdb/blob/feature/nanovdb/nanovdb/nanovdb/nanovdb/NanoVDB.h
 
 #pragma use_dxc
-//#pragma enable_d3d11_debug_symbols
+#pragma enable_d3d11_debug_symbols
 
 #pragma kernel GenerateIndirectArgs
 #pragma kernel SortParticle
@@ -882,7 +882,8 @@ void AddParticles(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
         properties.Mass = Mass;
         properties.SetZeroAffine();
 
-        SetFluidParticlePosition(particleIndex, position, pingpongFlag);
+        // write to next ping pong buffer in advance
+        SetFluidParticlePosition(particleIndex, position, !pingpongFlag);
         SetFluidParticleProperties(particleIndex, properties);
     }
 }

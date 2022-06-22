@@ -21,6 +21,8 @@ namespace Antares.Graphics
 
             public static int TiledRM { get; } = Shader.PropertyToID(nameof(TiledRM));
 
+            public static int FrameBufferSize { get; } = Shader.PropertyToID(nameof(FrameBufferSize));
+
             public static int Depth { get; } = Shader.PropertyToID(nameof(Depth));
 
             public static int Shading { get; } = Shader.PropertyToID(nameof(Shading));

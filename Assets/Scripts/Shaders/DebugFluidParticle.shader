@@ -10,17 +10,23 @@ Shader "Unlit/DebugParticle"
             Blend SrcAlpha OneMinusSrcAlpha
 
             CGPROGRAM
-            #pragma vertex vert
-            #pragma geometr geom
-            #pragma fragment frag
             #pragma target 4.5
+            #pragma require geometry
+            #pragma enable_d3d11_debug_symbols
+
+            #pragma vertex vert
+            #pragma geometry geom
+            #pragma fragment frag
 
             #include "UnityCG.cginc"
+
+            #define A_UAV_READONLY
             #include "../Physics/FluidData.cginc"
+            #undef A_UAV_READONLY
 
             struct appdata
             {
-                uint particle_id : SV_VertexID;
+                uint instance_id : SV_InstanceID;
             };
 
             struct v2g
@@ -49,7 +55,7 @@ Shader "Unlit/DebugParticle"
                 v2g o;
 
                 const bool pingpong = GetFluidParticlePositionPingPongFlag();
-                const ParticlePositionIndexed positionIndexed = GetFluidParticlePosition(v.particle_id, pingpong);
+                const ParticlePositionIndexed positionIndexed = GetFluidParticlePosition(v.instance_id, pingpong);
                 o.center = positionIndexed.Position;
 
                 return o;
@@ -86,7 +92,7 @@ Shader "Unlit/DebugParticle"
                 o.vertex = UnityWorldToClipPos(o.wpos);
                 o.uv = float2(0.0, 1.0);
                 triangles.Append(o);
-                
+
                 o.wpos = p - right - ParticleUp;
                 o.vertex = UnityWorldToClipPos(o.wpos);
                 o.uv = float2(0.0, 0.0);
@@ -94,10 +100,11 @@ Shader "Unlit/DebugParticle"
                 triangles.RestartStrip();
             }
 
-            float4 frag(g2f i) : SV_Target
+            void frag(g2f i, out float4 color : SV_Target, out float depth : SV_Depth)
             {
                 const float sdf = max(0.5 - length(i.uv - 0.5), 0.0);
-                return float4(sdf, 0.0, 0.0, sdf > 0.0);
+                color = float4(sdf * 0.5 + 0.5, 0.0, 0.0, sdf > 0.0 ? 1.0 : 0.0);
+                depth = sdf > 0.0 ? i.vertex.z : 0.0;
             }
             ENDCG
         }

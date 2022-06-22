@@ -309,8 +309,8 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
         #else
             SceneRM0[id.xy] = float4(abs(normal), IsHit(sdf, t));
         #endif
-        
-        SceneRM1[id.xy] = float4(abs(normal).xxx, 1.0);
+
+        SceneRM1[id.xy] = float4(t, 0.0, 0.0, 0.0);
     #endif
 }
 
