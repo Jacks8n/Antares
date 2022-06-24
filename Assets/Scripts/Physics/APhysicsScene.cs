@@ -51,16 +51,16 @@ namespace Antares.Physics
 
         private void FixedUpdate()
         {
-            //if (PhysicsPipeline != null && PhysicsPipeline.IsSceneLoaded)
-            //{
-            //    CommandBuffer cmd = CommandBufferPool.Get();
+            if (PhysicsPipeline != null && PhysicsPipeline.IsSceneLoaded)
+            {
+                CommandBuffer cmd = CommandBufferPool.Get();
 
-            //    PhysicsPipeline.Solve(cmd, Time.fixedDeltaTime);
+                PhysicsPipeline.Solve(cmd, Time.fixedDeltaTime);
 
-            //    UnityEngine.Graphics.ExecuteCommandBuffer(cmd);
+                UnityEngine.Graphics.ExecuteCommandBuffer(cmd);
 
-            //    CommandBufferPool.Release(cmd);
-            //}
+                CommandBufferPool.Release(cmd);
+            }
         }
 
 #if UNITY_EDITOR
@@ -74,7 +74,7 @@ namespace Antares.Physics
             }
 
             var particles = ListPool<AShaderSpecifications.FluidSolverCompute.ParticleToAdd>.Get();
-            for (int i = 0; i < 16; i++)
+            for (int i = 0; i < 64; i++)
             {
                 Vector3 position = new Vector3(Random.value, Random.value, Random.value) * 10f;
                 Vector3 velocity = new Vector3(Random.value, Random.value, Random.value) * 2f - Vector3.one;

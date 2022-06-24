@@ -389,13 +389,13 @@ void GetFluidGridPositions(uint3 gridPositionLevel0, out uint3 gridPositionLevel
     GetFluidGridPositions(gridPositionLevel0, _, gridPositionLevel2, gridOffsetLevel1);
 }
 
-uint EncodeGridIndexLinear(uint3 index, uint2 blockSizeXY)
+uint GetGridIndexLinear(uint3 index, uint2 blockSizeXY)
 {
     const uint3 offset = uint3(1, blockSizeXY.x, blockSizeXY.x * blockSizeXY.y);
     return dot(offset, index);
 }
 
-uint3 DecodeGridIndexLinear(uint index, uint2 blockSizeXY)
+uint3 GetGridIndexSpatial(uint index, uint2 blockSizeXY)
 {
     const uint x = index % blockSizeXY.x;
     const uint y = (index / blockSizeXY.x) % blockSizeXY.y;
@@ -406,75 +406,75 @@ uint3 DecodeGridIndexLinear(uint index, uint2 blockSizeXY)
 
 uint EncodeFluidBlockIndex(uint index)
 {
-    return uint(1 << 31) | index;
+    return (1u << 31) | index;
 }
 
-uint EncodeFluidBlockIndex(uint3 index, uint2 blockSizeXY)
+uint GetFluidBlockIndexLinear(uint3 index, uint2 blockSizeXY)
 {
-    return EncodeGridIndexLinear(index, blockSizeXY);
+    return GetGridIndexLinear(index, blockSizeXY);
 }
 
 uint DecodeFluidBlockIndex(uint index)
 {
-    return uint((1 << 31) - 1) & index;
+    return ((1u << 31) - 1) & index;
 }
 
-uint3 DecodeFluidBlockIndex(uint index, uint2 blockSizeXY)
+uint3 GetFluidBlockIndexSpatial(uint index, uint2 blockSizeXY)
 {
-    return DecodeGridIndexLinear(index, blockSizeXY);
+    return GetGridIndexSpatial(index, blockSizeXY);
 }
 
 // there are some limits on the dimension of textures, so non-zero-level blocks are
 // not arranged in a long-cube manner. consequently encoding/decoding is required.
 // it forms a bijection between continuous indices and indices of grid blocks.
-#define DEF_ENCODE_DECODE_FLUID_BLOCK_INDEX_FUNC(level) \
-uint EncodeFluidBlockIndexLevel##level(uint3 index) \
+#define DEF_LINEARIZE_FLUID_BLOCK_INDEX_FUNC(level) \
+uint GetFluidBlockIndexLinearLevel##level(uint3 index) \
 { \
-    return EncodeFluidBlockIndex(index, uint2(FLUID_BLOCK_COUNT_X_LEVEL##level, FLUID_BLOCK_COUNT_Y_LEVEL##level)); \
+    return GetFluidBlockIndexLinear(index, uint2(FLUID_BLOCK_COUNT_X_LEVEL##level, FLUID_BLOCK_COUNT_Y_LEVEL##level)); \
 } \
-uint3 DecodeFluidBlockIndexLevel##level(uint index) \
+uint3 GetFluidBlockIndexSpatialLevel##level(uint index) \
 { \
-    return DecodeFluidBlockIndex(index, uint2(FLUID_BLOCK_COUNT_X_LEVEL##level, FLUID_BLOCK_COUNT_Y_LEVEL##level)); \
+    return GetFluidBlockIndexSpatial(index, uint2(FLUID_BLOCK_COUNT_X_LEVEL##level, FLUID_BLOCK_COUNT_Y_LEVEL##level)); \
 }
 
-DEF_ENCODE_DECODE_FLUID_BLOCK_INDEX_FUNC(0)
-DEF_ENCODE_DECODE_FLUID_BLOCK_INDEX_FUNC(1)
-DEF_ENCODE_DECODE_FLUID_BLOCK_INDEX_FUNC(2)
+DEF_LINEARIZE_FLUID_BLOCK_INDEX_FUNC(0)
+DEF_LINEARIZE_FLUID_BLOCK_INDEX_FUNC(1)
+DEF_LINEARIZE_FLUID_BLOCK_INDEX_FUNC(2)
 
-#undef DEF_ENCODE_DECODE_FLUID_BLOCK_INDEX_FUNC
+#undef DEF_LINEARIZE_FLUID_BLOCK_INDEX_FUNC
 
-#define DEF_ENCODE_DECODE_FLUID_GRID_INDEX_FUNC(level) \
-uint EncodeFluidGridIndexLevel##level(uint3 index, uint3 padding) \
+#define DEF_LINEARIZE_FLUID_GRID_INDEX_FUNC(level) \
+uint GetFluidGridIndexLinearLevel##level(uint3 index, uint3 padding) \
 { \
     const uint3 size = FLUID_BLOCK_SIZE_LEVEL##level + padding; \
-    return EncodeGridIndexLinear(index, size.xy); \
+    return GetGridIndexLinear(index, size.xy); \
 } \
-uint EncodeFluidGridIndexLevel##level(uint3 index, uint padding) \
+uint GetFluidGridIndexLinearLevel##level(uint3 index, uint padding) \
 { \
-    return EncodeFluidGridIndexLevel##level(index, padding.xxx); \
+    return GetFluidGridIndexLinearLevel##level(index, padding.xxx); \
 } \
-uint EncodeFluidGridIndexLevel##level(uint3 index) \
+uint GetFluidGridIndexLinearLevel##level(uint3 index) \
 { \
-    return EncodeFluidGridIndexLevel##level(index, 0); \
+    return GetFluidGridIndexLinearLevel##level(index, 0); \
 } \
-uint3 DecodeFluidGridIndexLevel##level(uint index, uint3 padding) \
+uint3 GetFluidGridIndexSpatialLevel##level(uint index, uint3 padding) \
 { \
     const uint3 size = FLUID_BLOCK_SIZE_LEVEL##level + padding; \
-    return DecodeGridIndexLinear(index, size.xy); \
+    return GetGridIndexSpatial(index, size.xy); \
 } \
-uint3 DecodeFluidGridIndexLevel##level(uint index, uint padding) \
+uint3 GetFluidGridIndexSpatialLevel##level(uint index, uint padding) \
 { \
-    return DecodeFluidGridIndexLevel##level(index, padding.xxx); \
+    return GetFluidGridIndexSpatialLevel##level(index, padding.xxx); \
 } \
-uint3 DecodeFluidGridIndexLevel##level(uint index) \
+uint3 GetFluidGridIndexSpatialLevel##level(uint index) \
 { \
-    return DecodeFluidGridIndexLevel##level(index, 0); \
+    return GetFluidGridIndexSpatialLevel##level(index, 0); \
 }
 
-DEF_ENCODE_DECODE_FLUID_GRID_INDEX_FUNC(0)
-DEF_ENCODE_DECODE_FLUID_GRID_INDEX_FUNC(1)
+DEF_LINEARIZE_FLUID_GRID_INDEX_FUNC(0)
+DEF_LINEARIZE_FLUID_GRID_INDEX_FUNC(1)
 
-#undef DEF_ENCODE_DECODE_FLUID_GRID_INDEX_FUNC
+#undef DEF_LINEARIZE_FLUID_GRID_INDEX_FUNC
 
 bool IsValidFluidBlockIndex(uint index)
 {
@@ -564,8 +564,8 @@ uint GetFluidBlockIndexLevel0Unchecked(uint3 gridPositionLevel1)
     const uint3 gridPositionLevel2 = gridPositionLevel1 / FLUID_BLOCK_SIZE_LEVEL1;
     const uint3 gridOffsetLevel1 = gridPositionLevel1 % FLUID_BLOCK_SIZE_LEVEL1;
 
-    const uint blockIndexLevel1Encoded = FluidGridLevel2[gridPositionLevel2];
-    const uint3 gridIndexLevel1 = DecodeFluidBlockIndexLevel1(blockIndexLevel1Encoded) * FLUID_BLOCK_SIZE_LEVEL1 + gridOffsetLevel1;
+    const uint blockIndexLevel1Linear = DecodeFluidBlockIndex(FluidGridLevel2[gridPositionLevel2]);
+    const uint3 gridIndexLevel1 = GetFluidBlockIndexSpatialLevel1(blockIndexLevel1Linear) * FLUID_BLOCK_SIZE_LEVEL1 + gridOffsetLevel1;
 
     return FluidGridLevel1[gridIndexLevel1];
 }
@@ -586,7 +586,7 @@ uint GetFluidBlockIndexLevel0Unchecked(uint3 gridPositionLevel1)
             return DecodeFluidBlockIndex(indexSublevel);
 
         uint acquired;
-        const uint atomicIndex = EncodeFluidBlockIndexLevel1(gridIndexLevel1);
+        const uint atomicIndex = GetFluidBlockIndexLinearLevel1(gridIndexLevel1);
         InterlockedCompareExchange(
             FluidGridAtomicLock[atomicIndex + FLUID_GRID_ATOMIC_LOCK_OFFSET_LEVEL1],
             atomicFlag, !atomicFlag, acquired);
@@ -625,7 +625,7 @@ uint GetFluidBlockIndexLevel0Unchecked(uint3 gridPositionLevel1)
             return DecodeFluidBlockIndex(indexSublevel);
 
         uint acquired;
-        const uint atomicIndex = EncodeFluidBlockIndexLevel2(gridIndexLevel2);
+        const uint atomicIndex = GetFluidBlockIndexLinearLevel2(gridIndexLevel2);
         InterlockedCompareExchange(
             FluidGridAtomicLock[atomicIndex + FLUID_GRID_ATOMIC_LOCK_OFFSET_LEVEL2],
             atomicFlag, !atomicFlag, acquired);
@@ -658,8 +658,8 @@ uint GetFluidBlockIndexLevel0Unchecked(uint3 gridPositionLevel1)
         uint3 gridOffsetLevel1;
         GetFluidGridPositions(gridPositionLevel0, gridPositionLevel1, gridPositionLevel2, gridOffsetLevel1);
 
-        const uint blockIndexLevel1Encoded = ActivateFluidBlockLevel1(gridPositionLevel2, atomicFlag);
-        const uint3 gridIndexLevel1 = DecodeFluidBlockIndexLevel1(blockIndexLevel1Encoded) * FLUID_BLOCK_SIZE_LEVEL1 + gridOffsetLevel1;
+        const uint blockIndexLevel1Linear = ActivateFluidBlockLevel1(gridPositionLevel2, atomicFlag);
+        const uint3 gridIndexLevel1 = GetFluidBlockIndexSpatialLevel1(blockIndexLevel1Linear) * FLUID_BLOCK_SIZE_LEVEL1 + gridOffsetLevel1;
 
         blockIndexLevel0 = ActivateFluidBlockLevel0(gridIndexLevel1, gridPositionLevel1, atomicFlag);
         return true;

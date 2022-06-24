@@ -390,7 +390,7 @@ void RayMarchingFluid(uint3 id : SV_DispatchThreadID)
     //         {
     //             if (IsValidFluidBlockIndex(word))
     //             {
-    //                 mipIndices[mip - 1] = DecodeFluidBlockIndex(word, FluidBlockSizes_GSM[mip - 1]);
+    //                 mipIndices[mip - 1] = GetFluidBlockIndexSpatial(word, FluidBlockSizes_GSM[mip - 1]);
     //                 mip--;
     //             }
     //             else if (mip == 1)

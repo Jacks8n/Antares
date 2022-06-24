@@ -268,18 +268,18 @@ namespace Antares.Graphics
             if (!IsSceneLoaded)
                 return;
 
-            if (_physicsPipeline != null && _physicsPipeline.IsSceneLoaded)
-            {
-                BeginCaptureSceneView();
-                CommandBuffer foo = CommandBufferPool.Get();
-                APhysicsScene.Instance.AddTestParticles(foo);
-                _physicsPipeline.Solve(foo, 0.1f);
-                UGraphics.ExecuteCommandBuffer(foo);
-                CommandBufferPool.Release(foo);
-                EndCaptureSceneView();
-                UnloadScene();
-                return;
-            }
+            //if (_physicsPipeline != null && _physicsPipeline.IsSceneLoaded)
+            //{
+            //    BeginCaptureSceneView();
+            //    CommandBuffer foo = CommandBufferPool.Get();
+            //    APhysicsScene.Instance.AddTestParticles(foo);
+            //    _physicsPipeline.Solve(foo, 0.1f);
+            //    UGraphics.ExecuteCommandBuffer(foo);
+            //    CommandBufferPool.Release(foo);
+            //    EndCaptureSceneView();
+            //    UnloadScene();
+            //    return;
+            //}
 
             //BeginCaptureSceneView();
             //LoadScene(_scene);
