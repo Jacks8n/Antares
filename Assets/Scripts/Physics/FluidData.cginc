@@ -118,6 +118,12 @@ bool GetFluidParticlePositionPingPongFlag()
     return FluidParticlePositions.Load(offset);
 }
 
+uint GetFluidParticleCountPrefixSum()
+{
+    const uint offset = GetFluidParticleCountPrefixSumOffset();
+    return FluidParticlePositions[offset];
+}
+
 ParticlePositionIndexed GetFluidParticlePosition(uint index, bool pingpong)
 {
     const uint offset = GetFluidParticlePositionOffset(index, pingpong);
@@ -137,19 +143,22 @@ ParticlePositionIndexed GetFluidParticlePosition(uint index, bool pingpong)
 
 #ifndef A_UAV_READONLY
 
-    void InvertFluidParticlePositionPingPongFlag()
+    void SetFluidParticleCount(uint value)
     {
-        const uint offset = GetFluidParticlePositionPingPongFlagOffset();
-        const bool pingpongFlag = GetFluidParticlePositionPingPongFlag();
-
-        FluidParticlePositions[offset] = uint(!pingpongFlag);
+        const uint offset = GetFluidParticleCountOffset();
+        FluidParticlePositions[offset] = value;
     }
 
-    void ResetAccumulateParticleCount()
+    void SetFluidParticlePositionPingPongFlag(bool flag)
+    {
+        const uint offset = GetFluidParticlePositionPingPongFlagOffset();
+        FluidParticlePositions[offset] = uint(flag);
+    }
+
+    void SetFluidParticleCountPrefixSum(uint value)
     {
         const uint offset = GetFluidParticleCountPrefixSumOffset();
-
-        FluidParticlePositions[offset] = 0;
+        FluidParticlePositions[offset] = value;
     }
 
     uint AccumulateParticleCountAtomic(uint particleCount)
@@ -343,7 +352,7 @@ float DecodeFluidGridSDF(int value)
 
 // sparse transfer grid(updated in each physics frame):
 //  level 0  : 64*32*32 | 4x4x4 grids | 64mb(velocity/momemntum, mass)
-//  level 1  : 64^3     | 4x4x4 nodes | 64mb
+//  level 1  : 64*32*32 | 4x4x4 nodes | 64mb
 //  level 2  : 256^3    | dense root  | 64mb
 //  if dense : 4096^3   | dense grids | 1tb, which is impractical
 //

@@ -103,7 +103,7 @@ Shader "Unlit/DebugParticle"
             void frag(g2f i, out float4 color : SV_Target, out float depth : SV_Depth)
             {
                 const float sdf = max(0.5 - length(i.uv - 0.5), 0.0);
-                color = float4(sdf * 0.5 + 0.5, 0.0, 0.0, sdf > 0.0 ? 1.0 : 0.0);
+                color = float4(sdf * 0.5 + 0.5, 0.0, 0.0, sdf > 0.0);
                 depth = sdf > 0.0 ? i.vertex.z : 0.0;
             }
             ENDCG

@@ -75,7 +75,7 @@ namespace Antares.Physics
                 ConstantBuffer.UpdateData(cmd, parameters);
 
                 cmd.SetBufferData(_fluidBlockParticleIndices, new uint[] { 0, 1, 1, 0, 1, 1 });
-                cmd.SetBufferData(_fluidParticlePositionsBuffer, new uint[] { 1, 0, 0, 0, 1 });
+                cmd.SetBufferData(_fluidParticlePositionsBuffer, new uint[] { 1, 0, 0, 0, 1, 0 });
                 cmd.SetGlobalBuffer(Bindings.FluidParticlePositions, _fluidParticlePositionsBuffer);
             }
 
