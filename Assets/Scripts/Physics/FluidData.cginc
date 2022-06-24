@@ -103,7 +103,7 @@ uint GetFluidParticlePositionOffset(uint index, bool pingpong)
 {
     const uint stride = 4; // compressed size of ParticlePositionIndexed / 4
     const uint pingpongOffset = pingpong ? FLUID_MAX_PARTICLE_COUNT : 0;
-    return GetFluidParticleCountPrefixSumOffset() + 1 + index * stride + pingpongOffset;
+    return GetFluidParticleCountPrefixSumOffset() + 1 + (index + pingpongOffset) * stride;
 }
 
 uint GetFluidParticleCount()
@@ -187,19 +187,19 @@ ParticleProperties GetFluidParticleProperties(uint index)
     const uint4 word0 = FluidParticleProperties.Load4(offset);
     const uint4 word1 = FluidParticleProperties.Load4(offset +16);
 
-    const float4 value0 = f16tof32(word0);
-    const float4 value1 = f16tof32(word0 >> 16);
-    const float4 value2 = f16tof32(word1);
-    const float4 value3 = f16tof32(word1.x >> 16);
+    const float4 word0lo = f16tof32(word0);
+    const float4 word0hi = f16tof32(word0 >> 16);
+    const float4 word1lo = f16tof32(word1);
+    const float4 word1hi = f16tof32(word1 >> 16);
 
     ParticleProperties properties;
-    properties.AffineRow0 = value0.xyz;
-    properties.VelocityX = value0.w;
-    properties.AffineRow1 = value1.xyz;
-    properties.VelocityY = value1.w;
-    properties.AffineRow2 = value2.xyz;
-    properties.VelocityZ = value3.x;
-    properties.Mass = value3.w;
+    properties.AffineRow0 = word0lo.xyz;
+    properties.VelocityX = word0lo.w;
+    properties.AffineRow1 = word0hi.xyz;
+    properties.VelocityY = word0hi.w;
+    properties.AffineRow2 = word1lo.xyz;
+    properties.VelocityZ = word1hi.x;
+    properties.Mass = word1hi.w;
 
     return properties;
 }
@@ -270,8 +270,8 @@ ParticleProperties GetFluidParticleProperties(uint index)
 #define FLUID_GRID_ATOMIC_LOCK_OFFSET_LEVEL1 0
 #define FLUID_GRID_ATOMIC_LOCK_OFFSET_LEVEL2 (FLUID_GRID_ATOMIC_LOCK_OFFSET_LEVEL1 + FLUID_BLOCK_COUNT_LEVEL1)
 
-#define FLUID_BLOCK_MAX_PARTICLE_COUNT (64 - 5)
-#define FLUID_BLOCK_PARTICLE_STRIDE (FLUID_BLOCK_MAX_PARTICLE_COUNT + 5)
+#define FLUID_BLOCK_PARTICLE_STRIDE 64
+#define FLUID_BLOCK_MAX_PARTICLE_COUNT (FLUID_BLOCK_PARTICLE_STRIDE - 5)
 
 // mass
 #define FLUID_GRID_CHANNEL0_OFFSET uint3(0, 0, 0)
@@ -282,10 +282,11 @@ ParticleProperties GetFluidParticleProperties(uint index)
 // sdf
 #define FLUID_GRID_CHANNEL4_OFFSET uint3(FLUID_BLOCK_COUNT_X_LEVEL0 * FLUID_BLOCK_SIZE_LEVEL0 * 4, 0, 0)
 
-// to perform atomic operations, nomalized and converted to integer are the values to be written to level 0 grid
+// values are nomalized and converted to integer to perform atomic operations
+// 1073741824, largest 32-bit signed integer whose reciprocal can be exactly represented by 32-bit float
 #define FLUID_GRID_ENCODED_VALUE_MAX int(1 << 30)
-#define FLUID_GRID_BOUND_MASS 1024.0
-#define FLUID_GRID_BOUND_MOMENTUM 8192.0
+#define FLUID_GRID_BOUND_MASS 512.0
+#define FLUID_GRID_BOUND_MOMENTUM 2048.0
 #define FLUID_GRID_BOUND_SDF 3.0
 
 #define DEF_ENCODE_DECODE_GRID_VALUE(channel) \
@@ -315,9 +316,9 @@ int EncodeFluidGridMass(float mass)
     return EncodeGridValue(mass, FLUID_GRID_BOUND_MASS, 0.0, 1.0);
 }
 
-int3 EncodeFluidGridMomentum(float3 velocity)
+int3 EncodeFluidGridMomentum(float3 momentum)
 {
-    return EncodeGridValue(velocity, FLUID_GRID_BOUND_MOMENTUM, -1.0, 1.0);
+    return EncodeGridValue(momentum, FLUID_GRID_BOUND_MOMENTUM, -1.0, 1.0);
 }
 
 int EncodeFluidGridSDF(float sdf)
@@ -536,11 +537,11 @@ void GetFluidBlockInfo(uint blockIndexLevel0, out uint3 gridPositionLevel1, out 
 {
     const uint offset = GetFluidBlockInfoOffset(blockIndexLevel0);
 
-    particleCount = min(FluidBlockParticleIndices[offset], FLUID_BLOCK_MAX_PARTICLE_COUNT);
+    particleCount = min(FluidBlockParticleIndices[offset +3], FLUID_BLOCK_MAX_PARTICLE_COUNT);
     gridPositionLevel1 = uint3(
+        FluidBlockParticleIndices[offset],
         FluidBlockParticleIndices[offset +1],
-        FluidBlockParticleIndices[offset +2],
-        FluidBlockParticleIndices[offset +3]
+        FluidBlockParticleIndices[offset +2]
     );
 }
 
