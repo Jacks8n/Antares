@@ -255,6 +255,7 @@ namespace Antares.Graphics
             if (!IsSceneLoaded)
                 return;
 
+            _scene.enabled = false;
             _scene = null;
 
             _sceneVolume.Release();
@@ -268,18 +269,33 @@ namespace Antares.Graphics
             if (!IsSceneLoaded)
                 return;
 
-            //if (_physicsPipeline != null && _physicsPipeline.IsSceneLoaded)
-            //{
-            //    BeginCaptureSceneView();
-            //    CommandBuffer foo = CommandBufferPool.Get();
-            //    APhysicsScene.Instance.AddTestParticles(foo);
-            //    _physicsPipeline.Solve(foo, 0.1f);
-            //    UGraphics.ExecuteCommandBuffer(foo);
-            //    CommandBufferPool.Release(foo);
-            //    EndCaptureSceneView();
-            //    UnloadScene();
-            //    return;
-            //}
+            if (_physicsPipeline != null && _physicsPipeline.IsSceneLoaded)
+            {
+
+                var ps = ListPool<FluidSolverCompute.ParticleToAdd>.Get();
+                for (int i = 0; i < 64; i++)
+                {
+                    Vector3 position = new Vector3(Random.value, Random.value, Random.value) * 10f;
+                    Vector3 velocity = new Vector3(Random.value, Random.value, Random.value) - new Vector3(0.5f, 0.5f, 0.5f);
+                    velocity *= 0.1f;
+
+                    ps.Add(new FluidSolverCompute.ParticleToAdd(position, velocity));
+                }
+
+                BeginCaptureSceneView();
+                CommandBuffer foo = CommandBufferPool.Get();
+                _physicsPipeline.AddParticles(foo, ps);
+                _physicsPipeline.Solve(foo, 0.1f);
+                //_physicsPipeline.Solve(foo, 0.1f);
+                UGraphics.ExecuteCommandBuffer(foo);
+                CommandBufferPool.Release(foo);
+                EndCaptureSceneView();
+
+                ListPool<FluidSolverCompute.ParticleToAdd>.Release(ps);
+
+                UnloadScene();
+                return;
+            }
 
             //BeginCaptureSceneView();
             //LoadScene(_scene);

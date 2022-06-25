@@ -79,13 +79,18 @@ namespace Antares.Graphics
 
             public const int MaxParticleCount = 1 << 20;
 
-            public const int BlockCountLevel0 = 64 * 32 * 32;
+            public const int BlockSizeLevel0 = 4;
+            public const int BlockSizeLevel1 = 4;
 
+            public const int GridPerBlockLevel0 = BlockSizeLevel0 * BlockSizeLevel0 * BlockSizeLevel0;
+            public const int GridPerBlockLevel1 = BlockSizeLevel1 * BlockSizeLevel1 * BlockSizeLevel1;
+
+            public const int BlockCountLevel0 = 64 * 32 * 32;
             public const int BlockCountLevel1 = 64 * 32 * 32;
 
-            public const int BlockSizeLevel0 = 4;
-
-            public const int BlockSizeLevel1 = 4;
+            public const int GridCountLevel0 = BlockCountLevel0 * GridPerBlockLevel0;
+            public const int GridCountLevel1 = BlockCountLevel1 * GridPerBlockLevel1;
+            public const int GridCountLevel2 = 256 * 256 * 256;
 
             public const int GridChannelCount = 5;
 

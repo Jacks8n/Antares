@@ -1,4 +1,5 @@
-﻿using Antares.Graphics;
+﻿using System.Collections.Generic;
+using Antares.Graphics;
 using Sirenix.OdinInspector;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -18,27 +19,37 @@ namespace Antares.Physics
         [field: SerializeField, LabelText(nameof(GridSpacing))]
         public float GridSpacing { get; private set; } = 1f;
 
+        private List<AShaderSpecifications.FluidSolverCompute.ParticleToAdd> _particlesToAdd;
+
         private void OnEnable()
         {
-            if (Instance)
-                Instance.enabled = false;
-
             if (RenderPipelineManager.currentPipeline is ARenderPipeline renderPipeline)
             {
-                CommandBuffer cmd = CommandBufferPool.Get();
+                {
+                    CommandBuffer cmd = CommandBufferPool.Get();
 
-                PhysicsPipeline = renderPipeline.GetPhysicsPipeline();
-                PhysicsPipeline.LoadPhysicsScene(cmd, this);
+                    PhysicsPipeline = renderPipeline.GetPhysicsPipeline();
+                    PhysicsPipeline.LoadPhysicsScene(cmd, this);
 
-                UnityEngine.Graphics.ExecuteCommandBuffer(cmd);
+                    UnityEngine.Graphics.ExecuteCommandBuffer(cmd);
 
-                CommandBufferPool.Release(cmd);
+                    CommandBufferPool.Release(cmd);
+                }
+
+                _particlesToAdd = new List<AShaderSpecifications.FluidSolverCompute.ParticleToAdd>();
+
+                if (Instance)
+                    Instance.enabled = false;
+
+                Instance = this;
             }
             else
+            {
                 Debug.LogWarning($"current rendering pipeline is not {nameof(ARenderPipeline)}, " +
                     $"thus the physics pipeline is unavailable");
 
-            Instance = this;
+                enabled = false;
+            }
         }
 
         private void OnDisable()
@@ -47,6 +58,8 @@ namespace Antares.Physics
 
             if (PhysicsPipeline != null)
                 PhysicsPipeline.UnloadPhysicsScene();
+
+            _particlesToAdd = null;
         }
 
         private void FixedUpdate()
@@ -56,6 +69,11 @@ namespace Antares.Physics
                 CommandBuffer cmd = CommandBufferPool.Get();
 
                 PhysicsPipeline.Solve(cmd, Time.fixedDeltaTime);
+                if (_particlesToAdd.Count > 0)
+                {
+                    PhysicsPipeline.AddParticles(cmd, _particlesToAdd);
+                    _particlesToAdd.Clear();
+                }
 
                 UnityEngine.Graphics.ExecuteCommandBuffer(cmd);
 
@@ -65,7 +83,8 @@ namespace Antares.Physics
 
 #if UNITY_EDITOR
 
-        public void AddTestParticles(CommandBuffer cmd)
+        [Button]
+        public void AddTestParticles()
         {
             if (!enabled)
             {
@@ -73,28 +92,16 @@ namespace Antares.Physics
                 return;
             }
 
-            var particles = ListPool<AShaderSpecifications.FluidSolverCompute.ParticleToAdd>.Get();
             for (int i = 0; i < 64; i++)
             {
                 Vector3 position = new Vector3(Random.value, Random.value, Random.value) * 10f;
-                Vector3 velocity = new Vector3(Random.value, Random.value, Random.value) * 2f - Vector3.one;
+                Vector3 velocity = new Vector3(Random.value, Random.value, Random.value) - new Vector3(0.5f, 0.5f, 0.5f);
+                velocity *= 0.1f;
 
-                particles.Add(new AShaderSpecifications.FluidSolverCompute.ParticleToAdd(position, velocity));
+                _particlesToAdd.Add(new AShaderSpecifications.FluidSolverCompute.ParticleToAdd(position, velocity));
             }
-
-            PhysicsPipeline.AddParticles(cmd, particles);
-            ListPool<AShaderSpecifications.FluidSolverCompute.ParticleToAdd>.Release(particles);
-        }
-
-        [Button]
-        private void AddTestParticles()
-        {
-            CommandBuffer cmd = CommandBufferPool.Get();
-
-            AddTestParticles(cmd);
-            UnityEngine.Graphics.ExecuteCommandBuffer(cmd);
-
-            CommandBufferPool.Release(cmd);
+            //_particlesToAdd.Add(new AShaderSpecifications.FluidSolverCompute.ParticleToAdd(
+            //    new Vector3(2.5f, 3.0f, 3.5f), new Vector3(1.0f, -1.0f, 0.0f)));
         }
 
 #endif
