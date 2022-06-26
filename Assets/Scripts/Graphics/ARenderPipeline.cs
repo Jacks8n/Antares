@@ -97,7 +97,7 @@ namespace Antares.Graphics
                 for (int i = 0; i < brushes.Length; i++)
                     mappedBrushes[i] = new SDFGenerationCompute.SDFBrush(brushes[i].Property, brushes[i].ParameterCount, brushes[i].ParameterOffset);
                 brushBuffer.SetData(mappedBrushes);
-                
+
                 brushParameterBuffer = new ComputeBuffer(brushParams.Length, sizeof(float), ComputeBufferType.Structured, ComputeBufferMode.Immutable);
                 brushParameterBuffer.SetData(brushParams);
             }
@@ -118,7 +118,7 @@ namespace Antares.Graphics
 
                 // bind cbuffers
                 ConstantBuffer.Push(cmd, new SDFGenerationCompute.SDFGenerationParameters(_scene), shader, Bindings.SDFGenerationParameters);
-                
+
                 // generate material volume mip 0
                 int kernel = sdfGeneration.GenerateMatVolumeKernel;
                 {
@@ -269,33 +269,31 @@ namespace Antares.Graphics
             if (!IsSceneLoaded)
                 return;
 
-            if (_physicsPipeline != null && _physicsPipeline.IsSceneLoaded)
-            {
+            //if (_physicsPipeline != null && _physicsPipeline.IsSceneLoaded)
+            //{
 
-                var ps = ListPool<FluidSolverCompute.ParticleToAdd>.Get();
-                for (int i = 0; i < 64; i++)
-                {
-                    Vector3 position = new Vector3(Random.value, Random.value, Random.value) * 10f;
-                    Vector3 velocity = new Vector3(Random.value, Random.value, Random.value) - new Vector3(0.5f, 0.5f, 0.5f);
-                    velocity *= 0.1f;
+            //    var ps = ListPool<FluidSolverCompute.ParticleToAdd>.Get();
+            //    for (int i = 0; i < 64; i++)
+            //    {
+            //        Vector3 position = new Vector3(Random.value, Random.value, Random.value) * 10f;
+            //        Vector3 velocity = new Vector3(Random.value, Random.value, Random.value) - new Vector3(0.5f, 0.5f, 0.5f);
+            //        velocity *= 0.1f;
 
-                    ps.Add(new FluidSolverCompute.ParticleToAdd(position, velocity));
-                }
+            //        ps.Add(new FluidSolverCompute.ParticleToAdd(position, velocity));
+            //    }
 
-                BeginCaptureSceneView();
-                CommandBuffer foo = CommandBufferPool.Get();
-                _physicsPipeline.AddParticles(foo, ps);
-                _physicsPipeline.Solve(foo, 0.1f);
-                //_physicsPipeline.Solve(foo, 0.1f);
-                UGraphics.ExecuteCommandBuffer(foo);
-                CommandBufferPool.Release(foo);
-                EndCaptureSceneView();
+            //    CommandBuffer foo = CommandBufferPool.Get();
+            //    BeginCaptureSceneView();
+            //    _physicsPipeline.AddParticles(foo, ps);
+            //    _physicsPipeline.Solve(foo, 0.016f);
+            //    UGraphics.ExecuteCommandBuffer(foo);
+            //    EndCaptureSceneView();
 
-                ListPool<FluidSolverCompute.ParticleToAdd>.Release(ps);
-
-                UnloadScene();
-                return;
-            }
+            //    CommandBufferPool.Release(foo);
+            //    ListPool<FluidSolverCompute.ParticleToAdd>.Release(ps);
+            //    UnloadScene();
+            //    return;
+            //}
 
             //BeginCaptureSceneView();
             //LoadScene(_scene);

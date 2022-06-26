@@ -95,8 +95,8 @@ namespace Antares.Physics
             for (int i = 0; i < 64; i++)
             {
                 Vector3 position = new Vector3(Random.value, Random.value, Random.value) * 10f;
-                Vector3 velocity = new Vector3(Random.value, Random.value, Random.value) - new Vector3(0.5f, 0.5f, 0.5f);
-                velocity *= 0.1f;
+                //Vector3 velocity = new Vector3(Random.value, Random.value, Random.value) - new Vector3(0.5f, 0.5f, 0.5f);
+                Vector3 velocity = Vector3.zero;
 
                 _particlesToAdd.Add(new AShaderSpecifications.FluidSolverCompute.ParticleToAdd(position, velocity));
             }

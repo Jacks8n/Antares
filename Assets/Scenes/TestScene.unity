@@ -379,12 +379,12 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 241674069}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 6ac7db45ff14f4449a66602c9961fe43, type: 3}
   m_Name: 
   m_EditorClassIdentifier: 
-  <Gravity>k__BackingField: {x: 0, y: 0, z: -0.1}
+  <Gravity>k__BackingField: {x: 0, y: -0.1, z: 0}
   <GridSpacing>k__BackingField: 1
 --- !u!4 &241674071
 Transform:
@@ -1249,7 +1249,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1747338439}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e7a6537966891694ab0b07730c6d90d0, type: 3}
   m_Name: 

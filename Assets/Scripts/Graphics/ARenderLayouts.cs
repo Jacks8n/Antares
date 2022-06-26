@@ -77,8 +77,6 @@ namespace Antares.Graphics
 
             public static int FluidBlockParticleIndices { get; } = Shader.PropertyToID(nameof(FluidBlockParticleIndices));
 
-            public static int FluidGridAtomicLock { get; } = Shader.PropertyToID(nameof(FluidGridAtomicLock));
-
             public static int IndirectArgs { get; } = Shader.PropertyToID(nameof(IndirectArgs));
 
             public static int IndirectArgsOffset { get; } = Shader.PropertyToID(nameof(IndirectArgsOffset));

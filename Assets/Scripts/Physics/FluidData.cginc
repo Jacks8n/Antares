@@ -240,7 +240,7 @@ ParticleProperties GetFluidParticleProperties(uint index)
         const uint4 word1lohi = f32tof16(float4(affine._m20_m21_m22, velocity.z));
 
         const uint4 word0 = word0lo | word0hi;
-        const uint3 word1 = uint3(word1lohi.x | word1lohi.w, word1lohi.yz);
+        const uint3 word1 = uint3(word1lohi.x | (word1lohi.w << 16), word1lohi.yz);
 
         FluidParticleProperties.Store4(offset, word0);
         FluidParticleProperties.Store3(offset +16, word1);
@@ -382,9 +382,6 @@ extern A_RWTEXTURE3D(int) FluidGridLevel2;
 // initial value:
 // { 0, 1, 1, 0, 1, 1, {x{3}, 0, 0, 0*}* }
 extern A_RWBUFFER(uint) FluidBlockParticleIndices;
-// initial value:
-// { <flag>* }
-extern A_RWBUFFER(uint) FluidGridAtomicLock;
 
 /// begin grid access
 
@@ -598,112 +595,6 @@ uint GetFluidBlockIndexLevel0Unchecked(uint3 gridPositionLevel1)
     {
         const uint offset = GetFluidBlockParticleCountPrefixSumOffset(blockIndex);
         FluidBlockParticleIndices[offset] = prefixSum;
-    }
-
-    // return: the allocated level n-1 index
-    uint ActivateFluidBlockLevel0(uint3 gridIndexLevel1, uint3 gridPositionLevel1)
-    {
-        uint indexSublevel = FluidGridLevel1[gridIndexLevel1];
-        if (IsValidFluidBlockIndex(indexSublevel))
-            return DecodeFluidBlockIndex(indexSublevel);
-
-        uint acquired;
-        const uint atomicIndex = GetFluidGridIndexLinearLevel1(gridIndexLevel1);
-        InterlockedCompareExchange(
-            FluidGridAtomicLock[atomicIndex + FLUID_GRID_ATOMIC_LOCK_OFFSET_LEVEL1],
-            0, 1, acquired);
-
-        if (!acquired)
-        {
-            // resetting particle count must be visible to other threads
-            uint offset = GetFluidBlockParticleCountOffset(indexSublevel);
-            FluidBlockParticleIndices[offset] = 0;
-
-            InterlockedAdd(FluidBlockParticleIndices[GetFluidBlockCountOffset(0)], 1, indexSublevel);
-            FluidGridLevel1[gridIndexLevel1] = EncodeFluidBlockIndex(indexSublevel);
-
-            offset = GetFluidBlockPositionOffset(indexSublevel);
-            FluidBlockParticleIndices[offset] = gridPositionLevel1.x;
-            FluidBlockParticleIndices[offset +1] = gridPositionLevel1.y;
-            FluidBlockParticleIndices[offset +2] = gridPositionLevel1.z;
-        }
-        else
-        {
-            do
-            {
-                indexSublevel = FluidGridLevel1[gridIndexLevel1];
-            } while (!IsValidFluidBlockIndex(indexSublevel));
-
-            indexSublevel = DecodeFluidBlockIndex(indexSublevel);
-        }
-
-        return indexSublevel;
-    }
-
-    // return: the allocated level n-1 index
-    uint ActivateFluidBlockLevel1(uint3 gridIndexLevel2)
-    {
-        uint indexSublevel = FluidGridLevel2[gridIndexLevel2];
-        if (IsValidFluidBlockIndex(indexSublevel))
-            return DecodeFluidBlockIndex(indexSublevel);
-
-        uint acquired;
-        const uint atomicIndex = GetFluidGridIndexLinearLevel2(gridIndexLevel2);//todo
-        InterlockedCompareExchange(
-            FluidGridAtomicLock[atomicIndex + FLUID_GRID_ATOMIC_LOCK_OFFSET_LEVEL2],
-            0, 1, acquired);
-
-        if (!acquired)
-        {
-            InterlockedAdd(FluidBlockParticleIndices[GetFluidBlockCountOffset(1)], 1, indexSublevel);
-            FluidGridLevel2[gridIndexLevel2] = EncodeFluidBlockIndex(indexSublevel);
-        }
-        else
-        {
-            do
-            {
-                indexSublevel = FluidGridLevel2[gridIndexLevel2];
-            } while (!IsValidFluidBlockIndex(indexSublevel));
-
-            indexSublevel = DecodeFluidBlockIndex(indexSublevel);
-        }
-
-        return indexSublevel;
-    }
-
-    bool ActivateFluidBlock(int3 gridPositionLevel0, out uint blockIndexLevel0)
-    {
-        if (any(gridPositionLevel0 < 0 || gridPositionLevel0 >= FLUID_VIRTUAL_GRID_EXTENT - FLUID_BLOCK_SIZE_LEVEL0))
-            return false;
-
-        uint3 gridPositionLevel1;
-        uint3 gridPositionLevel2;
-        uint3 gridOffsetLevel1;
-        GetFluidGridPositions(gridPositionLevel0, gridPositionLevel1, gridPositionLevel2, gridOffsetLevel1);
-
-        const uint blockIndexLevel1Linear = ActivateFluidBlockLevel1(gridPositionLevel2);
-        const uint3 gridIndexLevel1 = GetFluidBlockIndexSpatialLevel1(blockIndexLevel1Linear) * FLUID_BLOCK_SIZE_LEVEL1 + gridOffsetLevel1;
-
-        blockIndexLevel0 = ActivateFluidBlockLevel0(gridIndexLevel1, gridPositionLevel1);
-        return true;
-    }
-
-    void AddParticleToFluidBlock(int3 gridPositionLevel0, uint particleIndex)
-    {
-        uint blockIndexLevel0;
-        if (!ActivateFluidBlock(gridPositionLevel0, blockIndexLevel0))
-            return;
-
-        const uint particleCountOffset = GetFluidBlockParticleCountOffset(blockIndexLevel0);
-
-        uint particleCount;
-        InterlockedAdd(FluidBlockParticleIndices[particleCountOffset], 1, particleCount);
-
-        if (particleCount < FLUID_BLOCK_MAX_PARTICLE_COUNT)
-        {
-            const uint particleOffset = GetFluidBlockParticleIndexOffset(blockIndexLevel0, particleCount);
-            FluidBlockParticleIndices[particleOffset] = particleIndex;
-        }
     }
 
 #endif
