@@ -20,11 +20,13 @@ namespace Antares.Graphics
 
         public AShaderSpecifications ShaderSpecs { get; private set; }
 
+        public RenderTargetIdentifier SceneVolume => _sceneVolume;
+
+        public SDFScene Scene { get; private set; }
+
         private RenderTexture _sceneVolume;
 
         private RenderTexture _materialVolume;
-
-        private SDFScene _scene;
 
         private MaterialPropertyBlock _shadingPropertyBlock;
 
@@ -63,10 +65,10 @@ namespace Antares.Graphics
             if (scene.IsEmpty)
                 return;
 
-            _scene = scene;
+            Scene = scene;
 
             // resize textures
-            Vector3Int sceneVolumeSize = _scene.Size;
+            Vector3Int sceneVolumeSize = Scene.Size;
             Vector3Int matVolumeSize = sceneVolumeSize / SDFGenerationCompute.MatVolumeScale;
             if (!_sceneVolume || !_materialVolume || !_sceneVolume.IsCreated() || !_materialVolume.IsCreated()
                 || _sceneVolume.width != sceneVolumeSize.x || _sceneVolume.height != sceneVolumeSize.z || _sceneVolume.volumeDepth != sceneVolumeSize.y)
@@ -74,9 +76,9 @@ namespace Antares.Graphics
                 _sceneVolume = CreateRWVolumeRT(GraphicsFormat.R8_SNorm, sceneVolumeSize, SceneMipCount);
                 _materialVolume = CreateRWVolumeRT(GraphicsFormat.R16_UInt, matVolumeSize, SceneMipCount);
             }
-
+            
             CommandBuffer cmd = CommandBufferPool.Get();
-
+            
             // clear volumes
             {
                 // 1.0 stands for maximum of snorm
@@ -85,7 +87,7 @@ namespace Antares.Graphics
             }
 
             // upload brushes
-            var brushCollection = _scene.BrushCollection;
+            var brushCollection = Scene.BrushCollection;
             ComputeBuffer brushBuffer, brushParameterBuffer;
             unsafe
             {
@@ -117,7 +119,7 @@ namespace Antares.Graphics
                 ComputeShader shader = sdfGeneration.Shader;
 
                 // bind cbuffers
-                ConstantBuffer.Push(cmd, new SDFGenerationCompute.SDFGenerationParameters(_scene), shader, Bindings.SDFGenerationParameters);
+                ConstantBuffer.Push(cmd, new SDFGenerationCompute.SDFGenerationParameters(Scene), shader, Bindings.SDFGenerationParameters);
 
                 // generate material volume mip 0
                 int kernel = sdfGeneration.GenerateMatVolumeKernel;
@@ -255,8 +257,8 @@ namespace Antares.Graphics
             if (!IsSceneLoaded)
                 return;
 
-            _scene.enabled = false;
-            _scene = null;
+            Scene.enabled = false;
+            Scene = null;
 
             _sceneVolume.Release();
             _materialVolume.Release();
@@ -285,7 +287,8 @@ namespace Antares.Graphics
             //    CommandBuffer foo = CommandBufferPool.Get();
             //    BeginCaptureSceneView();
             //    _physicsPipeline.AddParticles(foo, ps);
-            //    _physicsPipeline.Solve(foo, 0.016f);
+            //    for (int i = 0; i < 10; i++)
+            //        _physicsPipeline.Solve(foo, 0.016f);
             //    UGraphics.ExecuteCommandBuffer(foo);
             //    EndCaptureSceneView();
 
@@ -331,7 +334,7 @@ namespace Antares.Graphics
                     // set cbuffer
                     int tileCountX = width / RayMarchingCompute.MarchingTileSize, tileCountY = height / RayMarchingCompute.MarchingTileSize;
                     {
-                        var parameters = new RayMarchingCompute.RayMarchingParameters(camera, _scene, invWidth, invHeight);
+                        var parameters = new RayMarchingCompute.RayMarchingParameters(camera, Scene, invWidth, invHeight);
                         ConstantBuffer.Push(cmdCompute, parameters, shader, Bindings.RayMarchingParameters);
                     }
 

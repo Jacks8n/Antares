@@ -31,12 +31,21 @@
 #include "HLSLSupport.cginc"
 #include "../Graphics/SDFUtil.cginc"
 
-#define DISABLE_WAVE_SCATTER 1
-#define DISABLE_PRESSURE_SOLVE 1
+#define DISABLE_WAVE_SCATTER 0
+#define DISABLE_PRESSURE_SOLVE 0
 
 /// begin constant buffer
 
 CBUFFER_START(PhysicsSceneParameters)
+    float3 SceneVolumeTexel;
+    #define SCENE_VOLUME_TEXEL SceneVolumeTexel
+
+    float Padding0;
+
+    float3 FluidGridToSDF;
+
+    float Padding1;
+
     float2 FluidGridResolution;
     #define FLUID_GRID_RESOLUTION FluidGridResolution.x
     #define FLUID_GRID_RESOLUTION_INV FluidGridResolution.y
@@ -48,12 +57,12 @@ CBUFFER_START(PhysicsFrameParameters)
     #define TIME_STEP TimeStep.x
     #define TIME_STEP_INV TimeStep.y
 
-    float2 Padding1;
+    float2 Padding2;
 
     float3 FluidGravity;
     #define GLOBAL_GRAVITY FluidGravity
 
-    float Padding2;
+    float Padding3;
 
     float3 FluidGridTranslation;
 CBUFFER_END
@@ -643,7 +652,7 @@ void ParticleToGrid(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
                 subblockMin + FLUID_BLOCK_SIZE_LEVEL0, FLUID_BLOCK_SIZE_LEVEL0_PADDED);
             const uint3 subblockSize = subblockMax - subblockMin;
 
-            const uint3 srcGridIndex = GetGridIndexSpatial(gi, subblockSize);
+            const uint3 srcGridIndex = GetGridIndexSpatial(gi, subblockSize.xy);
             if (all(srcGridIndex < subblockSize))
             {
                 const uint loadGridIndex = GetFluidBlockGridIndexLinearLevel0(subblockMin + srcGridIndex, FLUID_BLOCK_PADDING);
@@ -706,6 +715,11 @@ void ParticleToGrid(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 #define SOLVE_GRID_LEVEL0_KERNEL_SIZE FLUID_BLOCK_SIZE_LEVEL0
 #define SOLVE_GRID_LEVEL1_KERNEL_SIZE FLUID_BLOCK_SIZE_LEVEL1
 
+SamplerState SamplerLinearClamp;
+#define SCENE_VOLUME_SAMPLER SamplerLinearClamp
+
+#include "../Graphics/SceneVolumeSampling.cginc"
+
 void SolveGrid(float mass, float3 momentum, out float3 velocity)
 {
     velocity = mass > 0.0 ? momentum / mass : 0.0;
@@ -733,6 +747,16 @@ void SolveGridLevel0(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
 
     float3 velocity;
     SolveGrid(mass, momentum, velocity);
+
+    const uint3 gridPosition = GetFluidBlockPosition(gid.x) * FLUID_BLOCK_SIZE_LEVEL0 + gtid;
+    const float3 samplePosition = gridPosition * FLUID_GRID_RESOLUTION_INV + FluidGridToSDF;
+
+    const float sdf = SampleNormalizedSDFLocal(samplePosition, 0.0);
+    if (sdf <= 0.25)
+    {
+        const float3 normal = SampleNormalLocal(samplePosition, 0.0);
+        velocity -= dot(velocity, normal) * normal;
+    }
 
     const int3 velocityEncoded = EncodeFluidGridMomentum(velocity);
 
@@ -953,7 +977,7 @@ void GridToParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 void ClearFluidGridLevel0(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
 {
     const uint3 blockIndex = GetFluidBlockIndexSpatialLevel0(gid.x);
-    const uint3 gridOffset = blockIndex + gtid;
+    const uint3 gridOffset = blockIndex * FLUID_BLOCK_SIZE_LEVEL0 + gtid;
 
     FluidGridLevel0[gridOffset +FLUID_GRID_CHANNEL0_OFFSET] = 0;
     FluidGridLevel0[gridOffset +FLUID_GRID_CHANNEL1_OFFSET] = 0;
@@ -968,7 +992,7 @@ void ClearFluidGridLevel0(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
 void ClearFluidGridLevel1(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
 {
     const uint3 blockIndex = GetFluidBlockIndexSpatialLevel1(gid.x);
-    const uint3 gridOffset = blockIndex + gtid;
+    const uint3 gridOffset = blockIndex * FLUID_BLOCK_SIZE_LEVEL1 + gtid;
 
     FluidGridLevel1[gridOffset +FLUID_GRID_CHANNEL0_OFFSET] = 0;
     FluidGridLevel1[gridOffset +FLUID_GRID_CHANNEL1_OFFSET] = 0;

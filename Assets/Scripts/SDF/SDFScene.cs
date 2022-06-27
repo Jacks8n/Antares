@@ -25,9 +25,9 @@ namespace Antares.SDF
         [field: VerticalGroup("Specification")]
         public APhysicsScene PhysicsScene { get; private set; }
 
-        public Vector3 SizeInFloat { get; private set; }
+        public Vector3 SizeInFloat => Size;
 
-        public Vector3 SizeInv { get; private set; }
+        public Vector3 SizeInv => new Vector3(1f / Size.x, 1f / Size.y, 1f / Size.z);
 
         public bool IsEmpty => BrushCollection.Brushes.Length == 0;
 
@@ -46,12 +46,6 @@ namespace Antares.SDF
         public Vector3 WorldToSceneVector(Vector3 vec) => transform.InverseTransformVector(vec);
 
         public Vector3 WorldToScenePoint(Vector3 pos) => transform.InverseTransformPoint(pos);
-
-        private void Awake()
-        {
-            SizeInFloat = Size;
-            SizeInv = new Vector3(1f / SizeInFloat.x, 1f / SizeInFloat.y, 1f / SizeInFloat.z);
-        }
 
         private void OnEnable()
         {

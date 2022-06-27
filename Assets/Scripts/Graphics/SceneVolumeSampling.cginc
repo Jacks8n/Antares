@@ -1,7 +1,7 @@
 ﻿// two macros can be defined before including. once they're defined,
 // related arguments can be omitted during invocation
-// SCENE_VOLUME_TEXEL
-// SCENE_VOLUME_SAMPLER
+// SCENE_VOLUME_TEXEL : float3
+// SCENE_VOLUME_SAMPLER : SamplerState
 
 extern Texture3D<snorm float> SceneVolume;
 
@@ -56,15 +56,15 @@ float3 SampleNormal(float3 texel, float3 uvw, float mip)
                      SampleNormalizedSDF(uvw + offset.xyy * texel, mip) * offset.xyy +
                      SampleNormalizedSDF(uvw + offset.yxy * texel, mip) * offset.yxy);
 }
+#endif
 
+#if defined(SCENE_VOLUME_TEXEL) && defined(SCENE_VOLUME_SAMPLER)
 float SampleNormalizedSDFLocal(float3 localPos, float mip)
 {
     const float3 uvw = localPos * SCENE_VOLUME_TEXEL;
     return SceneVolume.SampleLevel(SCENE_VOLUME_SAMPLER, uvw, mip);
 }
-#endif
 
-#if defined(SCENE_VOLUME_TEXEL) && defined(SCENE_VOLUME_SAMPLER)
 float3 SampleNormal(float3 uvw, float mip)
 {
     const float2 offset = float2(1.0, -1.0);

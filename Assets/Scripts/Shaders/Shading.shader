@@ -66,7 +66,7 @@
                 float3 lum = vn * -dot(refl, view) * rm0.rgb;
 
                 float3 col;
-                col = color_rast.a > 0.0 ? color_rast : rm0.rgb;
+                col = rm0.a == 0.0 ? color_rast : rm0.rgb;
 
                 float alpha;
                 alpha = max(rm0.a, color_rast.a);

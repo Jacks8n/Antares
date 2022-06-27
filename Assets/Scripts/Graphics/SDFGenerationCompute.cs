@@ -3,7 +3,6 @@ using System.Runtime.InteropServices;
 using Antares.SDF;
 using Sirenix.OdinInspector;
 using UnityEngine;
-using UnityEngine.Rendering;
 
 namespace Antares.Graphics
 {

@@ -10,7 +10,7 @@
 #define FLUID_MAX_PARTICLE_COUNT (1 << 20)
 
 #define FLUID_EOS_BULK_MODULUS 50.0
-#define FLUID_EOS_REST_DENSITY 4.0
+#define FLUID_EOS_REST_DENSITY 1.0
 #define FLUID_VISCOSITY_COEFFICIENT 0.1
 
 #define FLUID_PARTICLE_RADIUS 1.5
@@ -536,6 +536,17 @@ uint GetFluidBlockCount(uint level)
     const uint offset = GetFluidBlockCountOffset(level);
 
     return FluidBlockParticleIndices[offset];
+}
+
+uint3 GetFluidBlockPosition(uint blockIndexLevel0)
+{
+    const uint offset = GetFluidBlockPositionOffset(blockIndexLevel0);
+
+    return uint3(
+        FluidBlockParticleIndices[offset],
+        FluidBlockParticleIndices[offset +1],
+        FluidBlockParticleIndices[offset +2]
+    );
 }
 
 uint GetFluidBlockParticleCount(uint blockIndexLevel0)

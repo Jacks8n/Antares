@@ -2,6 +2,8 @@
 using System.Runtime.InteropServices;
 using Sirenix.OdinInspector;
 using UnityEngine;
+using Antares.Physics;
+using Antares.SDF;
 
 namespace Antares.Graphics
 {
@@ -13,10 +15,22 @@ namespace Antares.Graphics
             [StructLayout(LayoutKind.Sequential, Pack = 1)]
             public struct PhysicsSceneParameters
             {
+                private readonly Vector3 SceneVolumeTexel;
+
+                private readonly float Padding0;
+
+                private readonly Vector3 FluidGridToSDF;
+
+                private readonly float Padding1;
+
                 private readonly Vector2 FluidGridResolution;
 
-                public PhysicsSceneParameters(Physics.APhysicsScene physicsScene)
+                public PhysicsSceneParameters(SDFScene scene, APhysicsScene physicsScene)
                 {
+                    SceneVolumeTexel = scene.SizeInv;
+                    Padding0 = 0;
+                    FluidGridToSDF = scene.transform.position - physicsScene.transform.position;
+                    Padding1 = 0;
                     FluidGridResolution = new Vector2(
                         physicsScene.GridSpacing,
                         1f / physicsScene.GridSpacing);
@@ -36,7 +50,7 @@ namespace Antares.Graphics
 
                 private readonly Vector3 FluidGridTranslation;
 
-                public PhysicsFrameParameters(Physics.APhysicsScene physicsScene, float timeStep)
+                public PhysicsFrameParameters(APhysicsScene physicsScene, float timeStep)
                 {
                     TimeStep = new Vector3(timeStep, 1f / timeStep);
                     Padding = Vector2.zero;
