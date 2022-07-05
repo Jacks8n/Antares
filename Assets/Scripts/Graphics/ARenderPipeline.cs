@@ -271,26 +271,26 @@ namespace Antares.Graphics
             if (!IsSceneLoaded)
                 return;
 
-            if (_physicsPipeline != null && _physicsPipeline.IsSceneLoaded)
-            {
+            //if (_physicsPipeline != null && _physicsPipeline.IsSceneLoaded)
+            //{
 
-                var particles = ListPool<FluidSolverCompute.ParticleToAdd>.Get();
-                CommandBuffer foo = CommandBufferPool.Get();
+            //    var particles = ListPool<FluidSolverCompute.ParticleToAdd>.Get();
+            //    CommandBuffer foo = CommandBufferPool.Get();
 
-                BeginCaptureSceneView();
-                APhysicsScene.Instance.AddTestParticles(particles);
-                _physicsPipeline.AddParticles(foo, particles);
-                //for (int i = 0; i < 10; i++)
-                _physicsPipeline.Solve(foo, 0.016f);
-                UGraphics.ExecuteCommandBuffer(foo);
-                EndCaptureSceneView();
+            //    BeginCaptureSceneView();
+            //    APhysicsScene.Instance.AddTestParticles(particles);
+            //    _physicsPipeline.AddParticles(foo, particles);
+            //    //for (int i = 0; i < 10; i++)
+            //    _physicsPipeline.Solve(foo, 0.016f);
+            //    UGraphics.ExecuteCommandBuffer(foo);
+            //    EndCaptureSceneView();
 
-                CommandBufferPool.Release(foo);
-                ListPool<FluidSolverCompute.ParticleToAdd>.Release(particles);
+            //    CommandBufferPool.Release(foo);
+            //    ListPool<FluidSolverCompute.ParticleToAdd>.Release(particles);
 
-                UnloadScene();
-                return;
-            }
+            //    UnloadScene();
+            //    return;
+            //}
 
             //BeginCaptureSceneView();
             //LoadScene(_scene);

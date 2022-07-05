@@ -32,7 +32,7 @@
 #include "../Graphics/SDFUtil.cginc"
 
 #define DISABLE_WAVE_SCATTER 0
-#define DISABLE_PRESSURE_SOLVE 1
+#define DISABLE_PRESSURE_SOLVE 0
 
 /// begin constant buffer
 
@@ -174,11 +174,6 @@ void SortParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
                 BlockAllocationLevel1_GSM[index] = gridPositionLevel2;
             }
 
-            // though each particle is sorted into one specific block, it can scatter its
-            // value to grids out of the block. so level 1 blocks are allocated for such
-            // usage. since these level 1 grids are used to transfer quantities merely, no
-            // fluid block info is allocated for them. if any particles belonging to them are
-            // found later, the "pure-quantity blocks" are promoted to "regular block".
             uint i;
             UNITY_UNROLL
             for (i = 1; i < 8; i++)
@@ -188,18 +183,23 @@ void SortParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 
                 uint3 adjacentGridPositionLevel1;
                 uint3 adjacentGridPositionLevel2;
-                uint3 adjacentGridOffsetLevel1;
+                uint3 _;
                 GetFluidGridPositions(
                     adjacentGridPositionLevel0, adjacentGridPositionLevel1,
-                    adjacentGridPositionLevel2, adjacentGridOffsetLevel1);
+                    adjacentGridPositionLevel2, _);
 
-                if (adjacentGridPositionLevel2 == gridPositionLevel2)
+                if (all(adjacentGridPositionLevel2 == gridPositionLevel2))
                     continue;
 
                 acquired = 1;
                 InterlockedCompareExchange(FluidGridLevel2[adjacentGridPositionLevel2], 0, 1, acquired);
 
-                // todo
+                if (!acquired)
+                {
+                    uint index;
+                    InterlockedAdd(BlockAllocationCountLevel1_GSM, 1, index);
+                    BlockAllocationLevel1_GSM[index] = adjacentGridPositionLevel2;
+                }
             }
         }
     }
@@ -217,7 +217,7 @@ void SortParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
     {
         uint _;
         InterlockedExchange(
-            FluidGridLevel2[gridPositionLevel2],
+            FluidGridLevel2[BlockAllocationLevel1_GSM[gi]],
             EncodeFluidBlockIndex(BlockAllocationOffset_GSM + gi), _);
     }
 
@@ -775,7 +775,7 @@ void SolveGridLevel0(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
     const float mass = DecodeFluidGridMass(massEncoded);
     const float3 momentum = DecodeFluidGridMomentum(momentumEncoded);
 
-    float3 velocity;
+    float3 velocity = 0.0;
     SolveGrid(mass, momentum, velocity);
 
     const uint3 gridPosition = GetFluidBlockPosition(gid.x) * FLUID_BLOCK_SIZE_LEVEL0 + gtid;
@@ -786,7 +786,7 @@ void SolveGridLevel0(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
         const float nsdf = SampleNormalizedSDF(sdfSampleLocation, 0.0);
         if (nsdf <= 0.0)
         {
-            const float3 normal = SampleNormalLocal(sdfSampleLocation, 0.0);
+            const float3 normal = SampleNormal(sdfSampleLocation, 0.0);
 
             velocity -= dot(velocity, normal) * normal;
         }
@@ -992,7 +992,7 @@ void GridToParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
         position.Position += velocity * TIME_STEP;
 
         // move particle out of implicit surface
-        const float3 positionSDFSpace = position.Position + FluidGridToSDF;
+        const float3 positionSDFSpace = position.Position - FluidGridTranslation + FluidGridToSDF;
         const float3 sdfSampleLocation = positionSDFSpace * SCENE_VOLUME_TEXEL;
         if (all(sdfSampleLocation > 0.0 && sdfSampleLocation < 1.0))
         {

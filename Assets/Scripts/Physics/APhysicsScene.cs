@@ -21,7 +21,10 @@ namespace Antares.Physics
         [field: SerializeField, LabelText(nameof(GridSpacing))]
         public float GridSpacing { get; private set; } = 1f;
 
-        private List<AShaderSpecifications.FluidSolverCompute.ParticleToAdd> _particlesToAdd;
+        [field: SerializeField, LabelText(nameof(TimeScale))]
+        public float TimeScale { get; private set; } = 1f;
+
+        private List<ParticleToAdd> _particlesToAdd;
 
         private void OnEnable()
         {
@@ -38,7 +41,7 @@ namespace Antares.Physics
                     CommandBufferPool.Release(cmd);
                 }
 
-                _particlesToAdd = new List<AShaderSpecifications.FluidSolverCompute.ParticleToAdd>();
+                _particlesToAdd = new List<ParticleToAdd>();
 
                 if (Instance)
                     Instance.enabled = false;
@@ -70,7 +73,7 @@ namespace Antares.Physics
             {
                 CommandBuffer cmd = CommandBufferPool.Get();
 
-                PhysicsPipeline.Solve(cmd, Time.fixedDeltaTime);
+                PhysicsPipeline.Solve(cmd, Time.fixedDeltaTime * TimeScale);
                 if (_particlesToAdd.Count > 0)
                 {
                     PhysicsPipeline.AddParticles(cmd, _particlesToAdd);
@@ -100,17 +103,16 @@ namespace Antares.Physics
         public void AddTestParticles(List<ParticleToAdd> particles)
         {
             float positionRange = 10f;
-            Vector3 positionOffset = new Vector3(0f, 0f, 16.4999f);
+            Vector3 positionOffset = new Vector3(0f, 0f, 0f);
 
             float velocityRange = 3f;
             for (int i = 0; i < 64; i++)
             {
-                Vector3 position = positionRange * new Vector3(Random.value, Random.value, 0f) + transform.position;
+                Vector3 position = positionRange * new Vector3(Random.value, Random.value, Random.value) + transform.position;
                 position += positionOffset;
 
-                //Vector3 velocity = new Vector3(Random.value, Random.value, Random.value) - new Vector3(0.5f, 0.5f, 0.5f);
-                //velocity *= 2f * velocityRange;
-                Vector3 velocity = new Vector3(0, 0, 3f);
+                Vector3 velocity = new Vector3(Random.value, Random.value, Random.value) - new Vector3(0.5f, 0.5f, 0.5f);
+                velocity *= 2f * velocityRange;
 
                 particles.Add(new ParticleToAdd(position, velocity));
             }

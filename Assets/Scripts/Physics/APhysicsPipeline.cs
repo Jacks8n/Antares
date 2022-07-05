@@ -157,7 +157,7 @@ namespace Antares.Physics
 
             kernel = fluidSolver.SolveGridLevel1Kernel;
             cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel1, _fluidGridLevel1);
-            cmd.DispatchCompute(shader, kernel, _fluidBlockParticleIndicesBuffer, 0);
+            cmd.DispatchCompute(shader, kernel, _fluidBlockParticleIndicesBuffer, 12);
 
             kernel = fluidSolver.GridToParticleKernel;
             cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticlePositions, _fluidParticlePositionsBuffer);
