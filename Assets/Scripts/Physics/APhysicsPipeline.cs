@@ -110,7 +110,7 @@ namespace Antares.Physics
             {
                 ConstantBuffer.Set<FluidSolverCompute.PhysicsSceneParameters>(cmd, shader, Bindings.PhysicsSceneParameters);
 
-                var parameter = new FluidSolverCompute.PhysicsFrameParameters(_physicsScene, deltaTime);
+                var parameter = new FluidSolverCompute.PhysicsFrameParameters(_renderPipeline.Scene, _physicsScene, deltaTime);
                 ConstantBuffer.Push(cmd, parameter, shader, Bindings.PhysicsFrameParameters);
             }
 
@@ -166,6 +166,7 @@ namespace Antares.Physics
             cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel0, _fluidGridLevel0);
             cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel1, _fluidGridLevel1);
             cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel2, _fluidGridLevel2);
+            cmd.SetComputeTextureParam(shader, kernel, Bindings.SceneVolume, _renderPipeline.SceneVolume);
             cmd.DispatchCompute(shader, kernel, _fluidBlockParticleIndicesBuffer, 0);
         }
 
@@ -198,7 +199,7 @@ namespace Antares.Physics
 
             var parameters = new DebugFluidParticleGraphics.DebugFluidParticleParameters(
                 camera.transform.position, camera.transform.up * particleSize);
-            ConstantBuffer.PushGlobal(cmd, parameters, Bindings.DebugFluidParticleParameters);
+            ConstantBuffer.PushGlobal(parameters, Bindings.DebugFluidParticleParameters);
 
             cmd.DrawProceduralIndirect(Matrix4x4.identity, debugFluidParticle.Material, 0,
                 MeshTopology.Points, _fluidParticlePositionsBuffer, 0);

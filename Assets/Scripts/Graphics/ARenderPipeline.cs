@@ -271,32 +271,26 @@ namespace Antares.Graphics
             if (!IsSceneLoaded)
                 return;
 
-            //if (_physicsPipeline != null && _physicsPipeline.IsSceneLoaded)
-            //{
+            if (_physicsPipeline != null && _physicsPipeline.IsSceneLoaded)
+            {
 
-            //    var ps = ListPool<FluidSolverCompute.ParticleToAdd>.Get();
-            //    for (int i = 0; i < 64; i++)
-            //    {
-            //        Vector3 position = new Vector3(Random.value, Random.value, Random.value) * 10f;
-            //        Vector3 velocity = new Vector3(Random.value, Random.value, Random.value) - new Vector3(0.5f, 0.5f, 0.5f);
-            //        velocity *= 0.1f;
+                var particles = ListPool<FluidSolverCompute.ParticleToAdd>.Get();
+                CommandBuffer foo = CommandBufferPool.Get();
 
-            //        ps.Add(new FluidSolverCompute.ParticleToAdd(position, velocity));
-            //    }
+                BeginCaptureSceneView();
+                APhysicsScene.Instance.AddTestParticles(particles);
+                _physicsPipeline.AddParticles(foo, particles);
+                //for (int i = 0; i < 10; i++)
+                _physicsPipeline.Solve(foo, 0.016f);
+                UGraphics.ExecuteCommandBuffer(foo);
+                EndCaptureSceneView();
 
-            //    CommandBuffer foo = CommandBufferPool.Get();
-            //    BeginCaptureSceneView();
-            //    _physicsPipeline.AddParticles(foo, ps);
-            //    for (int i = 0; i < 10; i++)
-            //        _physicsPipeline.Solve(foo, 0.016f);
-            //    UGraphics.ExecuteCommandBuffer(foo);
-            //    EndCaptureSceneView();
+                CommandBufferPool.Release(foo);
+                ListPool<FluidSolverCompute.ParticleToAdd>.Release(particles);
 
-            //    CommandBufferPool.Release(foo);
-            //    ListPool<FluidSolverCompute.ParticleToAdd>.Release(ps);
-            //    UnloadScene();
-            //    return;
-            //}
+                UnloadScene();
+                return;
+            }
 
             //BeginCaptureSceneView();
             //LoadScene(_scene);

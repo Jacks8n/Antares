@@ -4,6 +4,8 @@ using Sirenix.OdinInspector;
 using UnityEngine;
 using UnityEngine.Rendering;
 
+using static Antares.Graphics.AShaderSpecifications.FluidSolverCompute;
+
 namespace Antares.Physics
 {
     [ExecuteAlways]
@@ -84,7 +86,7 @@ namespace Antares.Physics
 #if UNITY_EDITOR
 
         [Button]
-        public void AddTestParticles()
+        private void AddTestParticles()
         {
             if (!enabled)
             {
@@ -92,13 +94,25 @@ namespace Antares.Physics
                 return;
             }
 
+            AddTestParticles(_particlesToAdd);
+        }
+
+        public void AddTestParticles(List<ParticleToAdd> particles)
+        {
+            float positionRange = 10f;
+            Vector3 positionOffset = new Vector3(0f, 0f, 16.4999f);
+
+            float velocityRange = 3f;
             for (int i = 0; i < 64; i++)
             {
-                Vector3 position = new Vector3(Random.value, Random.value, Random.value) * 10f + transform.position;
-                //Vector3 velocity = new Vector3(Random.value, Random.value, Random.value) - new Vector3(0.5f, 0.5f, 0.5f);
-                Vector3 velocity = Vector3.zero;
+                Vector3 position = positionRange * new Vector3(Random.value, Random.value, 0f) + transform.position;
+                position += positionOffset;
 
-                _particlesToAdd.Add(new AShaderSpecifications.FluidSolverCompute.ParticleToAdd(position, velocity));
+                //Vector3 velocity = new Vector3(Random.value, Random.value, Random.value) - new Vector3(0.5f, 0.5f, 0.5f);
+                //velocity *= 2f * velocityRange;
+                Vector3 velocity = new Vector3(0, 0, 3f);
+
+                particles.Add(new ParticleToAdd(position, velocity));
             }
         }
 

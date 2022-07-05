@@ -54,7 +54,7 @@ CBUFFER_START(RayMarchingParameters)
 
     float RayMarchingParams;
     #define PIXEL_APERTURE_W RayMarchingParams
-    
+
     float4 SceneSize;
     #define SCENE_SIZE SceneSize.xyz
     #ifndef USE_MIP_RANGE
@@ -64,7 +64,7 @@ CBUFFER_START(RayMarchingParameters)
         #define SCENE_MIP_MAX min(SceneSize.w, USE_MIP_LE)
         #define SCENE_MIP_MIN USE_MIP_GE
     #endif
-    
+
     float4 SDFBands;
     #ifndef USE_MIP_RANGE
         #define SDF_SUP_MIN_W SDFBands.x
@@ -293,7 +293,7 @@ void RayMarching(uint3 id : SV_DispatchThreadID)
         const float3 hit = d * t + o;
         const float3 color = SampleColor(hit);
         const float3 normal = SampleNormalLocal(hit, 0.0);
-        
+
         #if DEBUG_RAY_MARCHING_STEP
             SceneRM0[id.xy] = float4(float(i).xxx / MAX_RAY_MARCHING_STEP, 1.0);
         #elif DEBUG_RAY_MARCHING_DEPTH

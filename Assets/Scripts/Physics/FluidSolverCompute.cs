@@ -17,23 +17,12 @@ namespace Antares.Graphics
             {
                 private readonly Vector3 SceneVolumeTexel;
 
-                private readonly float Padding0;
-
-                private readonly Vector3 FluidGridToSDF;
-
-                private readonly float Padding1;
-
-                private readonly Vector2 FluidGridResolution;
+                private readonly float FluidGridSpacing;
 
                 public PhysicsSceneParameters(SDFScene scene, APhysicsScene physicsScene)
                 {
                     SceneVolumeTexel = scene.SizeInv;
-                    Padding0 = 0;
-                    FluidGridToSDF = scene.transform.position - physicsScene.transform.position;
-                    Padding1 = 0;
-                    FluidGridResolution = new Vector2(
-                        physicsScene.GridSpacing,
-                        1f / physicsScene.GridSpacing);
+                    FluidGridSpacing = physicsScene.GridSpacing;
                 }
             }
 
@@ -42,21 +31,27 @@ namespace Antares.Graphics
             {
                 private readonly Vector2 TimeStep;
 
-                private readonly Vector2 Padding;
+                private readonly Vector2 Padding0;
 
                 private readonly Vector3 FluidGravity;
 
-                private readonly float Padding2;
+                private readonly float Padding1;
 
                 private readonly Vector3 FluidGridTranslation;
 
-                public PhysicsFrameParameters(APhysicsScene physicsScene, float timeStep)
+                private readonly float Padding2;
+
+                private readonly Vector3 FluidGridToSDF;
+
+                public PhysicsFrameParameters(SDFScene scene, APhysicsScene physicsScene, float timeStep)
                 {
                     TimeStep = new Vector3(timeStep, 1f / timeStep);
-                    Padding = Vector2.zero;
+                    Padding0 = Vector2.zero;
                     FluidGravity = physicsScene.Gravity;
-                    Padding2 = 0f;
+                    Padding1 = 0f;
                     FluidGridTranslation = physicsScene.transform.position;
+                    Padding2 = 0f;
+                    FluidGridToSDF = scene.transform.position - physicsScene.transform.position;
                 }
             }
 
