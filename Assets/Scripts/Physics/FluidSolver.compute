@@ -14,6 +14,15 @@
 //  - original vdb paper: http://dx.doi.org/10.1145/2487228.2487235
 //  - nanovdb implementation: https://github.com/AcademySoftwareFoundation/openvdb/blob/feature/nanovdb/nanovdb/nanovdb/nanovdb/NanoVDB.h
 
+// todo
+// 1. scaffold crud
+//  1.1 create: add particles with distribution(cube, sphere, particle list, etc.)
+//  1.2 delete: remove particles with predicates(volume, property criteria)
+//  1.3 retrieve: query particles' properties(lifetime, material, etc.), collision detection
+//  1.4 update: update particles' properties
+// 2. test affine momentum
+// 3. rendering fluids
+
 #pragma use_dxc
 // #pragma enable_d3d11_debug_symbols
 

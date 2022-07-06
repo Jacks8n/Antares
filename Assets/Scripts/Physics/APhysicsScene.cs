@@ -86,7 +86,17 @@ namespace Antares.Physics
             }
         }
 
+        public void AddParticlesCube(Vector3 offset, Vector3 size, int count)
+        {
+
+        }
+
 #if UNITY_EDITOR
+
+        private enum TestSample { CubeMoveForwardZ }
+
+        [ShowInInspector]
+        private TestSample SampleToAdd;
 
         [Button]
         private void AddTestParticles()
@@ -102,8 +112,8 @@ namespace Antares.Physics
 
         public void AddTestParticles(List<ParticleToAdd> particles)
         {
-            float positionRange = 10f;
-            Vector3 positionOffset = new Vector3(0f, 0f, 0f);
+            float positionRange = 5f;
+            Vector3 positionOffset = new Vector3(10f, 10f, 10f);
 
             float velocityRange = 3f;
             for (int i = 0; i < 64; i++)
@@ -111,8 +121,9 @@ namespace Antares.Physics
                 Vector3 position = positionRange * new Vector3(Random.value, Random.value, Random.value) + transform.position;
                 position += positionOffset;
 
-                Vector3 velocity = new Vector3(Random.value, Random.value, Random.value) - new Vector3(0.5f, 0.5f, 0.5f);
-                velocity *= 2f * velocityRange;
+                //Vector3 velocity = new Vector3(Random.value, Random.value, Random.value) - new Vector3(0.5f, 0.5f, 0.5f);
+                //velocity *= 2f * velocityRange;
+                Vector3 velocity = new Vector3(-4f, -4f, -4f);
 
                 particles.Add(new ParticleToAdd(position, velocity));
             }
