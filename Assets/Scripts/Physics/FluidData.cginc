@@ -73,7 +73,7 @@ struct ParticleProperties
 };
 
 // layout: { indirect arg 0, particle count, indirect args{2}, ping-pong flag, prefix sum of particle count, (indexed position{n}){2} }
-// initial value: { 1, n, 0, 0, 0, 0, <valid indexed position>{n}, x{n} }
+// initial value: { 1, n, 0, 0, 1, 0, <valid indexed position>{n}, x{n} }
 extern A_RWBUFFER(uint) FluidParticlePositions;
 // layout: { ((alignas(32) particle properties){n} }
 // initial value: { <valid particle properties>{n}, x* }

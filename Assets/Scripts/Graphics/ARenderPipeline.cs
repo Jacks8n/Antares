@@ -1,6 +1,8 @@
-﻿using Antares.Physics;
+﻿using System;
+using Antares.Physics;
 using Antares.SDF;
 using Unity.Collections;
+using UnityEditorInternal;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
@@ -21,6 +23,14 @@ namespace Antares.Graphics
         public AShaderSpecifications ShaderSpecs { get; private set; }
 
         public RenderTargetIdentifier SceneVolume => _sceneVolume;
+
+#if UNITY_EDITOR
+        /// <summary>
+        /// If not empty, it will be invoked on the next <see cref="Render(ScriptableRenderContext, Camera[])"/>
+        /// call to perform RenderDoc capture. Then the <see cref="Scene"/> will be immediately unloaded.
+        /// </summary>
+        public event Action HookRenderDocCaptureEvents;
+#endif
 
         public SDFScene Scene { get; private set; }
 
@@ -76,9 +86,9 @@ namespace Antares.Graphics
                 _sceneVolume = CreateRWVolumeRT(GraphicsFormat.R8_SNorm, sceneVolumeSize, SceneMipCount);
                 _materialVolume = CreateRWVolumeRT(GraphicsFormat.R16_UInt, matVolumeSize, SceneMipCount);
             }
-            
+
             CommandBuffer cmd = CommandBufferPool.Get();
-            
+
             // clear volumes
             {
                 // 1.0 stands for maximum of snorm
@@ -268,35 +278,25 @@ namespace Antares.Graphics
 
         protected override void Render(ScriptableRenderContext context, Camera[] cameras)
         {
+#if UNITY_EDITOR
+            if (HookRenderDocCaptureEvents != null)
+            {
+                if (RenderDoc.IsLoaded())
+                {
+                    BeginCaptureSceneView();
+                    HookRenderDocCaptureEvents();
+                    EndCaptureSceneView();
+                }
+                else
+                    Debug.LogWarning("Enable RenderDoc Manually to Enable Hooks.");
+
+                HookRenderDocCaptureEvents = null;
+                return;
+            }
+#endif
+
             if (!IsSceneLoaded)
                 return;
-
-            //if (_physicsPipeline != null && _physicsPipeline.IsSceneLoaded)
-            //{
-
-            //    var particles = ListPool<FluidSolverCompute.ParticleToAdd>.Get();
-            //    CommandBuffer foo = CommandBufferPool.Get();
-
-            //    BeginCaptureSceneView();
-            //    APhysicsScene.Instance.AddTestParticles(particles);
-            //    _physicsPipeline.AddParticles(foo, particles);
-            //    //for (int i = 0; i < 10; i++)
-            //    _physicsPipeline.Solve(foo, 0.016f);
-            //    UGraphics.ExecuteCommandBuffer(foo);
-            //    EndCaptureSceneView();
-
-            //    CommandBufferPool.Release(foo);
-            //    ListPool<FluidSolverCompute.ParticleToAdd>.Release(particles);
-
-            //    UnloadScene();
-            //    return;
-            //}
-
-            //BeginCaptureSceneView();
-            //LoadScene(_scene);
-            //EndCaptureSceneView();
-            //UnloadScene();
-            //return;
 
             CommandBuffer cmd = CommandBufferPool.Get();
             CommandBuffer cmdCompute = CommandBufferPool.Get();

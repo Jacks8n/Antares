@@ -58,7 +58,9 @@ CBUFFER_START(PhysicsFrameParameters)
     #define TIME_STEP TimeStep.x
     #define TIME_STEP_INV TimeStep.y
 
-    float2 Padding1;
+    uint CurrentFrameAddParticleCount;
+
+    float Padding1;
 
     float3 FluidGravity;
     #define GLOBAL_GRAVITY FluidGravity
@@ -78,6 +80,51 @@ CBUFFER_END
 
 #define SORT_PARTICLE_KERNEL_SIZE 128
 
+extern RWBuffer<uint> FluidParticlePropertiesPool;
+
+uint GetPooledParticlePropertyCountOffset()
+{
+    return 0;
+}
+
+uint GetPooledParticlePropertyOffset(uint index)
+{
+    return GetPooledParticlePropertyCountOffset() + 1 + index;
+}
+
+uint GetPooledParticlePropertyCount()
+{
+    const uint offset = GetPooledParticlePropertyCountOffset();
+    return FluidParticlePropertiesPool.Load(offset);
+}
+
+void SetPooledParticlePropertyCount(uint count)
+{
+    const uint offset = GetPooledParticlePropertyCountOffset();
+    FluidParticlePropertiesPool[offset] = count;
+}
+
+uint GetPooledParticleProperty(uint index)
+{
+    const uint offset = GetPooledParticlePropertyOffset(index);
+    return FluidParticlePropertiesPool.Load(offset);
+}
+
+void SetPooledParticleProperty(uint index, uint propertyIndex)
+{
+    const uint offset = GetPooledParticlePropertyOffset(index);
+    FluidParticlePropertiesPool[offset] = propertyIndex;
+}
+
+uint AllocatePooledParticleProperties(uint count)
+{
+    uint lo;
+    const uint offset = GetPooledParticlePropertyCountOffset();
+    InterlockedAdd(FluidParticlePropertiesPool[offset], count, lo);
+
+    return lo;
+}
+
 /// begin generate indirect args
 
 uint3 GetIndirectGroupCounts(uint count)
@@ -95,7 +142,10 @@ extern RWBuffer<uint> IndirectArgs;
 [numthreads(1, 1, 1)]
 void GenerateIndirectArgs()
 {
-    const uint particleCount = GetFluidParticleCountPrefixSum();
+    const uint poolSize = GetPooledParticlePropertyCount();
+    SetPooledParticlePropertyCount(poolSize - min(CurrentFrameAddParticleCount, poolSize));
+
+    const uint particleCount = GetFluidParticleCountPrefixSum() + CurrentFrameAddParticleCount;
     SetFluidParticleCount(particleCount);
 
     const uint totalGroupCount = (particleCount + SORT_PARTICLE_KERNEL_SIZE - 1) / SORT_PARTICLE_KERNEL_SIZE;
@@ -138,6 +188,9 @@ groupshared uint3 BlockAllocationLevel1_GSM[SORT_PARTICLE_KERNEL_SIZE];
 groupshared uint BlockAllocationCountLevel0_GSM;
 groupshared uint3 BlockAllocationLevel0_GSM[SORT_PARTICLE_KERNEL_SIZE];
 groupshared uint3 GridPositionsLevel1_GSM[SORT_PARTICLE_KERNEL_SIZE];
+groupshared uint PooledParticleProperty_GSM[SORT_PARTICLE_KERNEL_SIZE];
+groupshared uint PooledParticlePropertyCount_GSM;
+groupshared uint PooledParticlePropertyOffset_GSM;
 
 groupshared uint BlockAllocationOffset_GSM;
 
@@ -148,6 +201,7 @@ void SortParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
     {
         BlockAllocationCountLevel0_GSM = 0;
         BlockAllocationCountLevel1_GSM = 0;
+        PooledParticlePropertyCount_GSM = 0;
     }
 
     GroupMemoryBarrierWithGroupSync();
@@ -168,7 +222,9 @@ void SortParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
         const ParticlePositionIndexed position = GetFluidParticlePosition(particleIndex, pingpongFlag);
         const int3 gridPositionLevel0 = GetKernelMinGridIndex(position.Position);
 
+        // whether the particle is within the bound
         valid = all(gridPositionLevel0 >= 0 && gridPositionLevel0 < FLUID_VIRTUAL_GRID_EXTENT);
+
         if (valid)
         {
             GetFluidGridPositions(gridPositionLevel0, gridPositionLevel1, gridPositionLevel2, gridOffsetLevel1);
@@ -211,15 +267,30 @@ void SortParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
                 }
             }
         }
+        else
+        {
+            uint offset;
+            InterlockedAdd(PooledParticlePropertyCount_GSM, 1, offset);
+
+            PooledParticleProperty_GSM[offset] = position.Index;
+        }
     }
 
     GroupMemoryBarrierWithGroupSync();
 
-    // allocate level 1 blocks
+    // allocate level 1 blocks and pooled particle properties
     if (!gi)
+    {
         InterlockedAdd(FluidBlockParticleIndices[GetFluidBlockCountOffset(1)], BlockAllocationCountLevel1_GSM, BlockAllocationOffset_GSM);
 
+        PooledParticlePropertyOffset_GSM = AllocatePooledParticleProperties(PooledParticlePropertyCount_GSM);
+    }
+
     GroupMemoryBarrierWithGroupSync();
+
+    // write pooled particle properties to uav
+    if (gi < PooledParticlePropertyCount_GSM)
+        SetPooledParticleProperty(PooledParticlePropertyOffset_GSM + gi, PooledParticleProperty_GSM[gi]);
 
     // update level 2 grids
     if (gi < BlockAllocationCountLevel1_GSM)
@@ -1074,42 +1145,38 @@ CBUFFER_END
 
 extern ByteAddressBuffer ParticlesToAdd;
 
-groupshared uint AddParticleOffset_GSM;
-
 [numthreads(ADD_PARTICLES_KERNEL_SIZE, 1, 1)]
-void AddParticles(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
+void AddParticles(uint3 tid : SV_DispatchThreadID, uint gi : SV_GroupIndex)
 {
-    const uint groupParticleCount = min(AddParticleCount - gid.x * ADD_PARTICLES_KERNEL_SIZE, ADD_PARTICLES_KERNEL_SIZE);
+    if (tid.x >= AddParticleCount)
+        return;
+
+    const uint poolSize = GetPooledParticlePropertyCount();
+    const uint prevParticleCount = GetFluidParticleCountPrefixSum();
+
+    uint propertyIndex;
+    if (tid.x < poolSize)
+        propertyIndex = GetPooledParticleProperty(poolSize - 1 - tid.x);
+    else
+        propertyIndex = tid.x + prevParticleCount;
+
+    ParticlePositionIndexed position;
+    ParticleProperties properties;
+
+    const float4 word0 = asfloat(ParticlesToAdd.Load4(tid.x * 24));
+    const float2 word1 = asfloat(ParticlesToAdd.Load2(tid.x * 24 + 16));
+
+    position.Position = word0.xyz;
+    position.Index = propertyIndex;
+
+    properties.SetVelocity(float3(word0.w, word1));
+    properties.SetZeroAffine();
+    properties.Mass = Mass;
+
+    // write to next ping pong buffer in advance
     const bool pingpongFlag = GetFluidParticlePositionPingPongFlag();
-
-    if (!gi)
-    {
-        AddParticleOffset_GSM = AccumulateParticleCountAtomic(groupParticleCount);
-    }
-
-    GroupMemoryBarrierWithGroupSync();
-
-    if (gi < groupParticleCount)
-    {
-        const uint particleIndex = AddParticleOffset_GSM + gi;
-
-        ParticlePositionIndexed position;
-        ParticleProperties properties;
-
-        const float4 word0 = asfloat(ParticlesToAdd.Load4(particleIndex * 24));
-        const float2 word1 = asfloat(ParticlesToAdd.Load2(particleIndex * 24 + 16));
-
-        position.Position = word0.xyz;
-        properties.SetVelocity(float3(word0.w, word1));
-
-        position.Index = particleIndex;
-        properties.Mass = Mass;
-        properties.SetZeroAffine();
-
-        // write to next ping pong buffer in advance
-        SetFluidParticlePosition(particleIndex, position, !pingpongFlag);
-        SetFluidParticleProperties(particleIndex, properties);
-    }
+    SetFluidParticlePosition(prevParticleCount + tid.x, position, !pingpongFlag);
+    SetFluidParticleProperties(propertyIndex, properties);
 }
 
 /// end add particle

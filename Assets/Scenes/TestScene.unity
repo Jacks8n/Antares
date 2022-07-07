@@ -387,6 +387,13 @@ MonoBehaviour:
   <Gravity>k__BackingField: {x: 0, y: 0, z: 0}
   <GridSpacing>k__BackingField: 1
   <TimeScale>k__BackingField: 1
+  SampleType: 0
+  SampleParams_CubeSize: {x: 5, y: 5, z: 5}
+  SampleParams_Offset: {x: 10, y: 10, z: 10}
+  SampleParams_Velocity: {x: -3, y: -3, z: -3}
+  SampleParams_RandomVelocity: 0
+  SampleParams_ParticleCount: 64
+  SampleParams_CaptureImmediately: 0
 --- !u!4 &241674071
 Transform:
   m_ObjectHideFlags: 0

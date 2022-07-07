@@ -50,8 +50,8 @@ namespace Antares.Physics
             }
             else
             {
-                Debug.LogWarning($"current rendering pipeline is not {nameof(ARenderPipeline)}, " +
-                    $"thus the physics pipeline is unavailable");
+                Debug.LogWarning($"Current Rendering Pipeline Is Not {nameof(ARenderPipeline)}, " +
+                    $"Physics Pipeline Is Unavailable.");
 
                 enabled = false;
             }
@@ -73,12 +73,13 @@ namespace Antares.Physics
             {
                 CommandBuffer cmd = CommandBufferPool.Get();
 
-                PhysicsPipeline.Solve(cmd, Time.fixedDeltaTime * TimeScale);
-                if (_particlesToAdd.Count > 0)
+                int addParticleCount = _particlesToAdd.Count;
+                if (addParticleCount > 0)
                 {
                     PhysicsPipeline.AddParticles(cmd, _particlesToAdd);
                     _particlesToAdd.Clear();
                 }
+                PhysicsPipeline.Solve(cmd, Time.fixedDeltaTime * TimeScale, addParticleCount);
 
                 UnityEngine.Graphics.ExecuteCommandBuffer(cmd);
 
@@ -86,47 +87,106 @@ namespace Antares.Physics
             }
         }
 
-        public void AddParticlesCube(Vector3 offset, Vector3 size, int count)
+        public void AddParticles(List<ParticleToAdd> particles)
         {
+            for (int i = 0; i < particles.Count; i++)
+                _particlesToAdd.Add(particles[i]);
+        }
 
+        public void AddParticlesCube(Vector3 size, Vector3 offset, Vector3 velocity, int particleCount, bool useRandomVelocity = false)
+        {
+            for (int i = 0; i < particleCount; i++)
+            {
+                Vector3 particlePosition = new Vector3(Random.value * size.x, Random.value * size.y, Random.value * size.z);
+                particlePosition += offset;
+
+                Vector3 particleVelocity = velocity;
+                if (useRandomVelocity)
+                {
+                    particleVelocity.x *= Random.value;
+                    particleVelocity.y *= Random.value;
+                    particleVelocity.z *= Random.value;
+                }
+
+                _particlesToAdd.Add(new ParticleToAdd(particlePosition, particleVelocity));
+            }
         }
 
 #if UNITY_EDITOR
 
-        private enum TestSample { CubeMoveForwardZ }
+        private enum TestSample { Cube }
 
-        [ShowInInspector]
-        private TestSample SampleToAdd;
+        [SerializeField]
+        [TitleGroup("Test Samples")]
+        [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0044:Add readonly modifier", Justification = "<Pending>")]
+        private TestSample SampleType;
 
+        [SerializeField]
+        [TitleGroup("Test Samples")]
+        [LabelText("Size")]
+        [ShowIf(nameof(SampleType), TestSample.Cube)]
+        private Vector3 SampleParams_CubeSize;
+
+        [SerializeField]
+        [TitleGroup("Test Samples")]
+        [LabelText("Offset")]
+        private Vector3 SampleParams_Offset;
+
+        [SerializeField]
+        [TitleGroup("Test Samples")]
+        [LabelText("Velocity")]
+        private Vector3 SampleParams_Velocity;
+
+        [SerializeField]
+        [TitleGroup("Test Samples")]
+        [LabelText("Use Random Velocity")]
+        private bool SampleParams_RandomVelocity;
+
+        [SerializeField]
+        [TitleGroup("Test Samples")]
+        [LabelText("Particle Count")]
+        [Range(1, 128)]
+        private int SampleParams_ParticleCount;
+
+        [SerializeField]
+        [TitleGroup("Test Samples")]
+        [LabelText("Capture Immediately after Adding Particales")]
+        private bool SampleParams_CaptureImmediately;
+
+        [TitleGroup("Test Samples")]
         [Button]
         private void AddTestParticles()
         {
             if (!enabled)
             {
-                Debug.LogWarning($"enable {nameof(APhysicsScene)} before adding particles");
+                Debug.LogWarning($"Enable {nameof(APhysicsScene)} before Adding Particles.");
                 return;
             }
 
-            AddTestParticles(_particlesToAdd);
+            switch (SampleType)
+            {
+                case TestSample.Cube:
+                    AddParticlesCube(SampleParams_CubeSize, SampleParams_Offset, SampleParams_Velocity,
+                        SampleParams_ParticleCount, SampleParams_RandomVelocity);
+                    break;
+                default:
+                    Debug.LogWarning("Unspported Sample Type.");
+                    return;
+            }
+
+            if (SampleParams_CaptureImmediately)
+                CaptureFrame();
         }
 
-        public void AddTestParticles(List<ParticleToAdd> particles)
+        [Button]
+        private void CaptureFrame()
         {
-            float positionRange = 5f;
-            Vector3 positionOffset = new Vector3(10f, 10f, 10f);
-
-            float velocityRange = 3f;
-            for (int i = 0; i < 64; i++)
+            if (RenderPipelineManager.currentPipeline is ARenderPipeline renderPipeline)
             {
-                Vector3 position = positionRange * new Vector3(Random.value, Random.value, Random.value) + transform.position;
-                position += positionOffset;
-
-                //Vector3 velocity = new Vector3(Random.value, Random.value, Random.value) - new Vector3(0.5f, 0.5f, 0.5f);
-                //velocity *= 2f * velocityRange;
-                Vector3 velocity = new Vector3(-4f, -4f, -4f);
-
-                particles.Add(new ParticleToAdd(position, velocity));
+                renderPipeline.HookRenderDocCaptureEvents += () => { FixedUpdate(); };
             }
+            else
+                Debug.LogWarning($"Current Rendering Pipeline Is Not {nameof(ARenderPipeline)}.");
         }
 
 #endif

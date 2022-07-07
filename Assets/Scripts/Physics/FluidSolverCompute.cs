@@ -31,7 +31,9 @@ namespace Antares.Graphics
             {
                 private readonly Vector2 TimeStep;
 
-                private readonly Vector2 Padding0;
+                private readonly uint CurrentFrameAddParticleCount;
+
+                private readonly float Padding0;
 
                 private readonly Vector3 FluidGravity;
 
@@ -43,10 +45,12 @@ namespace Antares.Graphics
 
                 private readonly Vector3 FluidGridToSDF;
 
-                public PhysicsFrameParameters(SDFScene scene, APhysicsScene physicsScene, float timeStep)
+                public PhysicsFrameParameters(SDFScene scene, APhysicsScene physicsScene, float timeStep,
+                    int currentFrameAddParticleCount)
                 {
                     TimeStep = new Vector3(timeStep, 1f / timeStep);
-                    Padding0 = Vector2.zero;
+                    CurrentFrameAddParticleCount = (uint)currentFrameAddParticleCount;
+                    Padding0 = 0f;
                     FluidGravity = physicsScene.Gravity;
                     Padding1 = 0f;
                     FluidGridTranslation = physicsScene.transform.position;
