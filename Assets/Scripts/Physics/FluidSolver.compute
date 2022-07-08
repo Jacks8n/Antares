@@ -40,8 +40,8 @@
 #include "HLSLSupport.cginc"
 #include "../Graphics/SDFUtil.cginc"
 
-#define DISABLE_WAVE_SCATTER 0
-#define DISABLE_PRESSURE_SOLVE 0
+#define DISABLE_WAVE_SCATTER 1
+#define DISABLE_PRESSURE_SOLVE 1
 
 /// begin constant buffer
 
@@ -213,13 +213,14 @@ void SortParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
     const uint particleIndex = groupIndex * SORT_PARTICLE_KERNEL_SIZE + gi;
     bool valid = particleIndex < particleCount;
 
+    const ParticlePositionIndexed position = GetFluidParticlePosition(particleIndex, pingpongFlag);
+
     // find level 1 blocks to allocate
     uint3 gridPositionLevel1;
     uint3 gridPositionLevel2;
     uint3 gridOffsetLevel1;
     if (valid)
     {
-        const ParticlePositionIndexed position = GetFluidParticlePosition(particleIndex, pingpongFlag);
         const int3 gridPositionLevel0 = GetKernelMinGridIndex(position.Position);
 
         // whether the particle is within the bound
@@ -239,6 +240,7 @@ void SortParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
                 BlockAllocationLevel1_GSM[index] = gridPositionLevel2;
             }
 
+            // allocate adjacent level 1 blocks
             uint i;
             UNITY_UNROLL
             for (i = 1; i < 8; i++)
@@ -278,19 +280,11 @@ void SortParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 
     GroupMemoryBarrierWithGroupSync();
 
-    // allocate level 1 blocks and pooled particle properties
+    // allocate level 1 blocks
     if (!gi)
-    {
         InterlockedAdd(FluidBlockParticleIndices[GetFluidBlockCountOffset(1)], BlockAllocationCountLevel1_GSM, BlockAllocationOffset_GSM);
 
-        PooledParticlePropertyOffset_GSM = AllocatePooledParticleProperties(PooledParticlePropertyCount_GSM);
-    }
-
     GroupMemoryBarrierWithGroupSync();
-
-    // write pooled particle properties to uav
-    if (gi < PooledParticlePropertyCount_GSM)
-        SetPooledParticleProperty(PooledParticlePropertyOffset_GSM + gi, PooledParticleProperty_GSM[gi]);
 
     // update level 2 grids
     if (gi < BlockAllocationCountLevel1_GSM)
@@ -378,7 +372,25 @@ void SortParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
             const uint offset = GetFluidBlockParticleIndexOffset(blockIndexLevel0Linear, index);
             FluidBlockParticleIndices[offset] = particleIndex;
         }
+        else
+        {
+            // also pool properties of particles that exceed the limit
+            InterlockedAdd(PooledParticlePropertyCount_GSM, 1, index);
+            PooledParticleProperty_GSM[index] = position.Index;
+        }
     }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    // allocate pool
+    if (!gi)
+        PooledParticlePropertyOffset_GSM = AllocatePooledParticleProperties(PooledParticlePropertyCount_GSM);
+
+    GroupMemoryBarrierWithGroupSync();
+
+    // write pooled particle properties to uav
+    if (gi < PooledParticlePropertyCount_GSM)
+        SetPooledParticleProperty(PooledParticlePropertyOffset_GSM + gi, PooledParticleProperty_GSM[gi]);
 }
 
 /// end sort particle
@@ -1080,7 +1092,7 @@ void GridToParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
             if (nsdf <= 0.0)
             {
                 const float sdf = nsdf * 4.0;
-                const float3 normal = SampleNormalLocal(sdfSampleLocation, 0.0);
+                const float3 normal = SampleNormal(sdfSampleLocation, 0.0);
                 const float3 displacement = -sdf * normal;
 
                 position.Position += displacement;
@@ -1146,7 +1158,7 @@ CBUFFER_END
 extern ByteAddressBuffer ParticlesToAdd;
 
 [numthreads(ADD_PARTICLES_KERNEL_SIZE, 1, 1)]
-void AddParticles(uint3 tid : SV_DispatchThreadID, uint gi : SV_GroupIndex)
+void AddParticles(uint3 tid : SV_DispatchThreadID)
 {
     if (tid.x >= AddParticleCount)
         return;

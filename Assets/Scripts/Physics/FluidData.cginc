@@ -287,6 +287,7 @@ ParticleProperties GetFluidParticleProperties(uint index)
 #define FLUID_GRID_ATOMIC_LOCK_OFFSET_LEVEL1 0
 #define FLUID_GRID_ATOMIC_LOCK_OFFSET_LEVEL2 (FLUID_GRID_ATOMIC_LOCK_OFFSET_LEVEL1 + FLUID_BLOCK_COUNT_LEVEL0)
 
+// n.b.: remember to update here if the number of per block info is changed
 #define FLUID_BLOCK_PARTICLE_STRIDE 64
 #define FLUID_BLOCK_MAX_PARTICLE_COUNT (FLUID_BLOCK_PARTICLE_STRIDE - 5)
 
@@ -534,14 +535,12 @@ uint GetFluidBlockParticleIndexOffset(uint blockIndex, uint particleIndex)
 uint GetFluidBlockCount(uint level)
 {
     const uint offset = GetFluidBlockCountOffset(level);
-
     return FluidBlockParticleIndices[offset];
 }
 
 uint3 GetFluidBlockPosition(uint blockIndexLevel0)
 {
     const uint offset = GetFluidBlockPositionOffset(blockIndexLevel0);
-
     return uint3(
         FluidBlockParticleIndices[offset],
         FluidBlockParticleIndices[offset +1],
@@ -552,9 +551,7 @@ uint3 GetFluidBlockPosition(uint blockIndexLevel0)
 uint GetFluidBlockParticleCount(uint blockIndexLevel0)
 {
     const uint offset = GetFluidBlockParticleCountOffset(blockIndexLevel0);
-    const uint particleCount = FluidBlockParticleIndices[offset];
-
-    return min(particleCount, FLUID_BLOCK_MAX_PARTICLE_COUNT);
+    return min(FluidBlockParticleIndices[offset], FLUID_BLOCK_MAX_PARTICLE_COUNT);
 }
 
 uint GetFluidBlockParticleCountPrefixSum(uint blockIndex)
@@ -565,14 +562,8 @@ uint GetFluidBlockParticleCountPrefixSum(uint blockIndex)
 
 void GetFluidBlockInfo(uint blockIndexLevel0, out uint3 gridPositionLevel1, out uint particleCount)
 {
-    const uint offset = GetFluidBlockInfoOffset(blockIndexLevel0);
-
-    particleCount = min(FluidBlockParticleIndices[offset +3], FLUID_BLOCK_MAX_PARTICLE_COUNT);
-    gridPositionLevel1 = uint3(
-        FluidBlockParticleIndices[offset],
-        FluidBlockParticleIndices[offset +1],
-        FluidBlockParticleIndices[offset +2]
-    );
+    gridPositionLevel1 = GetFluidBlockPosition(blockIndexLevel0);
+    particleCount = GetFluidBlockParticleCount(blockIndexLevel0);
 }
 
 // prefix sum of particle count is undefiend before particle to grid transfer

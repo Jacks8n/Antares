@@ -69,22 +69,12 @@ namespace Antares.Physics
 
         private void FixedUpdate()
         {
-            if (PhysicsPipeline != null && PhysicsPipeline.IsSceneLoaded)
-            {
-                CommandBuffer cmd = CommandBufferPool.Get();
+#if UNITY_EDITOR
+            if (_isCapturing)
+                return;
+#endif
 
-                int addParticleCount = _particlesToAdd.Count;
-                if (addParticleCount > 0)
-                {
-                    PhysicsPipeline.AddParticles(cmd, _particlesToAdd);
-                    _particlesToAdd.Clear();
-                }
-                PhysicsPipeline.Solve(cmd, Time.fixedDeltaTime * TimeScale, addParticleCount);
-
-                UnityEngine.Graphics.ExecuteCommandBuffer(cmd);
-
-                CommandBufferPool.Release(cmd);
-            }
+            Iterate(Time.fixedDeltaTime * TimeScale);
         }
 
         public void AddParticles(List<ParticleToAdd> particles)
@@ -112,6 +102,26 @@ namespace Antares.Physics
             }
         }
 
+        private void Iterate(float deltaTime)
+        {
+            if (PhysicsPipeline != null && PhysicsPipeline.IsSceneLoaded)
+            {
+                CommandBuffer cmd = CommandBufferPool.Get();
+
+                int addParticleCount = _particlesToAdd.Count;
+                if (addParticleCount > 0)
+                {
+                    PhysicsPipeline.AddParticles(cmd, _particlesToAdd);
+                    _particlesToAdd.Clear();
+                }
+                PhysicsPipeline.Solve(cmd, deltaTime, addParticleCount);
+
+                UnityEngine.Graphics.ExecuteCommandBuffer(cmd);
+
+                CommandBufferPool.Release(cmd);
+            }
+        }
+
 #if UNITY_EDITOR
 
         private enum TestSample { Cube }
@@ -119,39 +129,47 @@ namespace Antares.Physics
         [SerializeField]
         [TitleGroup("Test Samples")]
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0044:Add readonly modifier", Justification = "<Pending>")]
-        private TestSample SampleType;
+        private TestSample _sampleType;
 
         [SerializeField]
         [TitleGroup("Test Samples")]
         [LabelText("Size")]
-        [ShowIf(nameof(SampleType), TestSample.Cube)]
-        private Vector3 SampleParams_CubeSize;
+        [ShowIf(nameof(_sampleType), TestSample.Cube)]
+        private Vector3 _sampleParams_CubeSize;
 
         [SerializeField]
         [TitleGroup("Test Samples")]
         [LabelText("Offset")]
-        private Vector3 SampleParams_Offset;
+        private Vector3 _sampleParams_Offset;
 
         [SerializeField]
         [TitleGroup("Test Samples")]
         [LabelText("Velocity")]
-        private Vector3 SampleParams_Velocity;
+        private Vector3 _sampleParams_Velocity;
 
         [SerializeField]
         [TitleGroup("Test Samples")]
         [LabelText("Use Random Velocity")]
-        private bool SampleParams_RandomVelocity;
+        private bool _sampleParams_RandomVelocity;
 
         [SerializeField]
         [TitleGroup("Test Samples")]
         [LabelText("Particle Count")]
-        [Range(1, 128)]
-        private int SampleParams_ParticleCount;
+        [Range(1, 256)]
+        private int _sampleParams_ParticleCount;
 
         [SerializeField]
         [TitleGroup("Test Samples")]
         [LabelText("Capture Immediately after Adding Particales")]
-        private bool SampleParams_CaptureImmediately;
+        private bool _sampleParams_CaptureImmediately;
+
+        [SerializeField]
+        [TitleGroup("Test Samples")]
+        [LabelText("Capture Count")]
+        [Range(1, 8)]
+        private int _sampleParams_CaptureCount;
+
+        private bool _isCapturing;
 
         [TitleGroup("Test Samples")]
         [Button]
@@ -163,18 +181,18 @@ namespace Antares.Physics
                 return;
             }
 
-            switch (SampleType)
+            switch (_sampleType)
             {
                 case TestSample.Cube:
-                    AddParticlesCube(SampleParams_CubeSize, SampleParams_Offset, SampleParams_Velocity,
-                        SampleParams_ParticleCount, SampleParams_RandomVelocity);
+                    AddParticlesCube(_sampleParams_CubeSize, _sampleParams_Offset, _sampleParams_Velocity,
+                        _sampleParams_ParticleCount, _sampleParams_RandomVelocity);
                     break;
                 default:
                     Debug.LogWarning("Unspported Sample Type.");
                     return;
             }
 
-            if (SampleParams_CaptureImmediately)
+            if (_sampleParams_CaptureImmediately)
                 CaptureFrame();
         }
 
@@ -183,7 +201,13 @@ namespace Antares.Physics
         {
             if (RenderPipelineManager.currentPipeline is ARenderPipeline renderPipeline)
             {
-                renderPipeline.HookRenderDocCaptureEvents += () => { FixedUpdate(); };
+                _isCapturing = true;
+                renderPipeline.HookRenderDocCaptureEvents += () =>
+                {
+                    for (int i = 0; i < _sampleParams_CaptureCount; i++)
+                        FixedUpdate();
+                };
+                _isCapturing = false;
             }
             else
                 Debug.LogWarning($"Current Rendering Pipeline Is Not {nameof(ARenderPipeline)}.");
