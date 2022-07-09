@@ -40,7 +40,7 @@
 #include "HLSLSupport.cginc"
 #include "../Graphics/SDFUtil.cginc"
 
-#define DISABLE_WAVE_SCATTER 1
+#define DISABLE_WAVE_SCATTER 0
 #define DISABLE_PRESSURE_SOLVE 1
 
 /// begin constant buffer
@@ -195,7 +195,7 @@ groupshared uint PooledParticlePropertyOffset_GSM;
 groupshared uint BlockAllocationOffset_GSM;
 
 [numthreads(SORT_PARTICLE_KERNEL_SIZE, 1, 1)]
-void SortParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
+void SortParticle(uint3 tid : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 {
     if (!gi)
     {
@@ -271,9 +271,9 @@ void SortParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
         }
         else
         {
+            // pool properties of particles that are out of bound
             uint offset;
             InterlockedAdd(PooledParticlePropertyCount_GSM, 1, offset);
-
             PooledParticleProperty_GSM[offset] = position.Index;
         }
     }
@@ -304,7 +304,7 @@ void SortParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
         uint blockIndexLevel1Linear;
         do
         {
-            blockIndexLevel1Linear = FluidGridLevel2[gridPositionLevel2];
+            InterlockedOr(FluidGridLevel2[gridPositionLevel2], 0, blockIndexLevel1Linear);
         } while (!IsValidFluidBlockIndex(blockIndexLevel1Linear));
         blockIndexLevel1Linear = DecodeFluidBlockIndex(blockIndexLevel1Linear);
 
@@ -333,11 +333,12 @@ void SortParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
     // update level 1 grids
     if (gi < BlockAllocationCountLevel0_GSM)
     {
-        const uint3 blockIndexLevel0Linear = BlockAllocationOffset_GSM + gi;
-        uint offset = GetFluidBlockParticleCountOffset(blockIndexLevel0Linear);
-        FluidBlockParticleIndices[offset] = 0;
-
         uint _;
+
+        const uint blockIndexLevel0Linear = BlockAllocationOffset_GSM + gi;
+        uint offset = GetFluidBlockParticleCountOffset(blockIndexLevel0Linear);
+        InterlockedExchange(FluidBlockParticleIndices[offset], 0, _);
+
         InterlockedExchange(
             FluidGridLevel1[BlockAllocationLevel0_GSM[gi]],
             EncodeFluidBlockIndex(blockIndexLevel0Linear), _);
@@ -358,7 +359,7 @@ void SortParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
         uint blockIndexLevel0Linear;
         do
         {
-            blockIndexLevel0Linear = FluidGridLevel1[gridIndexLevel1];
+            InterlockedOr(FluidGridLevel1[gridIndexLevel1], 0, blockIndexLevel0Linear);
         } while (!IsValidFluidBlockIndex(blockIndexLevel0Linear));
         blockIndexLevel0Linear = DecodeFluidBlockIndex(blockIndexLevel0Linear);
 
