@@ -205,7 +205,10 @@ namespace Antares.Physics
                 renderPipeline.HookRenderDocCaptureEvents += () =>
                 {
                     for (int i = 0; i < _sampleParams_CaptureCount; i++)
-                        FixedUpdate();
+                        if (Application.isPlaying)
+                            Iterate(Time.fixedDeltaTime * TimeScale);
+                        else
+                            Iterate(1f / 60f * TimeScale);
                 };
                 _isCapturing = false;
             }

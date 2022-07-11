@@ -122,10 +122,10 @@ namespace Antares.Graphics
 
             public int SortParticleKernel { get; private set; }
 
-            public int ParticleToGridKernel { get; private set; }
+            public int ParticleToGrid0Kernel { get; private set; }
+            public int ParticleToGrid1Kernel { get; private set; }
 
             public int SolveGridLevel0Kernel { get; private set; }
-
             public int SolveGridLevel1Kernel { get; private set; }
 
             public int GridToParticleKernel { get; private set; }
@@ -133,7 +133,6 @@ namespace Antares.Graphics
             public int GenerateIndirectArgsKernel { get; private set; }
 
             public int ClearFluidGridLevel0 { get; private set; }
-
             public int ClearFluidGridLevel1 { get; private set; }
 
             public int AddParticlesKernel { get; private set; }
@@ -142,7 +141,8 @@ namespace Antares.Graphics
             {
                 GenerateIndirectArgsKernel = Shader.FindKernel("GenerateIndirectArgs");
                 SortParticleKernel = Shader.FindKernel("SortParticle");
-                ParticleToGridKernel = Shader.FindKernel("ParticleToGrid");
+                ParticleToGrid0Kernel = Shader.FindKernel("ParticleToGrid0");
+                ParticleToGrid1Kernel = Shader.FindKernel("ParticleToGrid1");
                 SolveGridLevel0Kernel = Shader.FindKernel("SolveGridLevel0");
                 SolveGridLevel1Kernel = Shader.FindKernel("SolveGridLevel1");
                 GridToParticleKernel = Shader.FindKernel("GridToParticle");
