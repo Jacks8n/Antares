@@ -106,7 +106,7 @@ Shader "Unlit/DebugParticle"
                 const float sdf = max(0.5 - length(xy), 0.0);
                 color = float4(sdf * 0.5 + 0.5, 0.0, 0.0, sdf > 0.0);
 
-                depth = sdf > 0.0 ? 1.0 - Linear01Depth(i.vertex.z) : 0.0;
+                depth = sdf > 0.0 ? i.vertex.z : 0.0;
             }
             ENDCG
         }

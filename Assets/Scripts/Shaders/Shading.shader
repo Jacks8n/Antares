@@ -55,9 +55,12 @@
                 int2 uvInt = int2(floor(i.uv * FrameBufferSize));
                 float4 color_rast = UNITY_READ_FRAMEBUFFER_INPUT(0, uvInt);
                 float depth_rast = UNITY_READ_FRAMEBUFFER_INPUT(1, uvInt);
+                depth_rast = LinearEyeDepth(depth_rast);
 
                 float4 rm0 = SceneRM0.Sample(Sampler_Clamp_Point, i.uv);
                 float4 rm1 = SceneRM1.Sample(Sampler_Clamp_Point, i.uv);
+
+                float depth = min(depth_rast, rm1.x);
 
                 float3 view = normalize(i.wpos);
                 float3 refl = reflect(_WorldSpaceLightPos0, rm1.xyz);
@@ -66,11 +69,11 @@
                 float3 lum = vn * -dot(refl, view) * rm0.rgb;
 
                 float3 col;
-                col = depth_rast != 0.0 ? color_rast : rm0.rgb;
+                col = depth_rast < rm1.x ? color_rast : rm0.rgb;
 
                 float alpha;
                 alpha = max(rm0.a, color_rast.a);
-                
+
                 return float4(col, alpha);
             }
             ENDCG

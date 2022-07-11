@@ -891,7 +891,7 @@ void ParticleToGrid1(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
                 {
                     const float weight = weights[j].x * weights[k].y * weights[l].z;
                     const float3 gridToParticle = gridToParticleOffset -float3(j, k, l);
-                    float3 momentum = weight * mul(c, gridToParticle - float3(j, k, l));
+                    float3 momentum = weight * mul(c, gridToParticle);
 
                     #if !DISABLE_WAVE_SCATTER
                         uint stride = 1;
@@ -1040,19 +1040,19 @@ void SolveGridLevel0(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
     float3 velocity = 0.0;
     SolveGrid(mass, momentum, velocity);
 
-    const uint3 gridPosition = GetFluidBlockPosition(gid.x) * FLUID_BLOCK_SIZE_LEVEL0 + gtid;
-    const float3 positionSDFSpace = gridPosition + FluidGridToSDF;
-    const float3 sdfSampleLocation = positionSDFSpace * SCENE_VOLUME_TEXEL;
-    if (all(sdfSampleLocation > 0.0 && sdfSampleLocation < 1.0))
-    {
-        const float nsdf = SampleNormalizedSDF(sdfSampleLocation, 0.0);
-        if (nsdf <= 0.0)
-        {
-            const float3 normal = SampleNormal(sdfSampleLocation, 0.0);
+    // const uint3 gridPosition = GetFluidBlockPosition(gid.x) * FLUID_BLOCK_SIZE_LEVEL0 + gtid;
+    // const float3 positionSDFSpace = gridPosition + FluidGridToSDF;
+    // const float3 sdfSampleLocation = positionSDFSpace * SCENE_VOLUME_TEXEL;
+    // if (all(sdfSampleLocation > 0.0 && sdfSampleLocation < 1.0))
+    // {
+    //     const float nsdf = SampleNormalizedSDF(sdfSampleLocation, 0.0);
+    //     if (nsdf <= 0.0)
+    //     {
+    //         const float3 normal = SampleNormal(sdfSampleLocation, 0.0);
 
-            velocity -= dot(velocity, normal) * normal;
-        }
-    }
+    //         velocity -= dot(velocity, normal) * normal;
+    //     }
+    // }
 
     const int3 velocityEncoded = EncodeFluidGridMomentum(velocity);
     FluidGridLevel0[gridIndex + FLUID_GRID_CHANNEL1_OFFSET] = velocityEncoded.x;
