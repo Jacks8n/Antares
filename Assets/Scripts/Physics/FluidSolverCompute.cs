@@ -120,7 +120,9 @@ namespace Antares.Graphics
             [field: SerializeField, LabelText(nameof(Shader))]
             public ComputeShader Shader { get; private set; }
 
-            public int SortParticleKernel { get; private set; }
+            public int GenerateParticleHistogramKernel { get; private set; }
+            public int GenerateParticleOffsetsKernel { get; private set; }
+            public int SortParticlesKernel { get; private set; }
 
             public int ParticleToGrid0Kernel { get; private set; }
             public int ParticleToGrid1Kernel { get; private set; }
@@ -140,7 +142,9 @@ namespace Antares.Graphics
             void IShaderSpec.Initialize()
             {
                 GenerateIndirectArgsKernel = Shader.FindKernel("GenerateIndirectArgs");
-                SortParticleKernel = Shader.FindKernel("SortParticle");
+                GenerateParticleHistogramKernel = Shader.FindKernel("GenerateParticleHistogram");
+                GenerateParticleOffsetsKernel = Shader.FindKernel("GenerateParticleOffsets");
+                SortParticlesKernel = Shader.FindKernel("SortParticles");
                 ParticleToGrid0Kernel = Shader.FindKernel("ParticleToGrid0");
                 ParticleToGrid1Kernel = Shader.FindKernel("ParticleToGrid1");
                 SolveGridLevel0Kernel = Shader.FindKernel("SolveGridLevel0");

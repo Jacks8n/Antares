@@ -27,7 +27,9 @@
 // #pragma enable_d3d11_debug_symbols
 
 #pragma kernel GenerateIndirectArgs
-#pragma kernel SortParticle
+#pragma kernel GenerateParticleHistogram
+#pragma kernel GenerateParticleOffsets
+#pragma kernel SortParticles
 #pragma kernel ParticleToGrid0
 #pragma kernel ParticleToGrid1
 #pragma kernel SolveGridLevel0
@@ -78,7 +80,7 @@ CBUFFER_END
 
 /// begin sort particle
 
-#define SORT_PARTICLE_KERNEL_SIZE 128
+#define GENERATE_PARTICLE_HISTOGRAM_KERNEL_SIZE 128
 
 extern RWBuffer<uint> FluidParticlePropertiesPool;
 
@@ -148,7 +150,7 @@ void GenerateIndirectArgs()
     const uint particleCount = GetFluidParticleCountPrefixSum() + CurrentFrameAddParticleCount;
     SetFluidParticleCount(particleCount);
 
-    const uint totalGroupCount = (particleCount + SORT_PARTICLE_KERNEL_SIZE - 1) / SORT_PARTICLE_KERNEL_SIZE;
+    const uint totalGroupCount = (particleCount + GENERATE_PARTICLE_HISTOGRAM_KERNEL_SIZE - 1) / GENERATE_PARTICLE_HISTOGRAM_KERNEL_SIZE;
     const uint3 groupCounts = GetIndirectGroupCounts(totalGroupCount);
     IndirectArgs[0] = groupCounts.x;
     IndirectArgs[1] = groupCounts.y;
@@ -184,18 +186,18 @@ int3 GetKernelMinGridIndex(float3 gridSpacePosition)
 }
 
 groupshared uint BlockAllocationCountLevel1_GSM;
-groupshared uint3 BlockAllocationLevel1_GSM[SORT_PARTICLE_KERNEL_SIZE];
+groupshared uint3 BlockAllocationLevel1_GSM[GENERATE_PARTICLE_HISTOGRAM_KERNEL_SIZE];
 groupshared uint BlockAllocationCountLevel0_GSM;
-groupshared uint3 BlockAllocationLevel0_GSM[SORT_PARTICLE_KERNEL_SIZE];
-groupshared uint3 GridPositionsLevel1_GSM[SORT_PARTICLE_KERNEL_SIZE];
-groupshared uint PooledParticleProperty_GSM[SORT_PARTICLE_KERNEL_SIZE];
+groupshared uint3 BlockAllocationLevel0_GSM[GENERATE_PARTICLE_HISTOGRAM_KERNEL_SIZE];
+groupshared uint3 GridPositionsLevel1_GSM[GENERATE_PARTICLE_HISTOGRAM_KERNEL_SIZE];
+groupshared uint PooledParticleProperty_GSM[GENERATE_PARTICLE_HISTOGRAM_KERNEL_SIZE];
 groupshared uint PooledParticlePropertyCount_GSM;
 groupshared uint PooledParticlePropertyOffset_GSM;
 
 groupshared uint BlockAllocationOffset_GSM;
 
-[numthreads(SORT_PARTICLE_KERNEL_SIZE, 1, 1)]
-void SortParticle(uint3 tid : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
+[numthreads(GENERATE_PARTICLE_HISTOGRAM_KERNEL_SIZE, 1, 1)]
+void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 {
     if (!gi)
     {
@@ -280,11 +282,20 @@ void SortParticle(uint3 tid : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint 
 
     GroupMemoryBarrierWithGroupSync();
 
-    // allocate level 1 blocks
     if (!gi)
+    {
+        // allocate pool
+        PooledParticlePropertyOffset_GSM = AllocatePooledParticleProperties(PooledParticlePropertyCount_GSM);
+
+        // allocate level 1 blocks
         InterlockedAdd(FluidBlockParticleIndices[GetFluidBlockCountOffset(1)], BlockAllocationCountLevel1_GSM, BlockAllocationOffset_GSM);
+    }
 
     GroupMemoryBarrierWithGroupSync();
+
+    // write pooled particle properties to uav
+    if (gi < PooledParticlePropertyCount_GSM)
+        SetPooledParticleProperty(PooledParticlePropertyOffset_GSM + gi, PooledParticleProperty_GSM[gi]);
 
     // update level 2 grids
     if (gi < BlockAllocationCountLevel1_GSM)
@@ -367,31 +378,100 @@ void SortParticle(uint3 tid : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint 
 
         uint index;
         InterlockedAdd(FluidBlockParticleIndices[particleCountOffset], 1, index);
+    }
+}
 
-        if (index < FLUID_BLOCK_MAX_PARTICLE_COUNT)
-        {
-            const uint offset = GetFluidBlockParticleIndexOffset(blockIndexLevel0Linear, index);
-            FluidBlockParticleIndices[offset] = particleIndex;
-        }
-        else
-        {
-            // also pool properties of particles that exceed the limit
-            InterlockedAdd(PooledParticlePropertyCount_GSM, 1, index);
-            PooledParticleProperty_GSM[index] = position.Index;
-        }
+#define GENERATE_PARTICLE_OFFSETS_KERNEL_SIZE 128
+#define PARTITION_SIZE (GENERATE_PARTICLE_OFFSETS_KERNEL_SIZE * 8)
+
+extern RWBuffer<uint> GroupPartitions;
+
+uint PreemptPartition()
+{
+    uint partitionIndex;
+    InterlockedAdd(PartitionDescriptors[0], 1, partitionIndex);
+    return partitionIndex;
+}
+
+uint GetPartitionAggregateOffset(uint index)
+{
+    return index * 2 + 1;
+}
+
+uint GetPartitionInclusiveSumOffset(uint index)
+{
+    return index * 2 + 2;
+}
+
+groupshared uint PartitionIndex_GSM;
+groupshared uint BlockIndexOffset_GSM;
+groupshared uint PartitionSize_GSM;
+groupshared uint ParticleAggregate_GSM = 0;
+groupshared uint GlobalExclusivePrefixSum_GSM = 0;
+// WaveGetLaneCount() guarantees that 4~128 lanes are presented
+// see https://docs.microsoft.com/en-us/windows/win32/direct3dhlsl/wavegetlanecount
+groupshared uint PrefixSumHelper_GSM[16 + 4 + 1];
+
+[numthreads(GENERATE_PARTICLE_OFFSETS_KERNEL_SIZE, 1, 1)]
+void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_GroupIndex)
+{
+    if (!gi)
+    {
+        PartitionIndex_GSM = PreemptPartition();
+        BlockIndexOffset_GSM = PartitionIndex_GSM * PARTITION_SIZE;
+
+        const uint blockCount = GetFluidBlockCount(0);
+        PartitionSize_GSM = min(blockCount - BlockIndexOffset_GSM, PARTITION_SIZE);
     }
 
     GroupMemoryBarrierWithGroupSync();
 
-    // allocate pool
+    const uint laneCount = WaveGetLaneCount();
+    const uint laneIndex = WaveGetLaneIndex();
+    const uint waveIndex = gi / laneCount;
+    const uint groupWaveCount = max(kernelSize / laneCount, 1);
+
+    // calculate group aggregate
+    uint i;
+    for (i = gi; i < PartitionSize_GSM; i += kernelSize)
+    {
+        const uint particleCount = GetFluidBlockParticleCount(ParticleOffset_GSM + i);
+        const uint waveParticleCount = WaveActiveSum(particleCount);
+
+        if (WaveIsFirstLane())
+            PrefixSumHelper_GSM[waveIndex] = waveParticleCount;
+
+        // todo
+        GroupMemoryBarrierWithGroupSync();
+
+        // wave reduce sum
+        uint prefixSumDst = 0;
+        for (uint j = groupWaveCount; j > 1; j /= laneCount)
+        {
+            if (gi < j)
+            {
+                const uint particleCount = WaveActiveSum(PrefixSumHelper_GSM[prefixSumDst + gi]);
+                prefixSumDst += j;
+                if (WaveIsFirstLane())
+                    PrefixSumHelper_GSM[prefixSumDst + gi / laneCount] = particleCount;
+            }
+            GroupMemoryBarrierWithGroupSync();
+        }
+
+        if (!gi)
+            ParticleAggregate_GSM += PrefixSumHelper_GSM[prefixSumDst];
+    }
+
     if (!gi)
-        PooledParticlePropertyOffset_GSM = AllocatePooledParticleProperties(PooledParticlePropertyCount_GSM);
+        SetPartitionAggregate(PartitionIndex_GSM, ParticleAggregate_GSM);
+}
 
-    GroupMemoryBarrierWithGroupSync();
+#define SORT_PARTICLES_KERNEL_SIZE 128
 
-    // write pooled particle properties to uav
-    if (gi < PooledParticlePropertyCount_GSM)
-        SetPooledParticleProperty(PooledParticlePropertyOffset_GSM + gi, PooledParticleProperty_GSM[gi]);
+[numthreads(SORT_PARTICLES_KERNEL_SIZE, 1, 1)]
+void SortParticles(uint3 tid : SV_DispatchThreadID)
+{
+
 }
 
 /// end sort particle

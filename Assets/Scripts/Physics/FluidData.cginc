@@ -433,7 +433,7 @@ uint DecodeFluidBlockIndex(uint index)
 // not arranged in a long-cube manner. consequently encoding/decoding is required.
 // it forms a bijection between continuous indices and indices of grid blocks.
 #define DEF_LINEARIZE_FLUID_BLOCK_INDEX_FUNC(level) \
-uint GetGridIndexLinearLevel##level(uint3 index) \
+uint GetFluidBlockIndexLinearLevel##level(uint3 index) \
 { \
     return GetGridIndexLinear(index, uint2(FLUID_BLOCK_COUNT_X_LEVEL##level, FLUID_BLOCK_COUNT_Y_LEVEL##level)); \
 } \
