@@ -160,7 +160,7 @@ MonoBehaviour:
     ParameterOffset: 31
   <BrushParameters>k__BackingField:
   - 5
-  - 1
+  - 1.5
   - 5
   - 10
   - 10
@@ -170,13 +170,13 @@ MonoBehaviour:
   - 8
   - 8
   - 8
-  - 1
+  - 1.5
   - 5
   - 5
   - 8
   - 8
   - 8
-  - 1
+  - 1.5
   - 5
   - 5
   - 3
@@ -185,11 +185,11 @@ MonoBehaviour:
   - 7
   - 5
   - 5
-  - 1
+  - 1.5
   - 10
   - 9
   - 9
   - 9
   - 5
   - 5
-  - 1
+  - 1.5
