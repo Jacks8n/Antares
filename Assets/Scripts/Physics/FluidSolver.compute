@@ -383,7 +383,7 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint3 gid : SV_G
 }
 
 #define GENERATE_PARTICLE_OFFSETS_KERNEL_SIZE 128
-#define PARTITION_SIZE (GENERATE_PARTICLE_OFFSETS_KERNEL_SIZE * 8)
+#define MAX_PARTITION_SIZE (GENERATE_PARTICLE_OFFSETS_KERNEL_SIZE * 8)
 
 extern RWBuffer<uint> GroupPartitions;
 
@@ -423,11 +423,12 @@ uint GetPartitionValue(uint offset)
 groupshared uint PartitionIndex_GSM;
 groupshared uint BlockIndexOffset_GSM;
 groupshared uint PartitionSize_GSM;
-groupshared uint ParticleCounts_GSM[PARTITION_SIZE];
+groupshared uint ParticleCounts_GSM[MAX_PARTITION_SIZE];
 // WaveGetLaneCount() guarantees that 4~128 lanes are presented
 // see https://docs.microsoft.com/en-us/windows/win32/direct3dhlsl/wavegetlanecount
-groupshared uint WaveSums_GSM[PARTITION_SIZE / 3];
-groupshared uint WavePrefixSums_GSM[PARTITION_SIZE / 3 / 3];
+groupshared uint WaveSums_GSM[MAX_PARTITION_SIZE / 3];
+groupshared uint WavePrefixSums_GSM[MAX_PARTITION_SIZE / 3 / 3];
+groupshared uint GlobalExclusiveSum_GSM;
 
 [numthreads(GENERATE_PARTICLE_OFFSETS_KERNEL_SIZE, 1, 1)]
 void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_GroupIndex)
@@ -435,10 +436,10 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
     if (!gi)
     {
         PartitionIndex_GSM = PreemptPartition();
-        BlockIndexOffset_GSM = PartitionIndex_GSM * PARTITION_SIZE;
+        BlockIndexOffset_GSM = PartitionIndex_GSM * MAX_PARTITION_SIZE;
 
         const uint blockCount = GetFluidBlockCount(0);
-        PartitionSize_GSM = min(blockCount - BlockIndexOffset_GSM, PARTITION_SIZE);
+        PartitionSize_GSM = min(blockCount - BlockIndexOffset_GSM, MAX_PARTITION_SIZE);
     }
 
     GroupMemoryBarrierWithGroupSync();
@@ -446,42 +447,48 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
     const uint laneIndex = WaveGetLaneIndex();
     const uint laneCount = WaveGetLaneCount();
     const bool isFirstLane = WaveIsFirstLane();
+    // kernel size is assumed to be power of 2
     const uint kernelSize = GENERATE_PARTICLE_OFFSETS_KERNEL_SIZE;
-    const uint waveCount = (kernelSize + laneCount - 1) / laneCount;
+    const uint waveCount = (PartitionSize_GSM + laneCount - 1) / laneCount;
+    // max partition size is assumed to be larger than 128
+    const uint maxWaveCount = MAX_PARTITION_SIZE / laneCount;
 
-    // calculate per wave sum and write to gsm
+    // per wave sum and write to gsm
     uint i, j;
-    for (i = gi; i - laneIndex < PartitionSize_GSM; i += kernelSize)
+    for (i = gi; i < PartitionSize_GSM; i += kernelSize)
     {
-        if (i < PartitionSize_GSM)
-        {
-            const uint particleCount = GetFluidBlockParticleCount(ParticleOffset_GSM + i);
-            ParticleCounts_GSM[i] = particleCount;
+        const uint particleCount = GetFluidBlockParticleCount(ParticleOffset_GSM + i);
+        ParticleCounts_GSM[i] = particleCount;
 
-            const uint waveParticleCount = WaveActiveSum(particleCount);
-            if (isFirstLane)
-                WaveSums_GSM[i / laneCount] = waveParticleCount;
-        }
+        const uint waveParticleCount = WaveActiveSum(particleCount);
+        if (isFirstLane)
+            WaveSums_GSM[i / laneCount] = waveParticleCount;
     }
 
-    // calculate per group sum
-    uint srcOffset = 0, dstOffset = 0;
-    for (i = waveCount; i > 1; i = (i + laneCount - 1) / laneCount)
+    for (i = gi + waveCount; i < maxWaveCount; i += kernelSize)
     {
-        GroupMemoryBarrierWithGroupSync();
+        WaveSums_GSM[i] = 0;
+    }
 
-        for (j = gi; j - laneIndex < i; j += kernelSize)
+    GroupMemoryBarrierWithGroupSync();
+
+    // per group sum
+    uint srcOffset = 0;
+    uint dstOffset = 0;
+    for (i = maxWaveCount; i > 1; i /= laneCount)
+    {
+        dstOffset += i;
+
+        for (j = gi; j < i; j += kernelSize)
         {
-            if (j < i)
-            {
-                const uint waveParticleCount = WaveActiveSum(WaveSums_GSM[j + srcOffset]);
-                if (isFirstLane)
-                    WaveSums_GSM[j / laneCount + dstOffset] = waveParticleCount;
-            }
+            const uint waveParticleCount = WaveActiveSum(WaveSums_GSM[j + srcOffset]);
+            if (isFirstLane)
+                WaveSums_GSM[j / laneCount + dstOffset] = waveParticleCount;
         }
 
         srcOffset = dstOffset;
-        dstOffset += i;
+
+        GroupMemoryBarrierWithGroupSync();
     }
 
     const uint partitionSum = WaveSums_GSM[srcOffset];
@@ -493,49 +500,57 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
     // look back to calculate exclusive prefix sum
     if (gi < laneCount)
     {
-        uint partialSum = 0;
         for (i = laneIndex; i - laneIndex < PartitionIndex_GSM; i += lookbackSize)
         {
             // look back with polling
-            uint lookbackInclusiveSum;
-            uint lookbackSum;
-            uint4 sumMask;
-            do
+            uint lookbackSum = 0;
+            bool hasInclusiveSum;
+            while (true)
             {
                 // until `if` here, no divergence is within the wave
                 if (i < PartitionIndex_GSM)
                 {
                     const uint lookbackIndex = PartitionIndex_GSM - i - 1;
 
-                    lookbackInclusiveSum = GetPartitionValue(GetPartitionInclusiveSumOffset(lookbackIndex));
+                    const uint lookbackInclusiveSum = GetPartitionValue(GetPartitionInclusiveSumOffset(lookbackIndex));
                     // lane order is reversed in look-back window
                     const uint4 inclusiveSumMask = WaveActiveBallot(lookbackInclusiveSum != PARTITION_VALUE_NULL);
                     const bool4 isInclusiveSumReady = inclusiveSumMask;
 
                     const int4 inclusiveSumLane4 = isInclusiveSumReady ? firstbitlow(inclusiveSumMask) + int4(0, 32, 64, 96) : int(128).xxxx;
-                    const uint minInclusiveSumLane = min(min(inclusiveSumLane4.x, inclusiveSumLane4.y), min(inclusiveSumLane4.z, inclusiveSumLane4.w));
-                    lookbackInclusiveSum = WaveReadLaneAt(lookbackInclusiveSum, minInclusiveSumLane);
+                    const int minInclusiveSumLane = min(min(inclusiveSumLane4.x, inclusiveSumLane4.y), min(inclusiveSumLane4.z, inclusiveSumLane4.w));
+                    hasInclusiveSum = minInclusiveSumLane < 128;
 
-                    lookbackSum = PARTITION_VALUE_NULL;
-                    if (laneIndex < sumLaneCount)
+                    if (laneIndex < minInclusiveSumLane)
                         lookbackSum = GetPartitionValue(GetPartitionSumOffset(lookbackIndex));
 
-                    sumMask = WaveActiveBallot(lookbackSum == PARTITION_VALUE_NULL);
+                    if (laneIndex == minInclusiveSumLane)
+                        GlobalExclusiveSum_GSM = lookbackInclusiveSum;
                 }
-            } while (any(sumMask));
 
-            // todo
-            WaveActiveSum();
-
-            if (isFirstLane)
-            {
-                GlobalExclusivePrefixSum_GSM = inclusiveSum + lookbackSum + partialSum;
-                SetPartitionValue(
-                    GetPartitionInclusiveSumOffset(PartitionIndex_GSM),
-                    partitionSum + GlobalExclusivePrefixSum_GSM);
+                // stop polling if all the lanes have retrieved required value
+                const uint4 sumMask = WaveActiveBallot(lookbackSum == PARTITION_VALUE_NULL);
+                if (!any(sumMask))
+                    break;
             }
+
+            const uint waveSum = WaveActiveSum(lookbackSum);
+            if (isFirstLane)
+                GlobalExclusiveSum_GSM += waveSum;
+
+            if (hasInclusiveSum)
+                break;
         }
+
+        if (isFirstLane)
+            SetPartitionValue(GetPartitionInclusiveSumOffset(PartitionIndex_GSM), partitionSum + GlobalExclusiveSum_GSM);
     }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    // per group exclusive prefix sum
+    srcOffset = 0;
+    dstOffset = 0;
 }
 
 #define SORT_PARTICLES_KERNEL_SIZE 128
