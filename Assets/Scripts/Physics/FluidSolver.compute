@@ -15,6 +15,7 @@
 //  - nanovdb implementation: https://github.com/AcademySoftwareFoundation/openvdb/blob/feature/nanovdb/nanovdb/nanovdb/nanovdb/NanoVDB.h
 
 // todo
+// 0. fix wave intrinsics within loops
 // 1. scaffold crud
 //  1.1 create: add particles with distribution(cube, sphere, particle list, etc.)
 //  1.2 delete: remove particles with predicates(volume, property criteria)
@@ -393,24 +394,40 @@ uint PreemptPartition()
     return partitionIndex;
 }
 
-uint GetPartitionAggregateOffset(uint index)
+uint GetPartitionSumOffset(uint partitionIndex)
 {
-    return index * 2 + 1;
+    return partitionIndex * 2 + 1;
 }
 
-uint GetPartitionInclusiveSumOffset(uint index)
+uint GetPartitionInclusiveSumOffset(uint partitionIndex)
 {
-    return index * 2 + 2;
+    return partitionIndex * 2 + 2;
 }
+
+void SetPartitionValue(uint offset, uint value)
+{
+    uint _;
+    InterlockedExchange(GroupPartitions[offset], value, _);
+}
+
+uint GetPartitionValue(uint offset)
+{
+    uint value;
+    InterlockedOr(GroupPartitions[offset], 0, value);
+
+    return value;
+}
+
+#define PARTITION_VALUE_NULL (~0u)
 
 groupshared uint PartitionIndex_GSM;
 groupshared uint BlockIndexOffset_GSM;
 groupshared uint PartitionSize_GSM;
-groupshared uint ParticleAggregate_GSM = 0;
-groupshared uint GlobalExclusivePrefixSum_GSM = 0;
+groupshared uint ParticleCounts_GSM[PARTITION_SIZE];
 // WaveGetLaneCount() guarantees that 4~128 lanes are presented
 // see https://docs.microsoft.com/en-us/windows/win32/direct3dhlsl/wavegetlanecount
-groupshared uint PrefixSumHelper_GSM[16 + 4 + 1];
+groupshared uint WaveSums_GSM[PARTITION_SIZE / 3];
+groupshared uint WavePrefixSums_GSM[PARTITION_SIZE / 3 / 3];
 
 [numthreads(GENERATE_PARTICLE_OFFSETS_KERNEL_SIZE, 1, 1)]
 void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_GroupIndex)
@@ -426,44 +443,99 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
 
     GroupMemoryBarrierWithGroupSync();
 
-    const uint laneCount = WaveGetLaneCount();
     const uint laneIndex = WaveGetLaneIndex();
-    const uint waveIndex = gi / laneCount;
-    const uint groupWaveCount = max(kernelSize / laneCount, 1);
+    const uint laneCount = WaveGetLaneCount();
+    const bool isFirstLane = WaveIsFirstLane();
+    const uint kernelSize = GENERATE_PARTICLE_OFFSETS_KERNEL_SIZE;
+    const uint waveCount = (kernelSize + laneCount - 1) / laneCount;
 
-    // calculate group aggregate
-    uint i;
-    for (i = gi; i < PartitionSize_GSM; i += kernelSize)
+    // calculate per wave sum and write to gsm
+    uint i, j;
+    for (i = gi; i - laneIndex < PartitionSize_GSM; i += kernelSize)
     {
-        const uint particleCount = GetFluidBlockParticleCount(ParticleOffset_GSM + i);
-        const uint waveParticleCount = WaveActiveSum(particleCount);
-
-        if (WaveIsFirstLane())
-            PrefixSumHelper_GSM[waveIndex] = waveParticleCount;
-
-        // todo
-        GroupMemoryBarrierWithGroupSync();
-
-        // wave reduce sum
-        uint prefixSumDst = 0;
-        for (uint j = groupWaveCount; j > 1; j /= laneCount)
+        if (i < PartitionSize_GSM)
         {
-            if (gi < j)
-            {
-                const uint particleCount = WaveActiveSum(PrefixSumHelper_GSM[prefixSumDst + gi]);
-                prefixSumDst += j;
-                if (WaveIsFirstLane())
-                    PrefixSumHelper_GSM[prefixSumDst + gi / laneCount] = particleCount;
-            }
-            GroupMemoryBarrierWithGroupSync();
-        }
+            const uint particleCount = GetFluidBlockParticleCount(ParticleOffset_GSM + i);
+            ParticleCounts_GSM[i] = particleCount;
 
-        if (!gi)
-            ParticleAggregate_GSM += PrefixSumHelper_GSM[prefixSumDst];
+            const uint waveParticleCount = WaveActiveSum(particleCount);
+            if (isFirstLane)
+                WaveSums_GSM[i / laneCount] = waveParticleCount;
+        }
     }
 
+    // calculate per group sum
+    uint srcOffset = 0, dstOffset = 0;
+    for (i = waveCount; i > 1; i = (i + laneCount - 1) / laneCount)
+    {
+        GroupMemoryBarrierWithGroupSync();
+
+        for (j = gi; j - laneIndex < i; j += kernelSize)
+        {
+            if (j < i)
+            {
+                const uint waveParticleCount = WaveActiveSum(WaveSums_GSM[j + srcOffset]);
+                if (isFirstLane)
+                    WaveSums_GSM[j / laneCount + dstOffset] = waveParticleCount;
+            }
+        }
+
+        srcOffset = dstOffset;
+        dstOffset += i;
+    }
+
+    const uint partitionSum = WaveSums_GSM[srcOffset];
+
+    // write group sum to uav
     if (!gi)
-        SetPartitionAggregate(PartitionIndex_GSM, ParticleAggregate_GSM);
+        SetPartitionValue(GetPartitionSumOffset(PartitionIndex_GSM), partitionSum);
+
+    // look back to calculate exclusive prefix sum
+    if (gi < laneCount)
+    {
+        uint partialSum = 0;
+        for (i = laneIndex; i - laneIndex < PartitionIndex_GSM; i += lookbackSize)
+        {
+            // look back with polling
+            uint lookbackInclusiveSum;
+            uint lookbackSum;
+            uint4 sumMask;
+            do
+            {
+                // until `if` here, no divergence is within the wave
+                if (i < PartitionIndex_GSM)
+                {
+                    const uint lookbackIndex = PartitionIndex_GSM - i - 1;
+
+                    lookbackInclusiveSum = GetPartitionValue(GetPartitionInclusiveSumOffset(lookbackIndex));
+                    // lane order is reversed in look-back window
+                    const uint4 inclusiveSumMask = WaveActiveBallot(lookbackInclusiveSum != PARTITION_VALUE_NULL);
+                    const bool4 isInclusiveSumReady = inclusiveSumMask;
+
+                    const int4 inclusiveSumLane4 = isInclusiveSumReady ? firstbitlow(inclusiveSumMask) + int4(0, 32, 64, 96) : int(128).xxxx;
+                    const uint minInclusiveSumLane = min(min(inclusiveSumLane4.x, inclusiveSumLane4.y), min(inclusiveSumLane4.z, inclusiveSumLane4.w));
+                    lookbackInclusiveSum = WaveReadLaneAt(lookbackInclusiveSum, minInclusiveSumLane);
+
+                    lookbackSum = PARTITION_VALUE_NULL;
+                    if (laneIndex < sumLaneCount)
+                        lookbackSum = GetPartitionValue(GetPartitionSumOffset(lookbackIndex));
+
+                    sumMask = WaveActiveBallot(lookbackSum == PARTITION_VALUE_NULL);
+                }
+            } while (any(sumMask));
+
+            // todo
+            WaveActiveSum();
+
+            if (isFirstLane)
+            {
+                GlobalExclusivePrefixSum_GSM = inclusiveSum + lookbackSum + partialSum;
+                SetPartitionValue(
+                    GetPartitionInclusiveSumOffset(PartitionIndex_GSM),
+                    partitionSum + GlobalExclusivePrefixSum_GSM);
+            }
+        }
+    }
 }
 
 #define SORT_PARTICLES_KERNEL_SIZE 128
