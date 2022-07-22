@@ -287,10 +287,6 @@ ParticleProperties GetFluidParticleProperties(uint index)
 #define FLUID_GRID_ATOMIC_LOCK_OFFSET_LEVEL1 0
 #define FLUID_GRID_ATOMIC_LOCK_OFFSET_LEVEL2 (FLUID_GRID_ATOMIC_LOCK_OFFSET_LEVEL1 + FLUID_BLOCK_COUNT_LEVEL0)
 
-// n.b.: remember to update here if the number of per block info is changed
-#define FLUID_BLOCK_PARTICLE_STRIDE 64
-#define FLUID_BLOCK_MAX_PARTICLE_COUNT (FLUID_BLOCK_PARTICLE_STRIDE - 5)
-
 // mass
 #define FLUID_GRID_CHANNEL0_OFFSET uint3(0, 0, 0)
 // velocity/momentum
@@ -359,6 +355,8 @@ float DecodeFluidGridSDF(int value)
     return DecodeGridValue(value, FLUID_GRID_BOUND_SDF);
 }
 
+/// begin grid access
+
 // sparse transfer grid(updated in each physics frame):
 //  level 0  : 64*32*32 | 4x4x4 grids | 64mb(velocity/momemntum, mass)
 //  level 1  : 64*32*32 | 4x4x4 nodes | 64mb
@@ -374,17 +372,6 @@ extern A_RWTEXTURE3D(int) FluidGridLevel0;
 extern A_RWTEXTURE3D(int) FluidGridLevel1;
 // initial value: 0
 extern A_RWTEXTURE3D(int) FluidGridLevel2;
-
-// layout:
-// {
-//   level 0 block count, indirect groups.yz, level 1 block count, indirect groups.yz,
-//   {block position, particle count, prefix sum of particle count, particle index*}*
-// }
-// initial value:
-// { 0, 1, 1, 0, 1, 1, {x{3}, 0, 0, 0*}* }
-extern A_RWBUFFER(uint) FluidBlockParticleIndices;
-
-/// begin grid access
 
 int3 GetFluidGridPositionNearest(float3 gridSpacePosition)
 {
@@ -502,6 +489,15 @@ bool IsValidFluidBlockIndex(uint index)
     return (index & msb) != 0;
 }
 
+// layout:
+// {
+//   level 0 block count, indirect groups.yz, level 1 block count, indirect groups.yz, unused{2},
+//   { particle count, prefix sum of particle count, block position, unused{3} }*
+// }
+// initial value:
+// { 0, 1, 1, 0, 1, 1, x{2}, { 0, x, x{3}, x{3} }* }
+extern A_RWBUFFER(uint) FluidBlockParticleOffsets;
+
 uint GetFluidBlockCountOffset(uint level)
 {
     return level ? 3 : 0;
@@ -509,17 +505,12 @@ uint GetFluidBlockCountOffset(uint level)
 
 uint GetFluidBlockInfoOffset(uint blockIndex)
 {
-    return GetFluidBlockCountOffset(1) + 3 + blockIndex * FLUID_BLOCK_PARTICLE_STRIDE;
-}
-
-uint GetFluidBlockPositionOffset(uint blockIndex)
-{
-    return GetFluidBlockInfoOffset(blockIndex);
+    return GetFluidBlockCountOffset(1) + 5 + blockIndex * 8;
 }
 
 uint GetFluidBlockParticleCountOffset(uint blockIndex)
 {
-    return GetFluidBlockPositionOffset(blockIndex) + 3;
+    return GetFluidBlockInfoOffset(blockIndex);
 }
 
 uint GetFluidBlockParticleCountPrefixSumOffset(uint blockIndex)
@@ -527,37 +518,37 @@ uint GetFluidBlockParticleCountPrefixSumOffset(uint blockIndex)
     return GetFluidBlockParticleCountOffset(blockIndex) + 1;
 }
 
-uint GetFluidBlockParticleIndexOffset(uint blockIndex, uint particleIndex)
+uint GetFluidBlockPositionOffset(uint blockIndex)
 {
-    return GetFluidBlockParticleCountPrefixSumOffset(blockIndex) + 1 + particleIndex;
+    return GetFluidBlockParticleCountPrefixSumOffset(blockIndex) + 1;
 }
 
 uint GetFluidBlockCount(uint level)
 {
     const uint offset = GetFluidBlockCountOffset(level);
-    return FluidBlockParticleIndices[offset];
+    return FluidBlockParticleOffsets[offset];
 }
 
 uint3 GetFluidBlockPosition(uint blockIndexLevel0)
 {
     const uint offset = GetFluidBlockPositionOffset(blockIndexLevel0);
     return uint3(
-        FluidBlockParticleIndices[offset],
-        FluidBlockParticleIndices[offset +1],
-        FluidBlockParticleIndices[offset +2]
+        FluidBlockParticleOffsets[offset],
+        FluidBlockParticleOffsets[offset +1],
+        FluidBlockParticleOffsets[offset +2]
     );
 }
 
 uint GetFluidBlockParticleCount(uint blockIndexLevel0)
 {
     const uint offset = GetFluidBlockParticleCountOffset(blockIndexLevel0);
-    return min(FluidBlockParticleIndices[offset], FLUID_BLOCK_MAX_PARTICLE_COUNT);
+    return FluidBlockParticleOffsets[offset];
 }
 
 uint GetFluidBlockParticleCountPrefixSum(uint blockIndex)
 {
     const uint offset = GetFluidBlockParticleCountPrefixSumOffset(blockIndex);
-    return FluidBlockParticleIndices[offset];
+    return FluidBlockParticleOffsets[offset];
 }
 
 void GetFluidBlockInfo(uint blockIndexLevel0, out uint3 gridPositionLevel1, out uint particleCount)
@@ -571,12 +562,6 @@ void GetFluidBlockInfo(uint blockIndexLevel0, out uint3 gridPositionLevel1, out 
 {
     GetFluidBlockInfo(blockIndexLevel0, gridPositionLevel1, particleCount);
     particleCountPrefixSum = GetFluidBlockParticleCountPrefixSum(blockIndexLevel0);
-}
-
-uint GetFluidBlockParticleIndex(uint blockIndexLevel0, uint particleIndex)
-{
-    const uint offset = GetFluidBlockParticleIndexOffset(blockIndexLevel0, particleIndex);
-    return FluidBlockParticleIndices[offset];
 }
 
 // doesn't check whether the block is allocated
@@ -596,7 +581,7 @@ uint GetFluidBlockIndexLevel0Unchecked(uint3 gridPositionLevel1)
     void SetFluidBlockParticleCountPrefixSum(uint blockIndex, uint prefixSum)
     {
         const uint offset = GetFluidBlockParticleCountPrefixSumOffset(blockIndex);
-        FluidBlockParticleIndices[offset] = prefixSum;
+        FluidBlockParticleOffsets[offset] = prefixSum;
     }
 
 #endif

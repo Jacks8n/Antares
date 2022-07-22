@@ -107,8 +107,6 @@ namespace Antares.Graphics
 
             public const int GridChannelCount = 5;
 
-            public const int BlockParticleStride = 64;
-
             public const int AddParticlesKernelSize = 128;
 
             public static int MaxAddParticleCount { get => AddParticlesKernelSize * SystemInfo.maxComputeWorkGroupSizeX; }
@@ -119,6 +117,8 @@ namespace Antares.Graphics
 
             [field: SerializeField, LabelText(nameof(Shader))]
             public ComputeShader Shader { get; private set; }
+
+            public int GenerateIndirectArgsKernel { get; private set; }
 
             public int GenerateParticleHistogramKernel { get; private set; }
             public int GenerateParticleOffsetsKernel { get; private set; }
@@ -131,8 +131,6 @@ namespace Antares.Graphics
             public int SolveGridLevel1Kernel { get; private set; }
 
             public int GridToParticleKernel { get; private set; }
-
-            public int GenerateIndirectArgsKernel { get; private set; }
 
             public int ClearFluidGridLevel0 { get; private set; }
             public int ClearFluidGridLevel1 { get; private set; }

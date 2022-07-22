@@ -77,7 +77,7 @@ namespace Antares.Graphics
 
             public static int FluidGridLevel2 { get; } = Shader.PropertyToID(nameof(FluidGridLevel2));
 
-            public static int FluidBlockParticleIndices { get; } = Shader.PropertyToID(nameof(FluidBlockParticleIndices));
+            public static int FluidBlockParticleOffsets { get; } = Shader.PropertyToID(nameof(FluidBlockParticleOffsets));
 
             public static int IndirectArgs { get; } = Shader.PropertyToID(nameof(IndirectArgs));
 
