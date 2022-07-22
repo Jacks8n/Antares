@@ -127,42 +127,6 @@ uint AllocatePooledParticleProperties(uint count)
     return lo;
 }
 
-/// begin generate indirect args
-
-uint3 GetIndirectGroupCounts(uint count)
-{
-    return uint3(count % 64, (count + 63) / 64, 1);
-}
-
-uint GetIndirectGroupIndex(uint3 groupID)
-{
-    return groupID.x + groupID.y * 64;
-}
-
-extern RWBuffer<uint> IndirectArgs;
-
-[numthreads(1, 1, 1)]
-void GenerateIndirectArgs()
-{
-    const uint poolSize = GetPooledParticlePropertyCount();
-    SetPooledParticlePropertyCount(poolSize - min(CurrentFrameAddParticleCount, poolSize));
-
-    const uint particleCount = GetFluidParticleCountPrefixSum() + CurrentFrameAddParticleCount;
-    SetFluidParticleCount(particleCount);
-
-    const uint totalGroupCount = (particleCount + GENERATE_PARTICLE_HISTOGRAM_KERNEL_SIZE - 1) / GENERATE_PARTICLE_HISTOGRAM_KERNEL_SIZE;
-    const uint3 groupCounts = GetIndirectGroupCounts(totalGroupCount);
-    IndirectArgs[0] = groupCounts.x;
-    IndirectArgs[1] = groupCounts.y;
-    IndirectArgs[2] = groupCounts.z;
-
-    const bool pingpongFlag = GetFluidParticlePositionPingPongFlag();
-    SetFluidParticlePositionPingPongFlag(!pingpongFlag);
-    SetFluidParticleCountPrefixSum(0);
-}
-
-/// end generate indirect args
-
 float3 Square(float3 x)
 {
     return x * x;
@@ -183,6 +147,11 @@ float3 GetGridSpacePosition(float3 worldSpacePosition)
 int3 GetKernelMinGridIndex(float3 gridSpacePosition)
 {
     return int3(ceil(gridSpacePosition - 1.5));
+}
+
+bool IsGridInBound(int3 gridIndex)
+{
+    return all(gridIndex >= 0 & gridIndex < FLUID_VIRTUAL_GRID_EXTENT);
 }
 
 groupshared uint BlockAllocationCountLevel1_GSM;
@@ -211,7 +180,7 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint3 gid : SV_G
     const bool pingpongFlag = GetFluidParticlePositionPingPongFlag();
     const uint particleCount = GetFluidParticleCount();
 
-    const uint groupIndex = GetIndirectGroupIndex(gid);
+    const uint groupIndex = gid.x;
     const uint particleIndex = groupIndex * GENERATE_PARTICLE_HISTOGRAM_KERNEL_SIZE + gi;
     bool valid = particleIndex < particleCount;
 
@@ -224,9 +193,7 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint3 gid : SV_G
     if (valid)
     {
         const int3 gridPositionLevel0 = GetKernelMinGridIndex(position.Position);
-
-        // whether the particle is within the bound
-        valid = all(gridPositionLevel0 >= 0 && gridPositionLevel0 < FLUID_VIRTUAL_GRID_EXTENT);
+        valid = IsGridInBound(gridPositionLevel0);
 
         if (valid)
         {
@@ -383,14 +350,22 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint3 gid : SV_G
 
 #define GENERATE_PARTICLE_OFFSETS_KERNEL_SIZE 128
 #define MAX_PARTITION_SIZE (GENERATE_PARTICLE_OFFSETS_KERNEL_SIZE * 8)
+#define PARTITION_VALUE_NULL (~0u)
 
-extern RWBuffer<uint> GroupPartitions;
+// layout: { partition count, { partition sum, global inclusive sum }* }
+// initial value: { 0, { null, null }*  }
+extern RWBuffer<uint> BlockParticleCountSums;
 
 uint PreemptPartition()
 {
     uint partitionIndex;
-    InterlockedAdd(GroupPartitions[0], 1, partitionIndex);
+    InterlockedAdd(BlockParticleCountSums[0], 1, partitionIndex);
     return partitionIndex;
+}
+
+uint GetPartitionCount()
+{
+    return BlockParticleCountSums[0];
 }
 
 uint GetPartitionSumOffset(uint partitionIndex)
@@ -406,18 +381,16 @@ uint GetPartitionInclusiveSumOffset(uint partitionIndex)
 void SetPartitionValue(uint offset, uint value)
 {
     uint _;
-    InterlockedExchange(GroupPartitions[offset], value, _);
+    InterlockedExchange(BlockParticleCountSums[offset], value, _);
 }
 
 uint GetPartitionValue(uint offset)
 {
     uint value;
-    InterlockedOr(GroupPartitions[offset], 0, value);
+    InterlockedOr(BlockParticleCountSums[offset], 0, value);
 
     return value;
 }
-
-#define PARTITION_VALUE_NULL (~0u)
 
 groupshared uint PartitionIndex_GSM;
 groupshared uint BlockIndexOffset_GSM;
@@ -577,38 +550,88 @@ void SortParticles(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
     const bool pingpongFlag = GetFluidParticlePositionPingPongFlag();
     const uint particleCount = GetFluidParticleCount();
 
-    const uint groupIndex = GetIndirectGroupIndex(gid);
+    const uint groupIndex = gid;
     const uint particleIndex = groupIndex * SORT_PARTICLES_KERNEL_SIZE + gi;
-    bool valid = particleIndex < particleCount;
 
-    uint3 gridPositionLevel2;
-    uint3 gridOffsetLevel1;
-    if (valid)
+    if (particleIndex < particleCount)
     {
         const ParticlePositionIndexed position = GetFluidParticlePosition(particleIndex, pingpongFlag);
-        GetFluidGridPositions(position.Position, gridPositionLevel2, gridOffsetLevel1);
+        const int3 gridPositionLevel0 = GetKernelMinGridIndex(position.Position);
 
-        const uint blockIndexLevel1Linear = DecodeFluidBlockIndex(FluidGridLevel2[gridPositionLevel2]);
-        const uint3 blockIndexLevel1Spatial = GetFluidBlockIndexSpatialLevel1(blockIndexLevel1Linear);
+        if (IsGridInBound(gridPositionLevel0))
+        {
+            uint3 gridPositionLevel2;
+            uint3 gridOffsetLevel1;
+            GetFluidGridPositions(gridPositionLevel0, gridPositionLevel2, gridOffsetLevel1);
 
-        const uint3 gridIndexLevel1Spatial = blockIndexLevel1Spatial * FLUID_BLOCK_SIZE_LEVEL1 + gridOffsetLevel1;
-        const uint blockIndexLevel0Linear = DecodeFluidBlockIndex(FluidGridLevel1[gridIndexLevel1Spatial]);
+            const uint blockIndexLevel1Linear = DecodeFluidBlockIndex(FluidGridLevel2[gridPositionLevel2]);
+            const uint3 blockIndexLevel1Spatial = GetFluidBlockIndexSpatialLevel1(blockIndexLevel1Linear);
 
-        const uint particleCountOffset = GetFluidBlockParticleCountOffset(blockIndexLevel0Linear);
-        uint dstIndex;
-        InterlockedAdd(FluidBlockParticleOffsets[particleCountOffset], -1, dstIndex);
+            const uint3 gridIndexLevel1Spatial = blockIndexLevel1Spatial * FLUID_BLOCK_SIZE_LEVEL1 + gridOffsetLevel1;
+            const uint blockIndexLevel0Linear = DecodeFluidBlockIndex(FluidGridLevel1[gridIndexLevel1Spatial]);
 
-        dstIndex += GetFluidBlockParticleCountPrefixSum(blockIndexLevel0Linear) - 1;
+            const uint particleCountOffset = GetFluidBlockParticleCountOffset(blockIndexLevel0Linear);
+            uint dstIndex;
+            InterlockedAdd(FluidBlockParticleOffsets[particleCountOffset], -1, dstIndex);
 
-        SetFluidParticlePosition(dstIndex, position, !pingpongFlag);
+            dstIndex += GetFluidBlockParticleCountPrefixSum(blockIndexLevel0Linear) - 1;
+
+            SetFluidParticlePosition(dstIndex, position, !pingpongFlag);
+        }
     }
+}
+
+#define CLEAR_PARTITION_SUMS_KERNEL_SIZE 128
+
+[numthreads(CLEAR_PARTITION_SUMS_KERNEL_SIZE, 1, 1)]
+void ClearPartitionSums()
+{
+    // todo
 }
 
 /// end sort particle
 
+/// begin generate indirect args
+
+// layout: {
+//   generate particle histogram group count, indirect args{2},
+//   sort particles group count, indirect args{2}
+// }
+// initial value: { x, 1, 1, x, 1, 1 }
+extern RWBuffer<uint> IndirectArgs;
+
+[numthreads(1, 1, 1)]
+void GenerateIndirectArgs()
+{
+    const uint poolSize = GetPooledParticlePropertyCount();
+    SetPooledParticlePropertyCount(poolSize - min(CurrentFrameAddParticleCount, poolSize));
+
+    const uint sortPartitionCount = GetPartitionCount();
+    uint particleCount;
+    if (sortPartitionCount)
+        particleCount = GetPartitionInclusiveSumOffset(sortPartitionCount - 1);
+    else
+        particleCount = 0;
+
+    particleCount += CurrentFrameAddParticleCount;
+    SetFluidParticleCount(particleCount);
+
+    uint kernelSize = GENERATE_PARTICLE_HISTOGRAM_KERNEL_SIZE;
+    IndirectArgs[0] = (particleCount + kernelSize - 1) / kernelSize;
+
+    kernelSize = SORT_PARTICLES_KERNEL_SIZE;
+    IndirectArgs[3] = (particleCount + kernelSize - 1) / kernelSize;
+
+    const bool pingpongFlag = GetFluidParticlePositionPingPongFlag();
+    SetFluidParticlePositionPingPongFlag(!pingpongFlag);
+    SetFluidParticleCountPrefixSum(0);
+}
+
+/// end generate indirect args
+
 /// begin particle to grid
 
-#define PARTICLE_TO_GRID_KERNEL_SIZE 64
+#define PARTICLE_TO_GRID_KERNEL_SIZE 128
 
 #define FLUID_BLOCK_PADDING 2
 #define FLUID_BLOCK_SIZE_LEVEL0_PADDED (FLUID_BLOCK_SIZE_LEVEL0 + FLUID_BLOCK_PADDING)
@@ -1255,7 +1278,7 @@ void SolveGridLevel1(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
 
 /// begin grid to particle
 
-#define GRID_TO_PARTICLE_KERNEL_SIZE 64
+#define GRID_TO_PARTICLE_KERNEL_SIZE 128
 
 groupshared float3 VelocityGrid_GSM[FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED];
 

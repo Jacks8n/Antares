@@ -72,8 +72,11 @@ struct ParticleProperties
     }
 };
 
-// layout: { indirect arg 0, particle count, indirect args{2}, ping-pong flag, prefix sum of particle count, (indexed position{n}){2} }
-// initial value: { 1, n, 0, 0, 1, 0, <valid indexed position>{n}, x{n} }
+// layout: { 
+//   indirect arg 0, particle count, indirect args{2}, ping-pong flag, unused{3}, 
+//   (indexed position{n}){2} 
+// }
+// initial value: { 1, 0, 0, 0, 0, x{3}, ((x{4}){n}){2} }
 extern A_RWBUFFER(uint) FluidParticlePositions;
 // layout: { ((alignas(32) particle properties){n} }
 // initial value: { <valid particle properties>{n}, x* }
@@ -94,16 +97,11 @@ uint GetFluidParticlePositionPingPongFlagOffset()
     return 4;
 }
 
-uint GetFluidParticleCountPrefixSumOffset()
-{
-    return GetFluidParticlePositionPingPongFlagOffset() + 1;
-}
-
 uint GetFluidParticlePositionOffset(uint index, bool pingpong)
 {
     const uint stride = 4; // compressed size of ParticlePositionIndexed / 4
     const uint pingpongOffset = pingpong ? FLUID_MAX_PARTICLE_COUNT : 0;
-    return GetFluidParticleCountPrefixSumOffset() + 1 + (index + pingpongOffset) * stride;
+    return 8 + (index + pingpongOffset) * stride;
 }
 
 uint GetFluidParticleCount()
@@ -116,12 +114,6 @@ bool GetFluidParticlePositionPingPongFlag()
 {
     const uint offset = GetFluidParticlePositionPingPongFlagOffset();
     return FluidParticlePositions.Load(offset);
-}
-
-uint GetFluidParticleCountPrefixSum()
-{
-    const uint offset = GetFluidParticleCountPrefixSumOffset();
-    return FluidParticlePositions[offset];
 }
 
 ParticlePositionIndexed GetFluidParticlePosition(uint index, bool pingpong)
@@ -153,22 +145,6 @@ ParticlePositionIndexed GetFluidParticlePosition(uint index, bool pingpong)
     {
         const uint offset = GetFluidParticlePositionPingPongFlagOffset();
         FluidParticlePositions[offset] = uint(flag);
-    }
-
-    void SetFluidParticleCountPrefixSum(uint value)
-    {
-        const uint offset = GetFluidParticleCountPrefixSumOffset();
-        FluidParticlePositions[offset] = value;
-    }
-
-    uint AccumulateParticleCountAtomic(uint particleCount)
-    {
-        const uint offset = GetFluidParticleCountPrefixSumOffset();
-
-        uint count;
-        InterlockedAdd(FluidParticlePositions[offset], particleCount, count);
-
-        return count;
     }
 
     void SetFluidParticlePosition(uint index, ParticlePositionIndexed position, bool pingpong)
@@ -489,13 +465,11 @@ bool IsValidFluidBlockIndex(uint index)
     return (index & msb) != 0;
 }
 
-// layout:
-// {
+// layout: {
 //   level 0 block count, indirect groups.yz, level 1 block count, indirect groups.yz, unused{2},
 //   { particle count, prefix sum of particle count, block position, unused{3} }*
 // }
-// initial value:
-// { 0, 1, 1, 0, 1, 1, x{2}, { 0, x, x{3}, x{3} }* }
+// initial value: { 0, 1, 1, 0, 1, 1, x{2}, { 0, x, x{3}, x{3} }* }
 extern A_RWBUFFER(uint) FluidBlockParticleOffsets;
 
 uint GetFluidBlockCountOffset(uint level)
