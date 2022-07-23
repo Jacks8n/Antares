@@ -26,7 +26,8 @@
 #pragma use_dxc
 // #pragma enable_d3d11_debug_symbols
 
-#pragma kernel GenerateIndirectArgs
+#pragma kernel GenerateIndirectArgs0
+#pragma kernel GenerateIndirectArgs1
 #pragma kernel GenerateParticleHistogram
 #pragma kernel GenerateParticleOffsets
 #pragma kernel SortParticles
@@ -78,9 +79,7 @@ CBUFFER_END
 
 /// end constant buffer
 
-/// begin sort particle
-
-#define GENERATE_PARTICLE_HISTOGRAM_KERNEL_SIZE 128
+/// begin internal data/funcs
 
 extern RWBuffer<uint> FluidParticlePropertiesPool;
 
@@ -154,6 +153,12 @@ bool IsGridInBound(int3 gridIndex)
     return all(gridIndex >= 0 & gridIndex < FLUID_VIRTUAL_GRID_EXTENT);
 }
 
+/// end internal data/funcs
+
+/// begin sort particle
+
+#define GENERATE_PARTICLE_HISTOGRAM_KERNEL_SIZE 128
+
 groupshared uint BlockAllocationCountLevel1_GSM;
 groupshared uint3 BlockAllocationLevel1_GSM[GENERATE_PARTICLE_HISTOGRAM_KERNEL_SIZE];
 groupshared uint BlockAllocationCountLevel0_GSM;
@@ -177,7 +182,7 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint3 gid : SV_G
 
     GroupMemoryBarrierWithGroupSync();
 
-    const bool pingpongFlag = GetFluidParticlePositionPingPongFlag();
+    const bool pingpongFlag = !GetFluidParticlePositionPingPongFlag();
     const uint particleCount = GetFluidParticleCount();
 
     const uint groupIndex = gid.x;
@@ -354,18 +359,18 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint3 gid : SV_G
 
 // layout: { partition count, { partition sum, global inclusive sum }* }
 // initial value: { 0, { null, null }*  }
-extern RWBuffer<uint> BlockParticleCountSums;
+extern RWBuffer<uint> PartitionSums;
 
 uint PreemptPartition()
 {
     uint partitionIndex;
-    InterlockedAdd(BlockParticleCountSums[0], 1, partitionIndex);
+    InterlockedAdd(PartitionSums[0], 1, partitionIndex);
     return partitionIndex;
 }
 
 uint GetPartitionCount()
 {
-    return BlockParticleCountSums[0];
+    return PartitionSums[0];
 }
 
 uint GetPartitionSumOffset(uint partitionIndex)
@@ -381,15 +386,24 @@ uint GetPartitionInclusiveSumOffset(uint partitionIndex)
 void SetPartitionValue(uint offset, uint value)
 {
     uint _;
-    InterlockedExchange(BlockParticleCountSums[offset], value, _);
+    InterlockedExchange(PartitionSums[offset], value, _);
 }
 
 uint GetPartitionValue(uint offset)
 {
     uint value;
-    InterlockedOr(BlockParticleCountSums[offset], 0, value);
+    InterlockedOr(PartitionSums[offset], 0, value);
 
     return value;
+}
+
+uint GetParticleCountLastFrame()
+{
+    const uint partitionCount = GetPartitionCount();
+    if (partitionCount)
+        return GetPartitionInclusiveSumOffset(partitionCount - 1);
+    else
+        return 0;
 }
 
 groupshared uint PartitionIndex_GSM;
@@ -547,7 +561,7 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
 [numthreads(SORT_PARTICLES_KERNEL_SIZE, 1, 1)]
 void SortParticles(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 {
-    const bool pingpongFlag = GetFluidParticlePositionPingPongFlag();
+    const bool pingpongFlag = !GetFluidParticlePositionPingPongFlag();
     const uint particleCount = GetFluidParticleCount();
 
     const uint groupIndex = gid;
@@ -581,53 +595,66 @@ void SortParticles(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
     }
 }
 
+/// end sort particle
+
+/// begin clear/indirect args
+
 #define CLEAR_PARTITION_SUMS_KERNEL_SIZE 128
 
 [numthreads(CLEAR_PARTITION_SUMS_KERNEL_SIZE, 1, 1)]
-void ClearPartitionSums()
+void ClearPartitionSums(uint3 tid : SV_DispatchThreadID)
 {
-    // todo
+    const uint partitionCount = GetPartitionCount();
+    if (tid.x < partitionCount)
+    {
+        uint offset = GetPartitionSumOffset(tid.x);
+        PartitionSums[offset] = PARTITION_VALUE_NULL;
+
+        offset = GetPartitionInclusiveSumOffset(tid.x);
+        PartitionSums[offset] = PARTITION_VALUE_NULL;
+    }
 }
-
-/// end sort particle
-
-/// begin generate indirect args
 
 // layout: {
 //   generate particle histogram group count, indirect args{2},
-//   sort particles group count, indirect args{2}
+//   sort particles group count, indirect args{2},
+//   clear partition sums group count, indirect args{2}
 // }
-// initial value: { x, 1, 1, x, 1, 1 }
+// initial value: { x, 1, 1, x, 1, 1, x, 1, 1 }
 extern RWBuffer<uint> IndirectArgs;
 
+uint GetGroupCount(uint nelem, uint kernelSize)
+{
+    return (nelem + kernelSize - 1) / kernelSize;
+}
+
 [numthreads(1, 1, 1)]
-void GenerateIndirectArgs()
+void GenerateIndirectArgs0()
 {
     const uint poolSize = GetPooledParticlePropertyCount();
     SetPooledParticlePropertyCount(poolSize - min(CurrentFrameAddParticleCount, poolSize));
 
-    const uint sortPartitionCount = GetPartitionCount();
-    uint particleCount;
-    if (sortPartitionCount)
-        particleCount = GetPartitionInclusiveSumOffset(sortPartitionCount - 1);
-    else
-        particleCount = 0;
-
-    particleCount += CurrentFrameAddParticleCount;
+    const uint particleCount = GetParticleCountLastFrame() + CurrentFrameAddParticleCount;
     SetFluidParticleCount(particleCount);
 
-    uint kernelSize = GENERATE_PARTICLE_HISTOGRAM_KERNEL_SIZE;
-    IndirectArgs[0] = (particleCount + kernelSize - 1) / kernelSize;
+    IndirectArgs[0] = GetGroupCount(particleCount, GENERATE_PARTICLE_HISTOGRAM_KERNEL_SIZE);
+    IndirectArgs[3] = GetGroupCount(particleCount, SORT_PARTICLES_KERNEL_SIZE);
 
-    kernelSize = SORT_PARTICLES_KERNEL_SIZE;
-    IndirectArgs[3] = (particleCount + kernelSize - 1) / kernelSize;
+    const uint partitionCount = GetPartitionCount();
+    IndirectArgs[6] = GetGroupCount(partitionCount, CLEAR_PARTITION_SUMS_KERNEL_SIZE);
 
     const bool pingpongFlag = GetFluidParticlePositionPingPongFlag();
     SetFluidParticlePositionPingPongFlag(!pingpongFlag);
-    SetFluidParticleCountPrefixSum(0);
 }
 
-/// end generate indirect args
+[numthreads(1, 1, 1)]
+void GenerateIndirectArgs1()
+{
+    const uint blockCount = GetFluidBlockCount(0);
+    IndirectArgs[0] = GetGroupCount(blockCount, MAX_PARTITION_SIZE);
+}
+
+/// end clear/indirect args
 
 /// begin particle to grid
 
@@ -679,7 +706,6 @@ void WaveGetMaxInterval(bool flag, out uint interval, out uint maxInterval)
 groupshared uint3 GridPositionLevel1_GSM;
 groupshared uint ParticleCount_GSM;
 groupshared uint ParticleOffset_GSM;
-groupshared uint SortParticleOffset_GSM;
 // size: 16 * 216 = 3456 bytes
 groupshared int4 FluidGrid_GSM[FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED];
 // size: 4 * 216 = 864 bytes
@@ -703,8 +729,6 @@ void ParticleToGrid0(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
     if (!gi)
     {
         GetFluidBlockInfo(gid.x, GridPositionLevel1_GSM, ParticleCount_GSM, ParticleOffset_GSM);
-
-        SortParticleOffset_GSM = AccumulateParticleCountAtomic(ParticleCount_GSM);
     }
 
     GroupMemoryBarrierWithGroupSync();
@@ -803,9 +827,6 @@ void ParticleToGrid0(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
                 }
             }
         }
-
-        // sort particle
-        SetFluidParticlePosition(SortParticleOffset_GSM + i, position, !pingpongFlag);
     }
 
     GroupMemoryBarrierWithGroupSync();
@@ -900,10 +921,6 @@ void ParticleToGrid0(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
             }
         }
     }
-
-    // used to index sorted particles linearly
-    if (!gi)
-        SetFluidBlockParticleCountPrefixSum(gid.x, SortParticleOffset_GSM);
 }
 
 // size: 12 * 216 = 2592 bytes
@@ -1003,7 +1020,7 @@ void ParticleToGrid1(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 
     GroupMemoryBarrierWithGroupSync();
 
-    const bool pingpongFlag = !GetFluidParticlePositionPingPongFlag();
+    const bool pingpongFlag = GetFluidParticlePositionPingPongFlag();
 
     // read particles from current block
     #if PARTICLE_TO_GRID_KERNEL_SIZE < FLUID_BLOCK_MAX_PARTICLE_COUNT
@@ -1380,7 +1397,7 @@ void GridToParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
     GroupMemoryBarrierWithGroupSync();
 
     // take complementary since particles are sorted into another ping-pong buffer in p2g
-    const bool pingpongFlag = !GetFluidParticlePositionPingPongFlag();
+    const bool pingpongFlag = GetFluidParticlePositionPingPongFlag();
 
     // per particle gather
     #if GRID_TO_PARTICLE_KERNEL_SIZE < FLUID_BLOCK_MAX_PARTICLE_COUNT
@@ -1511,7 +1528,7 @@ void AddParticles(uint3 tid : SV_DispatchThreadID)
         return;
 
     const uint poolSize = GetPooledParticlePropertyCount();
-    const uint prevParticleCount = GetFluidParticleCountPrefixSum();
+    const uint prevParticleCount = GetParticleCountLastFrame();
 
     uint propertyIndex;
     if (tid.x < poolSize)

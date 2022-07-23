@@ -85,6 +85,8 @@ namespace Antares.Graphics
 
             public static int ParticlesToAdd { get; } = Shader.PropertyToID(nameof(ParticlesToAdd));
 
+            public static int PartitionSums { get; } = Shader.PropertyToID(nameof(PartitionSums));
+
             public static int PhysicsSceneParameters { get; } = Shader.PropertyToID(nameof(PhysicsSceneParameters));
 
             public static int PhysicsFrameParameters { get; } = Shader.PropertyToID(nameof(PhysicsFrameParameters));

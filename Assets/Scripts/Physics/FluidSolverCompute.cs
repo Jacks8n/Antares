@@ -107,6 +107,10 @@ namespace Antares.Graphics
 
             public const int GridChannelCount = 5;
 
+            public const int PrefixSumPartitionCount = (BlockSizeLevel0 + 1023) / 1024;
+
+            public const int ClearPartitionSumsKernelSize = 128;
+
             public const int AddParticlesKernelSize = 128;
 
             public static int MaxAddParticleCount { get => AddParticlesKernelSize * SystemInfo.maxComputeWorkGroupSizeX; }
@@ -118,7 +122,10 @@ namespace Antares.Graphics
             [field: SerializeField, LabelText(nameof(Shader))]
             public ComputeShader Shader { get; private set; }
 
-            public int GenerateIndirectArgsKernel { get; private set; }
+            public int GenerateIndirectArgs0Kernel { get; private set; }
+            public int GenerateIndirectArgs1Kernel { get; private set; }
+
+            public int ClearPartitionSumsKernel { get; private set; }
 
             public int GenerateParticleHistogramKernel { get; private set; }
             public int GenerateParticleOffsetsKernel { get; private set; }
@@ -139,7 +146,9 @@ namespace Antares.Graphics
 
             void IShaderSpec.Initialize()
             {
-                GenerateIndirectArgsKernel = Shader.FindKernel("GenerateIndirectArgs");
+                GenerateIndirectArgs0Kernel = Shader.FindKernel("GenerateIndirectArgs0");
+                GenerateIndirectArgs1Kernel = Shader.FindKernel("GenerateIndirectArgs1");
+                ClearPartitionSumsKernel = Shader.FindKernel("ClearPartitionSums");
                 GenerateParticleHistogramKernel = Shader.FindKernel("GenerateParticleHistogram");
                 GenerateParticleOffsetsKernel = Shader.FindKernel("GenerateParticleOffsets");
                 SortParticlesKernel = Shader.FindKernel("SortParticles");
