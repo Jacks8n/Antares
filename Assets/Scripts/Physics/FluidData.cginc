@@ -467,9 +467,9 @@ bool IsValidFluidBlockIndex(uint index)
 
 // layout: {
 //   level 0 block count, indirect groups.yz, level 1 block count, indirect groups.yz, unused{2},
-//   { particle count, prefix sum of particle count, block position, unused{3} }*
+//   { particle count, block position, prefix sum of particle count, unused{3} }*
 // }
-// initial value: { 0, 1, 1, 0, 1, 1, x{2}, { 0, x, x{3}, x{3} }* }
+// initial value: { 0, 1, 1, 0, 1, 1, x{2}, { 0, x{3}, x, x{3} }* }
 extern A_RWBUFFER(uint) FluidBlockParticleOffsets;
 
 uint GetFluidBlockCountOffset(uint level)
@@ -487,14 +487,14 @@ uint GetFluidBlockParticleCountOffset(uint blockIndex)
     return GetFluidBlockInfoOffset(blockIndex);
 }
 
-uint GetFluidBlockParticleCountPrefixSumOffset(uint blockIndex)
-{
-    return GetFluidBlockParticleCountOffset(blockIndex) + 1;
-}
-
 uint GetFluidBlockPositionOffset(uint blockIndex)
 {
-    return GetFluidBlockParticleCountPrefixSumOffset(blockIndex) + 1;
+    return GetFluidBlockInfoOffset(blockIndex) + 1;
+}
+
+uint GetFluidBlockParticleCountPrefixSumOffset(uint blockIndex)
+{
+    return GetFluidBlockInfoOffset(blockIndex) + 4;
 }
 
 uint GetFluidBlockCount(uint level)

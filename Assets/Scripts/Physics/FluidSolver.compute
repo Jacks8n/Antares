@@ -28,6 +28,7 @@
 
 #pragma kernel GenerateIndirectArgs0
 #pragma kernel GenerateIndirectArgs1
+#pragma kernel ClearPartitionSums
 #pragma kernel GenerateParticleHistogram
 #pragma kernel GenerateParticleOffsets
 #pragma kernel SortParticles
@@ -355,6 +356,7 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint3 gid : SV_G
 
 #define GENERATE_PARTICLE_OFFSETS_KERNEL_SIZE 128
 #define MAX_PARTITION_SIZE (GENERATE_PARTICLE_OFFSETS_KERNEL_SIZE * 8)
+#define PARTITION_COUNT ((FLUID_BLOCK_COUNT_LEVEL0 + MAX_PARTITION_SIZE - 1) / MAX_PARTITION_SIZE)
 #define PARTITION_VALUE_NULL (~0u)
 
 // layout: { partition count, { partition sum, global inclusive sum }* }
@@ -368,9 +370,9 @@ uint PreemptPartition()
     return partitionIndex;
 }
 
-uint GetPartitionCount()
+uint GetPartitionCountOffset()
 {
-    return PartitionSums[0];
+    return 0;
 }
 
 uint GetPartitionSumOffset(uint partitionIndex)
@@ -383,13 +385,25 @@ uint GetPartitionInclusiveSumOffset(uint partitionIndex)
     return partitionIndex * 2 + 2;
 }
 
-void SetPartitionValue(uint offset, uint value)
+uint GetPartitionCount()
+{
+    const uint offset = GetPartitionCountOffset();
+    return PartitionSums[offset];
+}
+
+void SetPartitionCount(uint count)
+{
+    const uint offset = GetPartitionCountOffset();
+    PartitionSums[offset] = count;
+}
+
+void SetPartitionValueAtomic(uint offset, uint value)
 {
     uint _;
     InterlockedExchange(PartitionSums[offset], value, _);
 }
 
-uint GetPartitionValue(uint offset)
+uint GetPartitionValueAtomic(uint offset)
 {
     uint value;
     InterlockedOr(PartitionSums[offset], 0, value);
@@ -401,7 +415,7 @@ uint GetParticleCountLastFrame()
 {
     const uint partitionCount = GetPartitionCount();
     if (partitionCount)
-        return GetPartitionInclusiveSumOffset(partitionCount - 1);
+        return PartitionSums[GetPartitionInclusiveSumOffset(partitionCount - 1)];
     else
         return 0;
 }
@@ -422,6 +436,9 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
     {
         PartitionIndex_GSM = PreemptPartition();
         BlockIndexOffset_GSM = PartitionIndex_GSM * MAX_PARTITION_SIZE;
+
+        // it's for the first partition, which will skip the look-back
+        GlobalExclusiveSum_GSM = 0;
 
         const uint blockCount = GetFluidBlockCount(0);
         PartitionSize_GSM = min(blockCount - BlockIndexOffset_GSM, MAX_PARTITION_SIZE);
@@ -446,7 +463,7 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
         ParticleCounts_GSM[i] = particleCount;
     }
 
-    for (i = gi + PartitionSize_GSM; i < MAX_PARTITION_SIZE; i += kernelSize)
+    for (; i < MAX_PARTITION_SIZE; i += kernelSize)
     {
         ParticleCounts_GSM[i] = 0;
     }
@@ -476,7 +493,7 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
     // write group sum to uav
     if (!gi)
     {
-        SetPartitionValue(GetPartitionSumOffset(PartitionIndex_GSM), partitionSum);
+        SetPartitionValueAtomic(GetPartitionSumOffset(PartitionIndex_GSM), partitionSum);
 
         // used in the hierarchical exclusive prefix sum below
         ParticleCounts_GSM[waveSumDstOffset] = 0;
@@ -497,7 +514,7 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
                 {
                     const uint lookbackIndex = PartitionIndex_GSM - i - 1;
 
-                    const uint lookbackInclusiveSum = GetPartitionValue(GetPartitionInclusiveSumOffset(lookbackIndex));
+                    const uint lookbackInclusiveSum = GetPartitionValueAtomic(GetPartitionInclusiveSumOffset(lookbackIndex));
                     // lane order is reversed in look-back window
                     const uint4 inclusiveSumMask = WaveActiveBallot(lookbackInclusiveSum != PARTITION_VALUE_NULL);
                     const bool4 isInclusiveSumReady = inclusiveSumMask;
@@ -507,7 +524,7 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
                     hasInclusiveSum = minInclusiveSumLane < 128;
 
                     if (laneIndex < minInclusiveSumLane)
-                        lookbackSum = GetPartitionValue(GetPartitionSumOffset(lookbackIndex));
+                        lookbackSum = GetPartitionValueAtomic(GetPartitionSumOffset(lookbackIndex));
 
                     if (laneIndex == minInclusiveSumLane)
                         GlobalExclusiveSum_GSM = lookbackInclusiveSum;
@@ -529,7 +546,7 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
     }
 
     if (isFirstLane)
-        SetPartitionValue(GetPartitionInclusiveSumOffset(PartitionIndex_GSM), partitionSum + GlobalExclusiveSum_GSM);
+        SetPartitionValueAtomic(GetPartitionInclusiveSumOffset(PartitionIndex_GSM), partitionSum + GlobalExclusiveSum_GSM);
     
     GroupMemoryBarrierWithGroupSync();
 
@@ -541,18 +558,18 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
             const uint exclusiveSum = WavePrefixSum(ParticleCounts_GSM[j + waveSumSrcOffset]);
             const uint prevWaveExclusiveSum = ParticleCounts_GSM[j / laneCount + waveSumDstOffset];
 
-            ParticleCounts_GSM[j + waveSumSrcOffset] = GlobalExclusiveSum_GSM + prevWaveExclusiveSum + exclusiveSum;
+            ParticleCounts_GSM[j + waveSumSrcOffset] = prevWaveExclusiveSum + exclusiveSum;
         }
 
         waveSumDstOffset = waveSumSrcOffset;
-        waveSumSrcOffset -= i;
+        waveSumSrcOffset -= i * laneCount;
 
         GroupMemoryBarrierWithGroupSync();
     }
 
     for (i = gi; i < PartitionSize_GSM; i += kernelSize)
     {
-        SetFluidBlockParticleCountPrefixSum(BlockIndexOffset_GSM + i, ParticleCounts_GSM[i]);
+        SetFluidBlockParticleCountPrefixSum(BlockIndexOffset_GSM + i, GlobalExclusiveSum_GSM + ParticleCounts_GSM[i]);
     }
 }
 
@@ -604,8 +621,7 @@ void SortParticles(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 [numthreads(CLEAR_PARTITION_SUMS_KERNEL_SIZE, 1, 1)]
 void ClearPartitionSums(uint3 tid : SV_DispatchThreadID)
 {
-    const uint partitionCount = GetPartitionCount();
-    if (tid.x < partitionCount)
+    if (tid.x < PARTITION_COUNT)
     {
         uint offset = GetPartitionSumOffset(tid.x);
         PartitionSums[offset] = PARTITION_VALUE_NULL;
@@ -636,6 +652,7 @@ void GenerateIndirectArgs0()
 
     const uint particleCount = GetParticleCountLastFrame() + CurrentFrameAddParticleCount;
     SetFluidParticleCount(particleCount);
+    SetPartitionCount(0);
 
     IndirectArgs[0] = GetGroupCount(particleCount, GENERATE_PARTICLE_HISTOGRAM_KERNEL_SIZE);
     IndirectArgs[3] = GetGroupCount(particleCount, SORT_PARTICLES_KERNEL_SIZE);
@@ -1534,7 +1551,7 @@ void AddParticles(uint3 tid : SV_DispatchThreadID)
     if (tid.x < poolSize)
         propertyIndex = GetPooledParticleProperty(poolSize - 1 - tid.x);
     else
-        propertyIndex = tid.x + prevParticleCount;
+        propertyIndex = prevParticleCount + tid.x;
 
     ParticlePositionIndexed position;
     ParticleProperties properties;
@@ -1551,7 +1568,7 @@ void AddParticles(uint3 tid : SV_DispatchThreadID)
 
     // write to next ping pong buffer in advance
     const bool pingpongFlag = GetFluidParticlePositionPingPongFlag();
-    SetFluidParticlePosition(prevParticleCount + tid.x, position, !pingpongFlag);
+    SetFluidParticlePosition(prevParticleCount + tid.x, position, pingpongFlag);
     SetFluidParticleProperties(propertyIndex, properties);
 }
 
