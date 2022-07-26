@@ -704,16 +704,17 @@ void WaveGetMaxInterval(bool flag, out uint interval, out uint maxInterval)
     uint stride = 1;
     while (stride < laneCount)
     {
-        const uint dstLane = laneIndex + stride;
+        const uint dstLane = laneIndex + interval;
         const bool dstFlag = WaveReadLaneAt(flag, dstLane);
+        const uint dstInterval = WaveReadLaneAt(interval, dstLane);
 
         if (dstLane < laneCount && !dstFlag)
-            interval += WaveReadLaneAt(interval, dstLane);
+            interval += dstInterval;
 
         stride *= 2;
     }
 
-    maxInterval = WaveActiveMax(flag ? interval : 0);
+    maxInterval = WaveActiveMax(interval);
 }
 
 groupshared uint3 GridPositionLevel1_GSM;
@@ -773,7 +774,7 @@ void ParticleToGrid0(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
         #if !DISABLE_WAVE_SCATTER
             // preparation to handle inter-wave conflicts
             const uint laneIndex = WaveGetLaneIndex();
-            const bool isLo = gridIndexEncoded != WaveReadLaneAt(gridIndexEncoded, min(0, laneIndex - 1)) || !laneIndex;
+            const bool isLo = gridIndexEncoded != WaveReadLaneAt(gridIndexEncoded, max(1, laneIndex) - 1) || !laneIndex;
 
             uint interval, intervalMax;
             WaveGetMaxInterval(isLo, interval, intervalMax);
@@ -1052,10 +1053,13 @@ void ParticleToGrid1(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
         const uint gridIndexOffsetEncoded = GetFluidBlockGridIndexLinearLevel0(gridIndexOffset, FLUID_BLOCK_PADDING);
 
         float density = 0.0;
+        UNITY_UNROLL
         for (j = 0; j < 3; j++)
         {
+            UNITY_UNROLL
             for (k = 0; k < 3; k++)
             {
+                UNITY_UNROLL
                 for (l = 0; l < 3; l++)
                 {
                     const float weight = weights[j].x * weights[k].y * weights[l].z;
