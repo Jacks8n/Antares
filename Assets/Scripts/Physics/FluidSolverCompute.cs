@@ -17,12 +17,15 @@ namespace Antares.Graphics
             {
                 private readonly Vector3 SceneVolumeTexel;
 
-                private readonly float FluidGridSpacing;
+                private readonly float Padding0;
+
+                private readonly Vector2 FluidGridSpacing;
 
                 public PhysicsSceneParameters(SDFScene scene, APhysicsScene physicsScene)
                 {
                     SceneVolumeTexel = scene.SizeInv;
-                    FluidGridSpacing = physicsScene.GridSpacing;
+                    Padding0 = 0f;
+                    FluidGridSpacing = new Vector2(physicsScene.GridSpacing, 1f / physicsScene.GridSpacing);
                 }
             }
 
@@ -43,7 +46,7 @@ namespace Antares.Graphics
 
                 private readonly float Padding2;
 
-                private readonly Vector3 FluidGridToSDF;
+                private readonly Vector3 SDFSceneTranslation;
 
                 public PhysicsFrameParameters(SDFScene scene, APhysicsScene physicsScene, float timeStep,
                     int currentFrameAddParticleCount)
@@ -55,7 +58,7 @@ namespace Antares.Graphics
                     Padding1 = 0f;
                     FluidGridTranslation = physicsScene.transform.position;
                     Padding2 = 0f;
-                    FluidGridToSDF = scene.transform.position - physicsScene.transform.position;
+                    SDFSceneTranslation = scene.transform.position;
                 }
             }
 

@@ -18,7 +18,7 @@ namespace Antares.Physics
         [field: SerializeField, LabelText(nameof(Gravity))]
         public Vector3 Gravity { get; set; } = new Vector3(0f, 0f, -9.8f);
 
-        [field: SerializeField, LabelText(nameof(GridSpacing))]
+        [field: SerializeField, LabelText(nameof(GridSpacing)), HideIf("enabled")]
         public float GridSpacing { get; private set; } = 1f;
 
         [field: SerializeField, LabelText(nameof(TimeScale))]
