@@ -1002,13 +1002,14 @@ void ParticleToGrid1(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
         const uint3 subblockMax = min(
             subblockMin + FLUID_BLOCK_SIZE_LEVEL0, FLUID_BLOCK_SIZE_LEVEL0_PADDED);
         const uint3 subblockSize = subblockMax - subblockMin;
+        const uint subblockGridCount = subblockSize.x * subblockSize.y * subblockSize.z;
 
         const uint3 dstGridIndex = GetGridIndexSpatial(gi, subblockSize.xy);
         const uint storeGridIndex = GetFluidBlockGridIndexLinearLevel0(subblockMin + dstGridIndex, FLUID_BLOCK_PADDING);
 
         // level 2 doesn't have "ghost cells"(terms used in original spgrid paper)
         // thus, if no level 1 block is allocated, grid values are just discarded
-        if (all(dstGridIndex < subblockSize))
+        if (gi < subblockGridCount)
         {
             if (IsValidFluidBlockIndex(adjacentBlockIndexLevel1Encoded))
             {
@@ -1027,8 +1028,7 @@ void ParticleToGrid1(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
                 else
                 {
                     // if the level 0 block is not allocated, reinterpret the coarser grid
-                    // todo
-                    massEncoded = 0;
+                    massEncoded = adjacentBlockIndexLevel0Encoded / subblockGridCount;
                 }
 
                 MassGrid_GSM[storeGridIndex] = DecodeFluidGridMass(massEncoded);
