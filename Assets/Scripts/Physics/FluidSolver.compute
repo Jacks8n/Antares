@@ -1014,7 +1014,7 @@ void ParticleToGrid1(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
             {
                 const uint3 adjacentBlockIndexLevel1 = GetFluidBlockIndexSpatialLevel1(DecodeFluidBlockIndex(adjacentBlockIndexLevel1Encoded));
                 const uint3 adjacentGridIndexLevel1 = adjacentBlockIndexLevel1 * FLUID_BLOCK_SIZE_LEVEL1 + adjacentGridOffsetLevel1;
-                const uint3 adjacentBlockIndexLevel0Encoded = FluidGridLevel1[adjacentGridIndexLevel1];
+                const int adjacentBlockIndexLevel0Encoded = FluidGridLevel1[adjacentGridIndexLevel1];
 
                 int massEncoded;
                 if (IsValidFluidBlockIndex(adjacentBlockIndexLevel0Encoded))
@@ -1026,8 +1026,9 @@ void ParticleToGrid1(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
                 }
                 else
                 {
-                    // if the level 0 is not allocated, read from the coarser grid
-                    massEncoded = FluidGridLevel1[adjacentGridIndexLevel1 + FLUID_GRID_CHANNEL0_OFFSET];
+                    // if the level 0 block is not allocated, reinterpret the coarser grid
+                    // todo
+                    massEncoded = 0;
                 }
 
                 MassGrid_GSM[storeGridIndex] = DecodeFluidGridMass(massEncoded);
@@ -1074,7 +1075,6 @@ void ParticleToGrid1(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
                 {
                     const float weight = weights[j].x * weights[k].y * weights[l].z;
                     const uint gridIndexEncoded = gridIndexOffsetEncoded + GetFluidBlockGridIndexLinearLevel0(uint3(j, k, l), FLUID_BLOCK_PADDING);
-
                     const float mass = MassGrid_GSM[gridIndexEncoded];
                     density += weight * mass;
                 }
@@ -1096,7 +1096,7 @@ void ParticleToGrid1(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
         #if !DISABLE_WAVE_SCATTER
             // preparation to handle inter-wave conflicts
             const uint laneIndex = WaveGetLaneIndex();
-            const bool isLo = gridIndexOffset != WaveReadLaneAt(gridIndexOffset, min(0, laneIndex - 1)) || !laneIndex;
+            const bool isLo = gridIndexOffsetEncoded != WaveReadLaneAt(gridIndexOffsetEncoded, min(0, laneIndex - 1)) || !laneIndex;
 
             uint interval, intervalMax;
             WaveGetMaxInterval(isLo, interval, intervalMax);
