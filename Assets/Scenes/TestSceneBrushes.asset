@@ -10,7 +10,7 @@ MonoBehaviour:
   m_Enabled: 1
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: ce1fd55800445fe43b5f00b2a9289735, type: 3}
-  m_Name: BrushCollection
+  m_Name: TestSceneBrushes
   m_EditorClassIdentifier: 
   <NumericalBrushAtlas>k__BackingField: {fileID: 8400000, guid: dbd219e875348af4c9eb38f1799c9299, type: 2}
   <Brushes>k__BackingField:
@@ -124,22 +124,13 @@ MonoBehaviour:
     ParameterOffset: 21
   - Property:
       Transform:
-        TranslationInv: {x: -100, y: -34, z: -34}
-        ScaleInv: 1
-        RotationInv: {x: -0, y: -0, z: -0, w: 1}
-      <BrushType>k__BackingField: 2
-      MaterialID: 0
-    ParameterCount: 3
-    ParameterOffset: 24
-  - Property:
-      Transform:
         TranslationInv: {x: -50.5, y: -18, z: -82.59}
         ScaleInv: 1
         RotationInv: {x: -0, y: -0, z: -0, w: 1}
       <BrushType>k__BackingField: 1
       MaterialID: 0
     ParameterCount: 1
-    ParameterOffset: 27
+    ParameterOffset: 24
   - Property:
       Transform:
         TranslationInv: {x: -50.4, y: -15.5, z: -33.8}
@@ -148,7 +139,7 @@ MonoBehaviour:
       <BrushType>k__BackingField: 2
       MaterialID: 0
     ParameterCount: 3
-    ParameterOffset: 28
+    ParameterOffset: 25
   - Property:
       Transform:
         TranslationInv: {x: -100, y: -34, z: -26}
@@ -157,7 +148,7 @@ MonoBehaviour:
       <BrushType>k__BackingField: 2
       MaterialID: 0
     ParameterCount: 3
-    ParameterOffset: 31
+    ParameterOffset: 28
   <BrushParameters>k__BackingField:
   - 5
   - 1.5
@@ -183,9 +174,6 @@ MonoBehaviour:
   - 7
   - 7
   - 7
-  - 5
-  - 5
-  - 1.5
   - 10
   - 9
   - 9

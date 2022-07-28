@@ -1,0 +1,77 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ce1fd55800445fe43b5f00b2a9289735, type: 3}
+  m_Name: FluidTestSceneBrushes
+  m_EditorClassIdentifier: 
+  <NumericalBrushAtlas>k__BackingField: {fileID: 8400000, guid: 14cd0c523c8e5c4479748db423be5de1, type: 2}
+  <Brushes>k__BackingField:
+  - Property:
+      Transform:
+        TranslationInv: {x: -95, y: -34, z: -30}
+        ScaleInv: 1
+        RotationInv: {x: -0, y: -0, z: -0, w: 1}
+      <BrushType>k__BackingField: 2
+      MaterialID: 0
+    ParameterCount: 3
+    ParameterOffset: 0
+  - Property:
+      Transform:
+        TranslationInv: {x: -114, y: -34, z: -26}
+        ScaleInv: 1
+        RotationInv: {x: -0, y: -0, z: -0, w: 1}
+      <BrushType>k__BackingField: 2
+      MaterialID: 0
+    ParameterCount: 3
+    ParameterOffset: 3
+  - Property:
+      Transform:
+        TranslationInv: {x: -114, y: -30, z: -30}
+        ScaleInv: 1
+        RotationInv: {x: -0, y: -0, z: -0, w: 1}
+      <BrushType>k__BackingField: 2
+      MaterialID: 0
+    ParameterCount: 3
+    ParameterOffset: 6
+  - Property:
+      Transform:
+        TranslationInv: {x: -134, y: -34, z: -30}
+        ScaleInv: 1
+        RotationInv: {x: -0, y: -0, z: -0, w: 1}
+      <BrushType>k__BackingField: 2
+      MaterialID: 0
+    ParameterCount: 3
+    ParameterOffset: 9
+  - Property:
+      Transform:
+        TranslationInv: {x: -114, y: -34, z: -34}
+        ScaleInv: 1
+        RotationInv: {x: -0, y: -0, z: -0, w: 1}
+      <BrushType>k__BackingField: 2
+      MaterialID: 0
+    ParameterCount: 3
+    ParameterOffset: 12
+  <BrushParameters>k__BackingField:
+  - 1.5
+  - 5
+  - 5
+  - 20
+  - 5
+  - 1.5
+  - 20
+  - 1.5
+  - 5
+  - 1.5
+  - 5
+  - 5
+  - 20
+  - 5
+  - 1.5

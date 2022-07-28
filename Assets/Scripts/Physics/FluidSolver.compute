@@ -1269,20 +1269,20 @@ void SolveGridLevel0(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
     float3 velocity;
     SolveGrid(mass, momentum, velocity);
 
-    const uint3 gridPosition = GetFluidBlockPosition(gid.x) * FLUID_BLOCK_SIZE_LEVEL0 + gtid;
-    const float3 positionSDFSpace = gridPosition * FLUID_GRID_SPACING + FluidGridTranslation - SDFSceneTranslation;
-    const float3 sdfSampleLocation = positionSDFSpace * SCENE_VOLUME_TEXEL;
-    if (all(sdfSampleLocation > 0.0 && sdfSampleLocation < 1.0))
-    {
-        const float nsdf = SampleNormalizedSDF(sdfSampleLocation, 0.0);
-        if (nsdf < 0.0)
-        {
-            const float3 normal = SampleNormal(sdfSampleLocation, 0.0);
-            const float nv = dot(normal, velocity);
-            if (nv < 0.0)
-                velocity += (4.0 * nsdf * TIME_STEP - nv) * normal;
-        }
-    }
+    // const uint3 gridPosition = GetFluidBlockPosition(gid.x) * FLUID_BLOCK_SIZE_LEVEL0 + gtid;
+    // const float3 positionSDFSpace = gridPosition * FLUID_GRID_SPACING + FluidGridTranslation - SDFSceneTranslation;
+    // const float3 sdfSampleLocation = positionSDFSpace * SCENE_VOLUME_TEXEL;
+    // if (all(sdfSampleLocation > 0.0 && sdfSampleLocation < 1.0))
+    // {
+    //     const float nsdf = SampleNormalizedSDF(sdfSampleLocation, 0.0);
+    //     if (nsdf < 0.0)
+    //     {
+    //         const float3 normal = SampleNormal(sdfSampleLocation, 0.0);
+    //         const float nv = dot(normal, velocity);
+    //         if (nv < 0.0)
+    //             velocity += (4.0 * nsdf * TIME_STEP - nv) * normal;
+    //     }
+    // }
 
     const int3 velocityEncoded = EncodeFluidGridMomentum(velocity);
     FluidGridLevel0[gridIndex + FLUID_GRID_CHANNEL1_OFFSET] = velocityEncoded.x;
@@ -1483,8 +1483,11 @@ void GridToParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
                 const float sdf = nsdf * 4.0;
                 const float3 normal = SampleNormal(sdfSampleLocation, 0.0);
                 const float3 displacement = -sdf * normal;
-                // position.Position += displacement;
-                velocity += displacement * TIME_STEP_INV;
+                position.Position += displacement;
+
+                const float nv = dot(normal, velocity);
+                if (nv < 0.0)
+                    velocity -= nv * normal;
             }
         }
 
