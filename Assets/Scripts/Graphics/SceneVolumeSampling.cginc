@@ -18,7 +18,7 @@ float SampleNormalizedSDF(SamplerState state, float3 uvw, float mip)
 
 float3 SampleNormal(SamplerState state, float3 texel, float3 uvw, float mip)
 {
-    const float2 offset = float2(1.0, -1.0);
+    const float2 offset = float2(0.5, -0.5);
     return SafeNormalize(SampleNormalizedSDF(state, uvw + texel, mip) * offset.xxx +
                          SampleNormalizedSDF(state, uvw + offset.yyx * texel, mip) * offset.yyx +
                          SampleNormalizedSDF(state, uvw + offset.xyy * texel, mip) * offset.xyy +
@@ -28,7 +28,7 @@ float3 SampleNormal(SamplerState state, float3 texel, float3 uvw, float mip)
 #ifdef SCENE_VOLUME_TEXEL
 float3 SampleNormal(SamplerState state, float3 uvw, float mip)
 {
-    const float2 offset = float2(1.0, -1.0);
+    const float2 offset = float2(0.5, -0.5);
     return SafeNormalize(SampleNormalizedSDF(state, uvw + SCENE_VOLUME_TEXEL, mip) * offset.xxx +
                          SampleNormalizedSDF(state, uvw + offset.yyx * SCENE_VOLUME_TEXEL, mip) * offset.yyx +
                          SampleNormalizedSDF(state, uvw + offset.xyy * SCENE_VOLUME_TEXEL, mip) * offset.xyy +
@@ -56,7 +56,7 @@ float SampleNormalizedSDF(float3 uvw, float mip)
 
 float3 SampleNormal(float3 texel, float3 uvw, float mip)
 {
-    const float2 offset = float2(1.0, -1.0);
+    const float2 offset = float2(0.5, -0.5);
     return SafeNormalize(SampleNormalizedSDF(uvw + texel, mip) * offset.xxx +
                          SampleNormalizedSDF(uvw + offset.yyx * texel, mip) * offset.yyx +
                          SampleNormalizedSDF(uvw + offset.xyy * texel, mip) * offset.xyy +
@@ -73,7 +73,7 @@ float SampleNormalizedSDFLocal(float3 localPos, float mip)
 
 float3 SampleNormal(float3 uvw, float mip)
 {
-    const float2 offset = float2(1.0, -1.0);
+    const float2 offset = float2(0.5, -0.5);
     return SafeNormalize(SampleNormalizedSDF(SCENE_VOLUME_SAMPLER, uvw + SCENE_VOLUME_TEXEL, mip) * offset.xxx +
                          SampleNormalizedSDF(SCENE_VOLUME_SAMPLER, uvw + offset.yyx * SCENE_VOLUME_TEXEL, mip) * offset.yyx +
                          SampleNormalizedSDF(SCENE_VOLUME_SAMPLER, uvw + offset.xyy * SCENE_VOLUME_TEXEL, mip) * offset.xyy +

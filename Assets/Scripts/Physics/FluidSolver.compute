@@ -46,6 +46,7 @@
 #include "../Graphics/SDFUtil.cginc"
 
 #define DISABLE_WAVE_SCATTER 0
+#define DISABLE_SDF_COLLISION 1
 
 /// begin constant buffer
 
@@ -193,12 +194,14 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
     bool valid = tid.x < particleCount;
 
     // find level 1 blocks to allocate
+    uint propertyIndex;
     uint3 gridPositionLevel1;
     uint3 gridPositionLevel2;
     uint3 gridOffsetLevel1;
     if (valid)
     {
         const ParticlePositionIndexed position = GetFluidParticlePosition(tid.x, pingpongFlag);
+        propertyIndex = position.Index;
 
         const int3 gridPositionLevel0 = GetKernelMinGridIndex(position.Position);
         valid = IsGridInBound(gridPositionLevel0);
@@ -246,42 +249,25 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
                 }
             }
         }
-        else
-        {
-            // pool properties of particles that are out of bound
-            uint offset;
-            InterlockedAdd(PooledParticlePropertyCount_GSM, 1, offset);
-            PooledParticleProperty_GSM[offset] = position.Index;
-        }
     }
 
     GroupMemoryBarrierWithGroupSync();
 
+    // allocate level 1 blocks
     if (!gi)
-    {
-        // allocate pool
-        PooledParticlePropertyOffset_GSM = AllocatePooledParticleProperties(PooledParticlePropertyCount_GSM);
-
-        // allocate level 1 blocks
         InterlockedAdd(FluidBlockParticleOffsets[GetFluidBlockCountOffset(1)], BlockAllocationCountLevel1_GSM, BlockAllocationOffset_GSM);
-    }
 
     GroupMemoryBarrierWithGroupSync();
-
-    // write pooled particle properties to uav
-    if (gi < PooledParticlePropertyCount_GSM)
-        SetPooledParticleProperty(PooledParticlePropertyOffset_GSM + gi, PooledParticleProperty_GSM[gi]);
 
     // update level 2 grids
     if (gi < BlockAllocationCountLevel1_GSM)
     {
-        uint _;
-        InterlockedExchange(
-            FluidGridLevel2[BlockAllocationLevel1_GSM[gi]],
-            EncodeFluidBlockIndex(BlockAllocationOffset_GSM + gi), _);
-    }
+        const uint blockIndex = BlockAllocationOffset_GSM + gi;
+        const uint value = blockIndex < FLUID_BLOCK_COUNT_LEVEL1 ? EncodeFluidBlockIndex(blockIndex) : 2;
 
-    GroupMemoryBarrierWithGroupSync();
+        uint _;
+        InterlockedExchange(FluidGridLevel2[BlockAllocationLevel1_GSM[gi]], value, _);
+    }
 
     // find level 0 blocks to allocate
     uint3 gridIndexLevel1;
@@ -291,20 +277,24 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
         do
         {
             InterlockedOr(FluidGridLevel2[gridPositionLevel2], 0, blockIndexLevel1Linear);
-        } while (!IsValidFluidBlockIndex(blockIndexLevel1Linear));
-        blockIndexLevel1Linear = DecodeFluidBlockIndex(blockIndexLevel1Linear);
+        } while (blockIndexLevel1Linear == 1);
 
-        gridIndexLevel1 = GetFluidBlockIndexSpatialLevel1(blockIndexLevel1Linear) * FLUID_BLOCK_SIZE_LEVEL1 + gridOffsetLevel1;
-
-        uint acquired = 1;
-        InterlockedCompareExchange(FluidGridLevel1[gridIndexLevel1], 0, 1, acquired);
-
-        if (!acquired)
+        valid = blockIndexLevel1Linear != 2;
+        if (valid)
         {
-            uint index;
-            InterlockedAdd(BlockAllocationCountLevel0_GSM, 1, index);
-            BlockAllocationLevel0_GSM[index] = gridIndexLevel1;
-            GridPositionsLevel1_GSM[index] = gridPositionLevel1;
+            blockIndexLevel1Linear = DecodeFluidBlockIndex(blockIndexLevel1Linear);
+            gridIndexLevel1 = GetFluidBlockIndexSpatialLevel1(blockIndexLevel1Linear) * FLUID_BLOCK_SIZE_LEVEL1 + gridOffsetLevel1;
+
+            uint acquired = 1;
+            InterlockedCompareExchange(FluidGridLevel1[gridIndexLevel1], 0, 1, acquired);
+
+            if (!acquired)
+            {
+                uint index;
+                InterlockedAdd(BlockAllocationCountLevel0_GSM, 1, index);
+                BlockAllocationLevel0_GSM[index] = gridIndexLevel1;
+                GridPositionsLevel1_GSM[index] = gridPositionLevel1;
+            }
         }
     }
 
@@ -319,25 +309,27 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
     // update level 1 grids
     if (gi < BlockAllocationCountLevel0_GSM)
     {
+        const uint blockIndex = BlockAllocationOffset_GSM + gi;
+        const uint value = blockIndex < FLUID_BLOCK_COUNT_LEVEL0 ? EncodeFluidBlockIndex(blockIndex) : 2;
+
         uint _;
+        if (value != 2)
+        {
+            const uint offset = GetFluidBlockParticleCountOffset(blockIndex);
+            InterlockedExchange(FluidBlockParticleOffsets[offset], 0, _);
+        }
+        
+        InterlockedExchange(FluidGridLevel1[BlockAllocationLevel0_GSM[gi]], value, _);
 
-        const uint blockIndexLevel0Linear = BlockAllocationOffset_GSM + gi;
-        uint offset = GetFluidBlockParticleCountOffset(blockIndexLevel0Linear);
-        InterlockedExchange(FluidBlockParticleOffsets[offset], 0, _);
-
-        InterlockedExchange(
-            FluidGridLevel1[BlockAllocationLevel0_GSM[gi]],
-            EncodeFluidBlockIndex(blockIndexLevel0Linear), _);
-
-        offset = GetFluidBlockPositionOffset(blockIndexLevel0Linear);
-
-        const uint3 gridPosition = GridPositionsLevel1_GSM[gi];
-        FluidBlockParticleOffsets[offset] = gridPosition.x;
-        FluidBlockParticleOffsets[offset +1] = gridPosition.y;
-        FluidBlockParticleOffsets[offset +2] = gridPosition.z;
+        if (value != 2)
+        {
+            const uint3 gridPosition = GridPositionsLevel1_GSM[gi];
+            const uint offset = GetFluidBlockPositionOffset(blockIndex);
+            FluidBlockParticleOffsets[offset] = gridPosition.x;
+            FluidBlockParticleOffsets[offset +1] = gridPosition.y;
+            FluidBlockParticleOffsets[offset +2] = gridPosition.z;
+        }
     }
-
-    GroupMemoryBarrierWithGroupSync();
 
     // add particles to level 0 blocks
     if (valid)
@@ -346,18 +338,40 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
         do
         {
             InterlockedOr(FluidGridLevel1[gridIndexLevel1], 0, blockIndexLevel0Linear);
-        } while (!IsValidFluidBlockIndex(blockIndexLevel0Linear));
-        blockIndexLevel0Linear = DecodeFluidBlockIndex(blockIndexLevel0Linear);
+        } while (blockIndexLevel0Linear == 1);
 
-        const uint particleCountOffset = GetFluidBlockParticleCountOffset(blockIndexLevel0Linear);
+        valid = blockIndexLevel0Linear != 2;
+        if (valid)
+        {
+            blockIndexLevel0Linear = DecodeFluidBlockIndex(blockIndexLevel0Linear);
 
-        uint index;
-        InterlockedAdd(FluidBlockParticleOffsets[particleCountOffset], 1, index);
+            uint _;
+            const uint offset = GetFluidBlockParticleCountOffset(blockIndexLevel0Linear);
+            InterlockedAdd(FluidBlockParticleOffsets[offset], 1, _);
+        }
     }
+
+    // pool invalid particles
+    if (!valid && tid.x < particleCount)
+    {
+        uint offset;
+        InterlockedAdd(PooledParticlePropertyCount_GSM, 1, offset);
+        PooledParticleProperty_GSM[offset] = propertyIndex;
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    // allocate pool
+    if (!gi)
+        PooledParticlePropertyOffset_GSM = AllocatePooledParticleProperties(PooledParticlePropertyCount_GSM);
+    
+    // write pooled particle properties to uav
+    if (gi < PooledParticlePropertyCount_GSM)
+        SetPooledParticleProperty(PooledParticlePropertyOffset_GSM + gi, PooledParticleProperty_GSM[gi]);
 }
 
 #define GENERATE_PARTICLE_OFFSETS_KERNEL_SIZE 128
-#define MAX_PARTITION_SIZE (GENERATE_PARTICLE_OFFSETS_KERNEL_SIZE * 8)
+#define MAX_PARTITION_SIZE (GENERATE_PARTICLE_OFFSETS_KERNEL_SIZE * 1)
 #define PARTITION_COUNT ((FLUID_BLOCK_COUNT_LEVEL0 + MAX_PARTITION_SIZE - 1) / MAX_PARTITION_SIZE)
 #define PARTITION_VALUE_NULL (~0u)
 
@@ -506,16 +520,18 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
     {
         for (i = laneIndex; i - laneIndex < PartitionIndex_GSM; i += laneCount)
         {
+            const uint lookbackIndex = PartitionIndex_GSM - i - 1;
+            
             // look back with polling
-            uint lookbackSum = 0;
+            uint lookbackSum;
             bool hasInclusiveSum;
             while (true)
             {
+                lookbackSum = 0;
+
                 // until `if` here, no divergence is within the wave
                 if (i < PartitionIndex_GSM)
                 {
-                    const uint lookbackIndex = PartitionIndex_GSM - i - 1;
-
                     const uint lookbackInclusiveSum = GetPartitionValueAtomic(GetPartitionInclusiveSumOffset(lookbackIndex));
                     // lane order is reversed in look-back window
                     const uint4 inclusiveSumMask = WaveActiveBallot(lookbackInclusiveSum != PARTITION_VALUE_NULL);
@@ -1269,20 +1285,22 @@ void SolveGridLevel0(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
     float3 velocity;
     SolveGrid(mass, momentum, velocity);
 
-    // const uint3 gridPosition = GetFluidBlockPosition(gid.x) * FLUID_BLOCK_SIZE_LEVEL0 + gtid;
-    // const float3 positionSDFSpace = gridPosition * FLUID_GRID_SPACING + FluidGridTranslation - SDFSceneTranslation;
-    // const float3 sdfSampleLocation = positionSDFSpace * SCENE_VOLUME_TEXEL;
-    // if (all(sdfSampleLocation > 0.0 && sdfSampleLocation < 1.0))
-    // {
-    //     const float nsdf = SampleNormalizedSDF(sdfSampleLocation, 0.0);
-    //     if (nsdf < 0.0)
-    //     {
-    //         const float3 normal = SampleNormal(sdfSampleLocation, 0.0);
-    //         const float nv = dot(normal, velocity);
-    //         if (nv < 0.0)
-    //             velocity += (4.0 * nsdf * TIME_STEP - nv) * normal;
-    //     }
-    // }
+    #if !DISABLE_SDF_COLLISION
+        const uint3 gridPosition = GetFluidBlockPosition(gid.x) * FLUID_BLOCK_SIZE_LEVEL0 + gtid;
+        const float3 positionSDFSpace = gridPosition * FLUID_GRID_SPACING + FluidGridTranslation - SDFSceneTranslation;
+        const float3 sdfSampleLocation = positionSDFSpace * SCENE_VOLUME_TEXEL;
+        if (all(sdfSampleLocation > 0.0 && sdfSampleLocation < 1.0))
+        {
+            const float nsdf = SampleNormalizedSDF(sdfSampleLocation, 0.0);
+            if (nsdf < 0.0)
+            {
+                const float3 normal = SampleNormal(sdfSampleLocation, 0.0);
+                const float nv = dot(normal, velocity);
+                if (nv < 0.0)
+                    velocity -= nv * normal;
+            }
+        }
+    #endif
 
     const int3 velocityEncoded = EncodeFluidGridMomentum(velocity);
     FluidGridLevel0[gridIndex + FLUID_GRID_CHANNEL1_OFFSET] = velocityEncoded.x;
@@ -1472,24 +1490,28 @@ void GridToParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 
         position.Position += velocity * TIME_STEP;
 
-        // move particle out of implicit surface
-        const float3 positionSDFSpace = position.Position - SDFSceneTranslation;
-        const float3 sdfSampleLocation = positionSDFSpace * SCENE_VOLUME_TEXEL;
-        if (all(sdfSampleLocation > 0.0 && sdfSampleLocation < 1.0))
-        {
-            const float nsdf = SampleNormalizedSDF(sdfSampleLocation, 0.0);
-            if (nsdf <= 0.0)
+        #if !DISABLE_SDF_COLLISION
+            // move particle out of implicit surface
+            const float3 positionSDFSpace = position.Position - SDFSceneTranslation;
+            const float3 sdfSampleLocation = positionSDFSpace * SCENE_VOLUME_TEXEL;
+            if (all(sdfSampleLocation > 0.0 && sdfSampleLocation < 1.0))
             {
-                const float sdf = nsdf * 4.0;
-                const float3 normal = SampleNormal(sdfSampleLocation, 0.0);
-                const float3 displacement = -sdf * normal;
-                position.Position += displacement;
+                const float nsdf = SampleNormalizedSDF(sdfSampleLocation, 0.0);
+                if (nsdf <= 0.0)
+                {
+                    const float sdf = nsdf * 4.0;
+                    const float3 normal = SampleNormal(sdfSampleLocation, 0.0);
+                    const float3 displacement = -sdf * normal;
+                    // position.Position += displacement;
+                    velocity += displacement * TIME_STEP_INV;
 
-                const float nv = dot(normal, velocity);
-                if (nv < 0.0)
-                    velocity -= nv * normal;
+                    // const float nv = dot(normal, velocity);
+                    // if (nv < 0.0)
+                    //     velocity -= nv * normal;
+
+                }
             }
-        }
+        #endif
 
         SetFluidParticlePosition(particleIndex, position, pingpongFlag);
         SetFluidParticleAffineVelocity(position.Index, affine, velocity);
