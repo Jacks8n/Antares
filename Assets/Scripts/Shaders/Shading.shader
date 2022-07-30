@@ -55,7 +55,7 @@
                 int2 uvInt = int2(floor(i.uv * FrameBufferSize));
                 float4 color_rast = UNITY_READ_FRAMEBUFFER_INPUT(0, uvInt);
                 float depth_rast = UNITY_READ_FRAMEBUFFER_INPUT(1, uvInt);
-                depth_rast = LinearEyeDepth(depth_rast);
+                depth_rast = LinearEyeDepth(depth_rast) + 0.3; // 0.3 is the near plane, hard-coded just for convenience
 
                 float4 rm0 = SceneRM0.Sample(Sampler_Clamp_Point, i.uv);
                 float4 rm1 = SceneRM1.Sample(Sampler_Clamp_Point, i.uv);

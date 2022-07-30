@@ -78,5 +78,21 @@ namespace Antares.SDF
             }
 #endif
         }
+
+#if UNITY_EDITOR
+
+        [Button]
+        private void CaptureSceneConstruction()
+        {
+            ARenderPipeline.AddCaptureEvent(() =>
+            {
+                if (enabled)
+                    enabled = false;
+
+                enabled = true;
+            });
+        }
+
+#endif
     }
 }

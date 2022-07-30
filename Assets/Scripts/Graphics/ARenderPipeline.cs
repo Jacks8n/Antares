@@ -24,14 +24,6 @@ namespace Antares.Graphics
 
         public RenderTargetIdentifier SceneVolume => _sceneVolume;
 
-#if UNITY_EDITOR
-        /// <summary>
-        /// If not empty, it will be invoked on the next <see cref="Render(ScriptableRenderContext, Camera[])"/>
-        /// call to perform RenderDoc capture. Then the <see cref="Scene"/> will be immediately unloaded.
-        /// </summary>
-        public event Action HookRenderDocCaptureEvents;
-#endif
-
         public SDFScene Scene { get; private set; }
 
         private RenderTexture _sceneVolume;
@@ -474,7 +466,7 @@ namespace Antares.Graphics
 
         private void InitializeIndirectBuffer(CommandBuffer cmd, ComputeBuffer buffer, int offset)
         {
-            cmd.SetBufferData(buffer, new uint[] { 0, 1024, 0, 1 }, 0, offset, 4);
+            cmd.SetBufferData(buffer, new uint[] { 0, 256, 0, 1 }, 0, offset, 4);
         }
 
         private ComputeBuffer GetIndirectBuffer(CommandBuffer cmd, int count)
@@ -500,5 +492,22 @@ namespace Antares.Graphics
             cmd.SetComputeBufferParam(shader, kernel, bufferID, indirectBuffer);
             cmd.DispatchCompute(shader, kernel, indirectBuffer, (offset + 1) * sizeof(uint));
         }
+
+
+#if UNITY_EDITOR
+        /// <summary>
+        /// If not empty, it will be invoked on the next <see cref="Render(ScriptableRenderContext, Camera[])"/>
+        /// call to perform RenderDoc capture. Then the <see cref="Scene"/> will be immediately unloaded.
+        /// </summary>
+        public event Action HookRenderDocCaptureEvents;
+
+        public static void AddCaptureEvent(Action action)
+        {
+            if (RenderPipelineManager.currentPipeline is ARenderPipeline renderPipeline)
+                renderPipeline.HookRenderDocCaptureEvents += action;
+            else
+                Debug.LogWarning($"Current Rendering Pipeline Is Not {nameof(ARenderPipeline)}.");
+        }
+#endif
     }
 }

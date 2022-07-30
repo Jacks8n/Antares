@@ -199,21 +199,24 @@ namespace Antares.Physics
         [Button]
         private void CaptureFrame()
         {
-            if (RenderPipelineManager.currentPipeline is ARenderPipeline renderPipeline)
+            if (!enabled)
+            {
+                Debug.LogWarning($"Enable {nameof(APhysicsScene)} before Capturing");
+                return;
+            }
+
+            ARenderPipeline.AddCaptureEvent(() =>
             {
                 _isCapturing = true;
-                renderPipeline.HookRenderDocCaptureEvents += () =>
-                {
-                    for (int i = 0; i < _sampleParams_CaptureCount; i++)
-                        if (Application.isPlaying)
-                            Iterate(Time.fixedDeltaTime * TimeScale);
-                        else
-                            Iterate(1f / 60f * TimeScale);
-                };
+
+                for (int i = 0; i < _sampleParams_CaptureCount; i++)
+                    if (Application.isPlaying)
+                        Iterate(Time.fixedDeltaTime * TimeScale);
+                    else
+                        Iterate(1f / 60f * TimeScale);
+
                 _isCapturing = false;
-            }
-            else
-                Debug.LogWarning($"Current Rendering Pipeline Is Not {nameof(ARenderPipeline)}.");
+            });
         }
 
 #endif

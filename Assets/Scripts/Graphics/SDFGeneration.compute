@@ -132,7 +132,7 @@ struct SDFBrush
                 value[i] = BrushParams_GSM[ParameterOffsetCount + offset +i]; \
         }                                                                       \
         else                                                                    \
-                                                                                                                                                                                    {                                                                       \
+                                                                                                                                                                                                {                                                                       \
             uint offset = GetParameterOffset_UAV(); \
             UNITY_UNROLL                                                            \
             for (uint i = 0; i < dim; i++)                                      \
@@ -229,7 +229,7 @@ bool LoadBrushToGSM(SDFBrush brush, out uint writtenIndex)
         InterlockedAdd(BrushParamCount_GSM, paramCount, gsmParamOffset);
         for (uint i = 0; i < paramCount; i++)
         {
-            BrushParams_GSM[gsmParamOffset + i] = BrushParameters[paramOffset + i];
+            BrushParams_GSM[gsmParamOffset +i] = BrushParameters[paramOffset +i];
         }
         
         brush.SetParameterOffset_GSM(gsmParamOffset);
@@ -257,7 +257,7 @@ void LoadBrushToGSMUnchecked(SDFBrush brush, uint dest)
 
 /// end brush definition
 
-extern RWTexture3D<snorm float> SceneVolume;
+extern RWTexture3D < snorm float > SceneVolume;
 // mip 0: indices to BrushIndices spans
 // mip n: nonsense values, indicating mip masks only
 extern RWTexture3D<uint> MaterialVolume;
@@ -274,14 +274,14 @@ extern RWBuffer<uint> MipDispatches;
 // and they are used as indirect arguments.
 // e.g.:
 // `GenerateSceneVolume` processes each 4^3 block of scene volume. for a 1024^3 scene volume,
-// we need 256^3 dispatches in total, which can be factored into 1024 * 16384 * 1.
+// we need 256^3 dispatches in total, which can be factored into 256 * 65536 * 1.
 // the factorization should be taken carefully to balance performance and robustness. here i
-// would take 1024 * 1 as the fixed divisor. (benchmark required)
+// took 256 * 1 as the fixed divisor. (benchmark required)
 
 // indirect buffer layout:
 // total count | group x | group y | group z | elements...
 // initial values:
-//      0      |   1024  |    0    |    1    | elements...
+//      0      |   256  |    0    |    1    | elements...
 void AllocateRange(RWBuffer<uint> buffer, uint n, uint bufferOffset, out uint indexOffset)
 {
     InterlockedAdd(buffer[bufferOffset], n, indexOffset);
@@ -296,7 +296,7 @@ extern uint IndirectArgsOffset;
 void GenerateIndirectArgs()
 {
     const uint totalCount = IndirectArgs[IndirectArgsOffset];
-    IndirectArgs[IndirectArgsOffset + 2] = (totalCount + 1023) / 1024;
+    IndirectArgs[IndirectArgsOffset +2] = (totalCount + 255) / 256;
 }
 
 void AllocateRange(RWBuffer<uint> buffer, uint n, out uint indexOffset)
@@ -306,7 +306,7 @@ void AllocateRange(RWBuffer<uint> buffer, uint n, out uint indexOffset)
 
 uint GroupIDToDispatchIndex(uint3 gid)
 {
-    return gid.x + gid.y * 1024;
+    return gid.x + gid.y * 256;
 }
 
 uint GetDispatchCount(RWBuffer<uint> buffer, uint bufferOffset)
@@ -462,7 +462,7 @@ void GenerateMipDispatch(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID,
         PrevMip_GSM[i] = 0;
     }
 
-    if(!gi)
+    if (!gi)
         MipDispatchCount_GSM = 0;
 
     GroupMemoryBarrierWithGroupSync();
@@ -506,7 +506,7 @@ void GenerateMipDispatch(uint3 id : SV_DispatchThreadID, uint3 gid : SV_GroupID,
             UNITY_UNROLL
             for (k = 0; k < 3; k++)
             {
-                const uint index = loadIndexOffset + dot(uint3(i, j, k), stride);
+                const uint index = loadIndexOffset +dot(uint3(i, j, k), stride);
 
                 mask |= PrevMip_GSM[index];
             }
@@ -708,8 +708,8 @@ void GenerateMipMap(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex, uint3 tid :
     {
         coord = UnpackGridCoord(GetDispatchElement(MipDispatches, dispatchID, DispatchArgumentsOffset)) * MAT_VOLUME_SCALE;
         coord += tid - uint(MAT_VOLUME_SCALE / 2).xxx;
-        const uint3 prevMipCoord = coord * 2;
 
+        const uint3 prevMipCoord = coord * 2;
         sdf = SampleAverage(prevMipCoord) * SDF_SUPREMUM;
         SDFMips_GSM[gi] = sdf;
     }
@@ -727,13 +727,10 @@ void GenerateMipMap(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex, uint3 tid :
     {
         if (isValid)
         {
-            if (abs(sdf) > SDF_SUPREMUM)
-            {
-                x = MinNeighbor(gi, 1, xrange);
-                y = MinNeighbor(gi, 8, yrange);
-                z = MinNeighbor(gi, 64, zrange);
-                sdf = Eikonal3(x, y, z);
-            }
+            x = MinNeighbor(gi, 1, xrange);
+            y = MinNeighbor(gi, 8, yrange);
+            z = MinNeighbor(gi, 64, zrange);
+            sdf = Eikonal3(x, y, z);
 
             if (i < 2)
                 SDFMips_GSM[gi] = sdf;
@@ -743,7 +740,7 @@ void GenerateMipMap(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex, uint3 tid :
     }
 
     if (isValid && all(tid >= uint3(2, 2, 2) && tid < uint3(6, 6, 6)))
-        SceneVolumeMip[coord] = SDFToSNorm(sdf) * 0.25;
+        SceneVolumeMip[coord] = SDFToSNorm(sdf * 0.25);
 }
 
 /// end generate mipmap
