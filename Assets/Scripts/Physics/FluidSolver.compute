@@ -371,13 +371,14 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
 }
 
 #define GENERATE_PARTICLE_OFFSETS_KERNEL_SIZE 128
+// todo
 #define MAX_PARTITION_SIZE (GENERATE_PARTICLE_OFFSETS_KERNEL_SIZE * 1)
 #define PARTITION_COUNT ((FLUID_BLOCK_COUNT_LEVEL0 + MAX_PARTITION_SIZE - 1) / MAX_PARTITION_SIZE)
 #define PARTITION_VALUE_NULL (~0u)
 
 // layout: { partition count, { partition sum, global inclusive sum }* }
 // initial value: { 0, { null, null }*  }
-extern RWBuffer<uint> PartitionSums;
+extern globallycoherent RWBuffer<uint> PartitionSums;
 
 uint PreemptPartition()
 {
@@ -403,30 +404,15 @@ uint GetPartitionInclusiveSumOffset(uint partitionIndex)
 
 uint GetPartitionCount()
 {
-    const uint offset = GetPartitionCountOffset();
-    return PartitionSums[offset];
+    return PartitionSums[GetPartitionCountOffset()];
 }
 
 void SetPartitionCount(uint count)
 {
-    const uint offset = GetPartitionCountOffset();
-    PartitionSums[offset] = count;
+    PartitionSums[GetPartitionCountOffset()] = count;
 }
 
-void SetPartitionValueAtomic(uint offset, uint value)
-{
-    uint _;
-    InterlockedExchange(PartitionSums[offset], value, _);
-}
-
-uint GetPartitionValueAtomic(uint offset)
-{
-    uint value;
-    InterlockedOr(PartitionSums[offset], 0, value);
-
-    return value;
-}
-
+// note: do not clear partition sums before this value is used up
 uint GetParticleCountLastFrame()
 {
     const uint partitionCount = GetPartitionCount();
@@ -452,8 +438,6 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
     {
         PartitionIndex_GSM = PreemptPartition();
         BlockIndexOffset_GSM = PartitionIndex_GSM * MAX_PARTITION_SIZE;
-
-        // it's for the first partition, which will skip the look-back
         GlobalExclusiveSum_GSM = 0;
 
         const uint blockCount = GetFluidBlockCount(0);
@@ -509,44 +493,39 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
     // write group sum to uav
     if (!gi)
     {
-        SetPartitionValueAtomic(GetPartitionSumOffset(PartitionIndex_GSM), partitionSum);
+        PartitionSums[GetPartitionSumOffset(PartitionIndex_GSM)] = partitionSum;
 
         // used in the hierarchical exclusive prefix sum below
         ParticleCounts_GSM[waveSumDstOffset] = 0;
     }
 
+    GroupMemoryBarrierWithGroupSync();
+
     // look back to calculate exclusive prefix sum
     if (gi < laneCount)
     {
-        for (i = laneIndex; i - laneIndex < PartitionIndex_GSM; i += laneCount)
+        for (i = gi; i - gi < PartitionIndex_GSM; i += laneCount)
         {
+            const bool valid = i < PartitionIndex_GSM;
             const uint lookbackIndex = PartitionIndex_GSM - i - 1;
-            
+
             // look back with polling
             uint lookbackSum;
-            bool hasInclusiveSum;
+            uint minInclusiveSumLane;
             while (true)
             {
+                // no wave divergence until here
+                uint lookbackInclusiveSum = PARTITION_VALUE_NULL;
+                if (valid)
+                    lookbackInclusiveSum = PartitionSums[GetPartitionInclusiveSumOffset(lookbackIndex)];
+
+                minInclusiveSumLane = WaveActiveMin(lookbackInclusiveSum != PARTITION_VALUE_NULL ? gi : 128);
+                if (gi == minInclusiveSumLane)
+                    GlobalExclusiveSum_GSM += lookbackInclusiveSum;
+
                 lookbackSum = 0;
-
-                // until `if` here, no divergence is within the wave
-                if (i < PartitionIndex_GSM)
-                {
-                    const uint lookbackInclusiveSum = GetPartitionValueAtomic(GetPartitionInclusiveSumOffset(lookbackIndex));
-                    // lane order is reversed in look-back window
-                    const uint4 inclusiveSumMask = WaveActiveBallot(lookbackInclusiveSum != PARTITION_VALUE_NULL);
-                    const bool4 isInclusiveSumReady = inclusiveSumMask;
-
-                    const int4 inclusiveSumLane4 = isInclusiveSumReady ? firstbitlow(inclusiveSumMask) + int4(0, 32, 64, 96) : int(128).xxxx;
-                    const int minInclusiveSumLane = min(min(inclusiveSumLane4.x, inclusiveSumLane4.y), min(inclusiveSumLane4.z, inclusiveSumLane4.w));
-                    hasInclusiveSum = minInclusiveSumLane < 128;
-
-                    if (laneIndex < minInclusiveSumLane)
-                        lookbackSum = GetPartitionValueAtomic(GetPartitionSumOffset(lookbackIndex));
-
-                    if (laneIndex == minInclusiveSumLane)
-                        GlobalExclusiveSum_GSM = lookbackInclusiveSum;
-                }
+                if (gi < minInclusiveSumLane)
+                    lookbackSum = PartitionSums[GetPartitionSumOffset(lookbackIndex)];
 
                 // stop polling if all the lanes have retrieved required value
                 const uint4 sumMask = WaveActiveBallot(lookbackSum == PARTITION_VALUE_NULL);
@@ -555,17 +534,17 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
             }
 
             const uint waveSum = WaveActiveSum(lookbackSum);
-            if (isFirstLane)
+            if (!gi)
                 GlobalExclusiveSum_GSM += waveSum;
 
-            if (hasInclusiveSum)
+            if (minInclusiveSumLane < 128)
                 break;
         }
     }
 
     if (isFirstLane)
-        SetPartitionValueAtomic(GetPartitionInclusiveSumOffset(PartitionIndex_GSM), partitionSum + GlobalExclusiveSum_GSM);
-    
+        PartitionSums[GetPartitionInclusiveSumOffset(PartitionIndex_GSM)] = partitionSum + GlobalExclusiveSum_GSM;
+
     GroupMemoryBarrierWithGroupSync();
 
     // hierarchical exclusive prefix sum
@@ -1023,8 +1002,6 @@ void ParticleToGrid1(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
         const uint3 dstGridIndex = GetGridIndexSpatial(gi, subblockSize.xy);
         const uint storeGridIndex = GetFluidBlockGridIndexLinearLevel0(subblockMin + dstGridIndex, FLUID_BLOCK_PADDING);
 
-        // level 2 doesn't have "ghost cells"(terms used in original spgrid paper)
-        // thus, if no level 1 block is allocated, grid values are just discarded
         if (gi < subblockGridCount)
         {
             if (IsValidFluidBlockIndex(adjacentBlockIndexLevel1Encoded))
@@ -1051,7 +1028,10 @@ void ParticleToGrid1(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
             }
             else
             {
-                MassGrid_GSM[storeGridIndex] = 0.0;
+                // otherwise extrapolate from current block
+                const uint indexClamped = clamp(storeGridIndex, 0, FLUID_BLOCK_SIZE_LEVEL0);
+                const uint index = GetFluidBlockGridIndexLinearLevel0(indexClamped, FLUID_BLOCK_PADDING);
+                MassGrid_GSM[storeGridIndex] = MassGrid_GSM[index];
             }
         }
     }
@@ -1353,7 +1333,7 @@ void GridToParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 
     uint i, j, k, l;
 
-    // read from current block
+    // read velocity from current block
     const uint3 srcGridOffset = GetFluidBlockIndexSpatialLevel0(gid.x) * FLUID_BLOCK_SIZE_LEVEL0;
     for (i = gi; i < FLUID_BLOCK_GRID_COUNT_LEVEL0; i += GRID_TO_PARTICLE_KERNEL_SIZE)
     {
@@ -1399,8 +1379,6 @@ void GridToParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
         const uint3 dstGridIndex = GetGridIndexSpatial(gi, subblockSize.xy);
         const uint storeGridIndex = GetFluidBlockGridIndexLinearLevel0(subblockMin + dstGridIndex, FLUID_BLOCK_PADDING);
 
-        // level 2 doesn't have "ghost cells"(terms used in original spgrid paper)
-        // thus, if no level 1 block is allocated, grid values are just discarded
         if (all(dstGridIndex < subblockSize))
         {
             if (IsValidFluidBlockIndex(adjacentBlockIndexLevel1Encoded))
@@ -1433,7 +1411,10 @@ void GridToParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
             }
             else
             {
-                VelocityGrid_GSM[storeGridIndex] = GLOBAL_GRAVITY * TIME_STEP;
+                // otherwise extrapolate from current block
+                const uint indexClamped = clamp(storeGridIndex, 0, FLUID_BLOCK_SIZE_LEVEL0);
+                const uint index = GetFluidBlockGridIndexLinearLevel0(indexClamped, FLUID_BLOCK_PADDING);
+                VelocityGrid_GSM[storeGridIndex] = VelocityGrid_GSM[index];
             }
         }
     }
