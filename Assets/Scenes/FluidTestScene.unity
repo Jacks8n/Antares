@@ -322,7 +322,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 597352202}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 6ac7db45ff14f4449a66602c9961fe43, type: 3}
   m_Name: 
@@ -336,7 +336,7 @@ MonoBehaviour:
   _sampleParams_Velocity: {x: 0, y: 0, z: 0}
   _sampleParams_RandomVelocity: 0
   _sampleParams_ParticleCount: 256
-  _sampleParams_CaptureImmediately: 1
+  _sampleParams_CaptureImmediately: 0
   _sampleParams_CaptureCount: 2
 --- !u!4 &597352204
 Transform:

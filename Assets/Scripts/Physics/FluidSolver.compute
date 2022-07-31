@@ -46,7 +46,7 @@
 #include "../Graphics/SDFUtil.cginc"
 
 #define DISABLE_WAVE_SCATTER 0
-#define DISABLE_SDF_COLLISION 1
+#define DISABLE_SDF_COLLISION 0
 
 /// begin constant buffer
 
@@ -262,11 +262,8 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
     // update level 2 grids
     if (gi < BlockAllocationCountLevel1_GSM)
     {
-        const uint blockIndex = BlockAllocationOffset_GSM + gi;
-        const uint value = blockIndex < FLUID_BLOCK_COUNT_LEVEL1 ? EncodeFluidBlockIndex(blockIndex) : 2;
-
-        uint _;
-        InterlockedExchange(FluidGridLevel2[BlockAllocationLevel1_GSM[gi]], value, _);
+        const uint blockIndex = BlockAllocationOffset_GSM + gi;        
+        FluidGridLevel2[BlockAllocationLevel1_GSM[gi]] = blockIndex < FLUID_BLOCK_COUNT_LEVEL1 ? EncodeFluidBlockIndex(blockIndex) : 2;
     }
 
     // find level 0 blocks to allocate
@@ -276,7 +273,7 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
         uint blockIndexLevel1Linear;
         do
         {
-            InterlockedOr(FluidGridLevel2[gridPositionLevel2], 0, blockIndexLevel1Linear);
+            blockIndexLevel1Linear = FluidGridLevel2[gridPositionLevel2];
         } while (blockIndexLevel1Linear == 1);
 
         valid = blockIndexLevel1Linear != 2;
@@ -318,8 +315,8 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
             const uint offset = GetFluidBlockParticleCountOffset(blockIndex);
             InterlockedExchange(FluidBlockParticleOffsets[offset], 0, _);
         }
-        
-        InterlockedExchange(FluidGridLevel1[BlockAllocationLevel0_GSM[gi]], value, _);
+
+        FluidGridLevel1[BlockAllocationLevel0_GSM[gi]] = value;
 
         if (value != 2)
         {
@@ -337,7 +334,7 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
         uint blockIndexLevel0Linear;
         do
         {
-            InterlockedOr(FluidGridLevel1[gridIndexLevel1], 0, blockIndexLevel0Linear);
+            blockIndexLevel0Linear = FluidGridLevel1[gridIndexLevel1];
         } while (blockIndexLevel0Linear == 1);
 
         valid = blockIndexLevel0Linear != 2;
@@ -371,8 +368,7 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
 }
 
 #define GENERATE_PARTICLE_OFFSETS_KERNEL_SIZE 128
-// todo
-#define MAX_PARTITION_SIZE (GENERATE_PARTICLE_OFFSETS_KERNEL_SIZE * 1)
+#define MAX_PARTITION_SIZE (GENERATE_PARTICLE_OFFSETS_KERNEL_SIZE * 8)
 #define PARTITION_COUNT ((FLUID_BLOCK_COUNT_LEVEL0 + MAX_PARTITION_SIZE - 1) / MAX_PARTITION_SIZE)
 #define PARTITION_VALUE_NULL (~0u)
 
@@ -499,8 +495,6 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
         ParticleCounts_GSM[waveSumDstOffset] = 0;
     }
 
-    GroupMemoryBarrierWithGroupSync();
-
     // look back to calculate exclusive prefix sum
     if (gi < laneCount)
     {
@@ -528,8 +522,8 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
                     lookbackSum = PartitionSums[GetPartitionSumOffset(lookbackIndex)];
 
                 // stop polling if all the lanes have retrieved required value
-                const uint4 sumMask = WaveActiveBallot(lookbackSum == PARTITION_VALUE_NULL);
-                if (!any(sumMask))
+                const bool isValidSum = !WaveActiveAnyTrue(lookbackSum == PARTITION_VALUE_NULL);
+                if (isValidSum)
                     break;
             }
 
@@ -542,10 +536,10 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
         }
     }
 
-    if (isFirstLane)
-        PartitionSums[GetPartitionInclusiveSumOffset(PartitionIndex_GSM)] = partitionSum + GlobalExclusiveSum_GSM;
-
     GroupMemoryBarrierWithGroupSync();
+
+    if (!gi)
+        PartitionSums[GetPartitionInclusiveSumOffset(PartitionIndex_GSM)] = partitionSum + GlobalExclusiveSum_GSM;
 
     // hierarchical exclusive prefix sum
     for (i = waveSumDstOffset -waveSumSrcOffset; i <= MAX_PARTITION_SIZE; i *= laneCount)

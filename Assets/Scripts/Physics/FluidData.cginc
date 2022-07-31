@@ -345,9 +345,9 @@ float DecodeFluidGridSDF(int value)
 // initial value: 0
 extern A_RWTEXTURE3D(int) FluidGridLevel0;
 // initial value: 0
-extern A_RWTEXTURE3D(int) FluidGridLevel1;
+extern globallycoherent A_RWTEXTURE3D(int) FluidGridLevel1;
 // initial value: 0
-extern A_RWTEXTURE3D(int) FluidGridLevel2;
+extern globallycoherent A_RWTEXTURE3D(int) FluidGridLevel2;
 
 int3 GetFluidGridPositionNearest(float3 gridSpacePosition)
 {
