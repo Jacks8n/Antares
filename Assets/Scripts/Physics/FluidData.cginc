@@ -349,6 +349,26 @@ extern globallycoherent A_RWTEXTURE3D(int) FluidGridLevel1;
 // initial value: 0
 extern globallycoherent A_RWTEXTURE3D(int) FluidGridLevel2;
 
+#define FLUID_GRID_VALUE_EMPTY 0
+#define FLUID_GRID_VALUE_PREEMPTED ((3u << 30) | 1)
+#define FLUID_GRID_VALUE_INVALID ((3u << 30) | 2)
+
+uint EncodeFluidBlockIndex(uint index)
+{
+    return (1u << 31) | index;
+}
+
+uint DecodeFluidBlockIndex(uint index)
+{
+    return ((1u << 30) - 1) & index;
+}
+
+bool IsValidFluidBlockIndex(uint index)
+{
+    const uint mask = 3u << 30;
+    return (index & mask) == (1u << 31);
+}
+
 int3 GetFluidGridPositionNearest(float3 gridSpacePosition)
 {
     return int3(round(gridSpacePosition));
@@ -380,16 +400,6 @@ uint3 GetGridIndexSpatial(uint index, uint2 blockSizeXY)
     const uint z = index / (blockSizeXY.x * blockSizeXY.y);
 
     return uint3(x, y, z);
-}
-
-uint EncodeFluidBlockIndex(uint index)
-{
-    return (1u << 31) | index;
-}
-
-uint DecodeFluidBlockIndex(uint index)
-{
-    return ((1u << 31) - 1) & index;
 }
 
 // there are some limits on the dimension of textures, so non-zero-level blocks are
@@ -458,12 +468,6 @@ DEF_LINEARIZE_FLUID_BLOCK_GRID_INDEX_FUNC(0)
 DEF_LINEARIZE_FLUID_BLOCK_GRID_INDEX_FUNC(1)
 
 #undef DEF_LINEARIZE_FLUID_BLOCK_GRID_INDEX_FUNC
-
-bool IsValidFluidBlockIndex(uint index)
-{
-    const uint msb = 1 << 31;
-    return (index & msb) != 0;
-}
 
 // layout: {
 //   level 0 block count, indirect groups.yz, level 1 block count, indirect groups.yz, unused{2},

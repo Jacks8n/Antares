@@ -87,6 +87,8 @@ CBUFFER_END
 
 /// begin internal data/funcs
 
+// layout: { property count, previous property count, property index* }
+// initial value: { 0, x, x* }
 extern RWBuffer<uint> FluidParticlePropertiesPool;
 
 uint GetPooledParticlePropertyCountOffset()
@@ -94,9 +96,14 @@ uint GetPooledParticlePropertyCountOffset()
     return 0;
 }
 
+uint GetPooledParticlePropertyPrevCountOffset()
+{
+    return GetPooledParticlePropertyCountOffset() + 1;
+}
+
 uint GetPooledParticlePropertyOffset(uint index)
 {
-    return GetPooledParticlePropertyCountOffset() + 1 + index;
+    return GetPooledParticlePropertyPrevCountOffset() + 1 + index;
 }
 
 uint GetPooledParticlePropertyCount()
@@ -108,6 +115,18 @@ uint GetPooledParticlePropertyCount()
 void SetPooledParticlePropertyCount(uint count)
 {
     const uint offset = GetPooledParticlePropertyCountOffset();
+    FluidParticlePropertiesPool[offset] = count;
+}
+
+uint GetPooledParticlePropertyPrevCount()
+{
+    const uint offset = GetPooledParticlePropertyPrevCountOffset();
+    return FluidParticlePropertiesPool.Load(offset);
+}
+
+void SetPooledParticlePropertyPrevCount(uint count)
+{
+    const uint offset = GetPooledParticlePropertyPrevCountOffset();
     FluidParticlePropertiesPool[offset] = count;
 }
 
@@ -194,14 +213,13 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
     bool valid = tid.x < particleCount;
 
     // find level 1 blocks to allocate
-    uint propertyIndex;
+    ParticlePositionIndexed position;
     uint3 gridPositionLevel1;
     uint3 gridPositionLevel2;
     uint3 gridOffsetLevel1;
     if (valid)
     {
-        const ParticlePositionIndexed position = GetFluidParticlePosition(tid.x, pingpongFlag);
-        propertyIndex = position.Index;
+        position = GetFluidParticlePosition(tid.x, pingpongFlag);
 
         const int3 gridPositionLevel0 = GetKernelMinGridIndex(position.Position);
         valid = IsGridInBound(gridPositionLevel0);
@@ -262,7 +280,7 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
     // update level 2 grids
     if (gi < BlockAllocationCountLevel1_GSM)
     {
-        const uint blockIndex = BlockAllocationOffset_GSM + gi;        
+        const uint blockIndex = BlockAllocationOffset_GSM + gi;
         FluidGridLevel2[BlockAllocationLevel1_GSM[gi]] = blockIndex < FLUID_BLOCK_COUNT_LEVEL1 ? EncodeFluidBlockIndex(blockIndex) : 2;
     }
 
@@ -353,7 +371,7 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
     {
         uint offset;
         InterlockedAdd(PooledParticlePropertyCount_GSM, 1, offset);
-        PooledParticleProperty_GSM[offset] = propertyIndex;
+        PooledParticleProperty_GSM[offset] = position.Index;
     }
 
     GroupMemoryBarrierWithGroupSync();
@@ -361,7 +379,9 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
     // allocate pool
     if (!gi)
         PooledParticlePropertyOffset_GSM = AllocatePooledParticleProperties(PooledParticlePropertyCount_GSM);
-    
+
+    GroupMemoryBarrierWithGroupSync();
+
     // write pooled particle properties to uav
     if (gi < PooledParticlePropertyCount_GSM)
         SetPooledParticleProperty(PooledParticlePropertyOffset_GSM + gi, PooledParticleProperty_GSM[gi]);
@@ -571,35 +591,42 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
 [numthreads(SORT_PARTICLES_KERNEL_SIZE, 1, 1)]
 void SortParticles(uint3 tid : SV_DispatchThreadID)
 {
-    const bool pingpongFlag = GetFluidParticlePositionPingPongFlag();
     const uint particleCount = GetFluidParticleCount();
 
-    if (tid.x < particleCount)
-    {
-        const ParticlePositionIndexed position = GetFluidParticlePosition(tid.x, !pingpongFlag);
-        const int3 gridPositionLevel0 = GetKernelMinGridIndex(position.Position);
+    if (tid.x >= particleCount)
+        return;
 
-        if (IsGridInBound(gridPositionLevel0))
-        {
-            uint3 gridPositionLevel2;
-            uint3 gridOffsetLevel1;
-            GetFluidGridPositions(gridPositionLevel0, gridPositionLevel2, gridOffsetLevel1);
+    const bool pingpongFlag = GetFluidParticlePositionPingPongFlag();
 
-            const uint blockIndexLevel1Linear = DecodeFluidBlockIndex(FluidGridLevel2[gridPositionLevel2]);
-            const uint3 blockIndexLevel1Spatial = GetFluidBlockIndexSpatialLevel1(blockIndexLevel1Linear);
+    const ParticlePositionIndexed position = GetFluidParticlePosition(tid.x, !pingpongFlag);
+    const int3 gridPositionLevel0 = GetKernelMinGridIndex(position.Position);
+    if (!IsGridInBound(gridPositionLevel0))
+        return;
 
-            const uint3 gridIndexLevel1Spatial = blockIndexLevel1Spatial * FLUID_BLOCK_SIZE_LEVEL1 + gridOffsetLevel1;
-            const uint blockIndexLevel0Linear = DecodeFluidBlockIndex(FluidGridLevel1[gridIndexLevel1Spatial]);
+    uint3 gridPositionLevel2;
+    uint3 gridOffsetLevel1;
+    GetFluidGridPositions(gridPositionLevel0, gridPositionLevel2, gridOffsetLevel1);
 
-            const uint particleCountOffset = GetFluidBlockParticleCountOffset(blockIndexLevel0Linear);
+    uint blockIndexLevel1Linear = FluidGridLevel2[gridPositionLevel2];
+    if (blockIndexLevel1Linear == 2)
+        return;
+    
+    blockIndexLevel1Linear = DecodeFluidBlockIndex(blockIndexLevel1Linear);
+    const uint3 blockIndexLevel1Spatial = GetFluidBlockIndexSpatialLevel1(blockIndexLevel1Linear);
+    const uint3 gridIndexLevel1Spatial = blockIndexLevel1Spatial * FLUID_BLOCK_SIZE_LEVEL1 + gridOffsetLevel1;
 
-            uint dstIndex;
-            InterlockedAdd(FluidBlockParticleOffsets[particleCountOffset], 1, dstIndex);
-            dstIndex += GetFluidBlockParticleCountPrefixSum(blockIndexLevel0Linear);
+    uint blockIndexLevel0Linear = FluidGridLevel1[gridIndexLevel1Spatial];
+    if (blockIndexLevel1Linear == 2)
+        return;
 
-            SetFluidParticlePosition(dstIndex, position, pingpongFlag);
-        }
-    }
+    blockIndexLevel0Linear = DecodeFluidBlockIndex(blockIndexLevel0Linear);
+    const uint particleCountOffset = GetFluidBlockParticleCountOffset(blockIndexLevel0Linear);
+
+    uint dstIndex;
+    InterlockedAdd(FluidBlockParticleOffsets[particleCountOffset], 1, dstIndex);
+    dstIndex += GetFluidBlockParticleCountPrefixSum(blockIndexLevel0Linear);
+
+    SetFluidParticlePosition(dstIndex, position, pingpongFlag);
 }
 
 /// end sort particle
@@ -646,8 +673,10 @@ void GenerateIndirectArgs0()
     IndirectArgs[6] = GetGroupCount(partitionCount, CLEAR_PARTITION_SUMS_KERNEL_SIZE);
     SetPartitionCount(0);
 
-    const uint poolSize = GetPooledParticlePropertyCount();
-    SetPooledParticlePropertyCount(poolSize - min(CurrentFrameAddParticleCount, poolSize));
+    const uint prevPoolSize = GetPooledParticlePropertyCount();
+    const uint newpoolSize = prevPoolSize - min(CurrentFrameAddParticleCount, prevPoolSize);
+    SetPooledParticlePropertyCount(newpoolSize);
+    SetPooledParticlePropertyPrevCount(newpoolSize);
 
     const bool pingpongFlag = GetFluidParticlePositionPingPongFlag();
     SetFluidParticlePositionPingPongFlag(!pingpongFlag);
@@ -656,6 +685,12 @@ void GenerateIndirectArgs0()
 [numthreads(1, 1, 1)]
 void GenerateIndirectArgs1()
 {
+    // though remaining kernels don't require the global particle count to be exact, it's still necessary
+    // to render debugging particles.
+    const uint pooledCount = GetPooledParticlePropertyCount() - GetPooledParticlePropertyPrevCount();
+    const uint particleCount = GetFluidParticleCount() - pooledCount;
+    SetFluidParticleCount(particleCount);
+
     const uint blockCount = GetFluidBlockCount(0);
     IndirectArgs[0] = GetGroupCount(blockCount, MAX_PARTITION_SIZE);
 }
@@ -824,7 +859,6 @@ void ParticleToGrid0(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
                     InterlockedAdd(FluidGrid_GSM[dstGridIndexEncoded].y, momentumEncoded.x, _);
                     InterlockedAdd(FluidGrid_GSM[dstGridIndexEncoded].z, momentumEncoded.y, _);
                     InterlockedAdd(FluidGrid_GSM[dstGridIndexEncoded].w, momentumEncoded.z, _);
-
                     InterlockedMin(SDFGrid_GSM[dstGridIndexEncoded], sdfEncoded, _);
                 }
             }
