@@ -73,10 +73,9 @@ struct ParticleProperties
 };
 
 // layout: { 
-//   indirect arg 0, particle count, indirect args{2}, ping-pong flag, unused{3}, 
-//   (indexed position{n}){2} 
+//   particle count, ping-pong flag, unused{2}, (indexed position{n}){2} 
 // }
-// initial value: { 1, 0, 0, 0, 0, x{3}, ((x{4}){n}){2} }
+// initial value: { 0, 0, x{2}, ((x{4}){n}){2} }
 extern A_RWBUFFER(uint) FluidParticlePositions;
 // layout: { ((alignas(32) particle properties){n} }
 // initial value: { <valid particle properties>{n}, x* }
@@ -86,7 +85,7 @@ extern A_RWBYTEADDRESS_BUFFER FluidParticleProperties;
 
 uint GetFluidParticleCountOffset()
 {
-    return 1;
+    return 0;
 }
 
 // to parallelize sorting particles, a buffer whose size is twice as the number of particles are used.
@@ -94,14 +93,14 @@ uint GetFluidParticleCountOffset()
 // used at the beginning of each iteration.
 uint GetFluidParticlePositionPingPongFlagOffset()
 {
-    return 4;
+    return 1;
 }
 
 uint GetFluidParticlePositionOffset(uint index, bool pingpong)
 {
     const uint stride = 4; // compressed size of ParticlePositionIndexed / 4
     const uint pingpongOffset = pingpong ? FLUID_MAX_PARTICLE_COUNT : 0;
-    return 8 + (index + pingpongOffset) * stride;
+    return 4 + (index + pingpongOffset) * stride;
 }
 
 uint GetFluidParticleCount()
@@ -333,6 +332,10 @@ float DecodeFluidGridSDF(int value)
 
 /// begin grid access
 
+#define FLUID_GRID_VALUE_EMPTY 0
+#define FLUID_GRID_VALUE_PREEMPTED ((3u << 30) | 1)
+#define FLUID_GRID_VALUE_INVALID ((3u << 30) | 2)
+
 // sparse transfer grid(updated in each physics frame):
 //  level 0  : 64*32*32 | 4x4x4 grids | 64mb(velocity/momemntum, mass)
 //  level 1  : 64*32*32 | 4x4x4 nodes | 64mb
@@ -344,14 +347,10 @@ float DecodeFluidGridSDF(int value)
 
 // initial value: 0
 extern A_RWTEXTURE3D(int) FluidGridLevel0;
-// initial value: 0
+// initial value: FLUID_GRID_VALUE_EMPTY
 extern globallycoherent A_RWTEXTURE3D(int) FluidGridLevel1;
-// initial value: 0
+// initial value: FLUID_GRID_VALUE_EMPTY
 extern globallycoherent A_RWTEXTURE3D(int) FluidGridLevel2;
-
-#define FLUID_GRID_VALUE_EMPTY 0
-#define FLUID_GRID_VALUE_PREEMPTED ((3u << 30) | 1)
-#define FLUID_GRID_VALUE_INVALID ((3u << 30) | 2)
 
 uint EncodeFluidBlockIndex(uint index)
 {
@@ -363,7 +362,7 @@ uint DecodeFluidBlockIndex(uint index)
     return ((1u << 30) - 1) & index;
 }
 
-bool IsValidFluidBlockIndex(uint index)
+bool IsValidEncodedFluidBlockIndex(uint index)
 {
     const uint mask = 3u << 30;
     return (index & mask) == (1u << 31);
@@ -555,6 +554,12 @@ uint GetFluidBlockIndexLevel0Unchecked(uint3 gridPositionLevel1)
 }
 
 #ifndef A_UAV_READONLY
+
+    void SetFluidBlockCount(uint level, uint count)
+    {
+        const uint offset = GetFluidBlockCountOffset(level);
+        FluidBlockParticleOffsets[offset] = count;
+    }
 
     void SetFluidBlockParticleCountPrefixSum(uint blockIndex, uint prefixSum)
     {

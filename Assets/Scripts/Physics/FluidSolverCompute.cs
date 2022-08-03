@@ -128,6 +128,7 @@ namespace Antares.Graphics
 
             public int GenerateIndirectArgs0Kernel { get; private set; }
             public int GenerateIndirectArgs1Kernel { get; private set; }
+            public int GenerateIndirectArgs2Kernel { get; private set; }
 
             public int ClearPartitionSumsKernel { get; private set; }
 
@@ -152,6 +153,7 @@ namespace Antares.Graphics
             {
                 GenerateIndirectArgs0Kernel = Shader.FindKernel("GenerateIndirectArgs0");
                 GenerateIndirectArgs1Kernel = Shader.FindKernel("GenerateIndirectArgs1");
+                GenerateIndirectArgs2Kernel = Shader.FindKernel("GenerateIndirectArgs2");
                 ClearPartitionSumsKernel = Shader.FindKernel("ClearPartitionSums");
                 GenerateParticleHistogramKernel = Shader.FindKernel("GenerateParticleHistogram");
                 GenerateParticleOffsetsKernel = Shader.FindKernel("GenerateParticleOffsets");
