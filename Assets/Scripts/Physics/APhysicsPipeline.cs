@@ -50,7 +50,7 @@ namespace Antares.Physics
             #region allocate buffers/textures
 
             const int maxParticleCount = FluidSolverCompute.MaxParticleCount;
-            _fluidParticlePositionsBuffer = new ComputeBuffer(8 + 2 * 4 * maxParticleCount, 4, ComputeBufferType.Structured, ComputeBufferMode.Immutable);
+            _fluidParticlePositionsBuffer = new ComputeBuffer(4 + 2 * 4 * maxParticleCount, 4, ComputeBufferType.Structured, ComputeBufferMode.Immutable);
             _fluidParticlePropertiesBuffer = new ComputeBuffer(maxParticleCount * 8, 4, ComputeBufferType.Raw, ComputeBufferMode.Immutable);
             _fluidParticlePropertiesPoolBuffer = new ComputeBuffer(1 + maxParticleCount, 4, ComputeBufferType.Structured, ComputeBufferMode.Immutable);
 

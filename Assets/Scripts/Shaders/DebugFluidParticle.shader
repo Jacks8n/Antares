@@ -1,4 +1,4 @@
-Shader "Unlit/DebugParticle"
+Shader "Unlit/DebugFluidParticle"
 {
     Properties { }
     SubShader

@@ -98,7 +98,7 @@ uint GetFluidParticlePositionPingPongFlagOffset()
 
 uint GetFluidParticlePositionOffset(uint index, bool pingpong)
 {
-    const uint stride = 4; // compressed size of ParticlePositionIndexed / 4
+    const uint stride = 4; // sizeof(ParticlePositionIndexed) / 4;
     const uint pingpongOffset = pingpong ? FLUID_MAX_PARTICLE_COUNT : 0;
     return 4 + (index + pingpongOffset) * stride;
 }
@@ -348,9 +348,9 @@ float DecodeFluidGridSDF(int value)
 // initial value: 0
 extern A_RWTEXTURE3D(int) FluidGridLevel0;
 // initial value: FLUID_GRID_VALUE_EMPTY
-extern globallycoherent A_RWTEXTURE3D(int) FluidGridLevel1;
+extern A_RWSTORAGE(globallycoherent) A_RWTEXTURE3D(int) FluidGridLevel1;
 // initial value: FLUID_GRID_VALUE_EMPTY
-extern globallycoherent A_RWTEXTURE3D(int) FluidGridLevel2;
+extern A_RWSTORAGE(globallycoherent) A_RWTEXTURE3D(int) FluidGridLevel2;
 
 uint EncodeFluidBlockIndex(uint index)
 {

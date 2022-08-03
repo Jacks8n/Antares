@@ -24,7 +24,7 @@
 // 3. rendering fluids
 
 #pragma use_dxc
-// #pragma enable_d3d11_debug_symbols
+#pragma enable_d3d11_debug_symbols
 
 #pragma kernel GenerateIndirectArgs0
 #pragma kernel GenerateIndirectArgs1
