@@ -72,14 +72,14 @@ struct ParticleProperties
     }
 };
 
-// layout: { 
-//   particle count, ping-pong flag, unused{2}, (indexed position{n}){2} 
+// layout: {
+//   particle count, ping-pong flag, unused{2}, (indexed position{n}){2}
 // }
 // initial value: { 0, 0, x{2}, ((x{4}){n}){2} }
 extern A_RWBUFFER(uint) FluidParticlePositions;
 // layout: { ((alignas(32) particle properties){n} }
 // initial value: { <valid particle properties>{n}, x* }
-extern A_RWBYTEADDRESS_BUFFER FluidParticleProperties;
+extern A_RWSTORAGE(globallycoherent) A_RWBYTEADDRESS_BUFFER FluidParticleProperties;
 
 /// begin particle access
 

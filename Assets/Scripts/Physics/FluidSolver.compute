@@ -270,6 +270,7 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
     {
         uint blockIndex = BlockAllocationOffset_GSM + gi;
         blockIndex = blockIndex < FLUID_BLOCK_COUNT_LEVEL1 ? EncodeFluidBlockIndex(blockIndex) : FLUID_GRID_VALUE_INVALID;
+
         FluidGridLevel2[BlockAllocationLevel1_GSM[gi]] = blockIndex;
     }
 
@@ -280,6 +281,7 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
         uint blockIndexLevel1Linear;
         do
         {
+            DeviceMemoryBarrier();
             blockIndexLevel1Linear = FluidGridLevel2[gridPositionLevel2];
         } while (blockIndexLevel1Linear == FLUID_GRID_VALUE_PREEMPTED);
 
@@ -344,6 +346,7 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
         uint blockIndexLevel0Linear;
         do
         {
+            DeviceMemoryBarrier();
             blockIndexLevel0Linear = FluidGridLevel1[gridIndexLevel1];
         } while (blockIndexLevel0Linear == FLUID_GRID_VALUE_PREEMPTED);
 
@@ -520,6 +523,8 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
             uint minInclusiveSumLane;
             while (true)
             {
+                DeviceMemoryBarrier();
+
                 // no wave divergence until here
                 uint lookbackInclusiveSum = PARTITION_VALUE_NULL;
                 if (valid)
@@ -1117,7 +1122,7 @@ void ParticleToGrid1(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
         #if !DISABLE_WAVE_SCATTER
             // preparation to handle inter-wave conflicts
             const uint laneIndex = WaveGetLaneIndex();
-            const bool isLo = gridIndexOffsetEncoded != WaveReadLaneAt(gridIndexOffsetEncoded, min(0, laneIndex - 1)) || !laneIndex;
+            const bool isLo = gridIndexOffsetEncoded != WaveReadLaneAt(gridIndexOffsetEncoded, max(1, laneIndex) - 1) || !laneIndex;
 
             uint interval, intervalMax;
             WaveGetMaxInterval(isLo, interval, intervalMax);
@@ -1579,7 +1584,7 @@ void AddParticles(uint3 tid : SV_DispatchThreadID)
         return;
 
     const uint poolSize = GetPooledParticlePropertyCount();
-    const uint prevParticleCount = GetParticleCountLastFrame();
+    const uint prevParticleCount = GetFluidParticleCount();
 
     uint propertyIndex;
     if (tid.x < poolSize)
