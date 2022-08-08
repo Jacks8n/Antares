@@ -113,9 +113,9 @@ namespace Antares.SDF
                 for (int i = 0; i < numericalBrushIndices.Count; i++)
                 {
                     int offset = Brushes[numericalBrushIndices[i]].ParameterOffset;
-                    for (int j = 0; j < SDFShape.GetParameterCount<SDFShape.Numerical>(); j++)
+                    for (int j = 0; j < SDFShapes.GetParameterCount<SDFShapes.Numerical>(); j++)
                         BrushParameters[offset + j] = paramBuffer[j];
-                    var shape = paramBuffer.ReinterpretLoad<SDFShape.Numerical>(0);
+                    var shape = paramBuffer.ReinterpretLoad<SDFShapes.Numerical>(0);
                     shape.Offset = brushOffsets[i];
                 }
             }

@@ -28,7 +28,7 @@ namespace Antares.SDF
         /// <returns>whether the brush is numerical</returns>
         public bool GetBrushProperty(ref SDFBrushProperty brushProperty, ref Texture3D brushTexture)
         {
-            if (_shape is SDFShape.Numerical)
+            if (_shape is SDFShapes.Numerical)
             {
                 brushProperty = SDFBrushProperty.FromShape(transform, _shape, _materialID);
                 brushTexture = _brushTexture;
@@ -44,7 +44,7 @@ namespace Antares.SDF
         private void OnSetBrushTexture()
         {
             if (_brushTexture != null)
-                _shape = new SDFShape.Numerical() {
+                _shape = new SDFShapes.Numerical() {
                     Size = new Vector3(_brushTexture.width, _brushTexture.height, _brushTexture.depth)
                 };
         }
