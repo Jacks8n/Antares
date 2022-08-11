@@ -1567,15 +1567,19 @@ void ClearFluidGridLevel1(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
 
 /// begin add particle
 
+#include "../Shaders/Random.cginc"
+
 #define ADD_PARTICLES_KERNEL_SIZE 128
+#define MAX_EMITTER_PARTICLE_COUNT_PER_GROUP (ADD_PARTICLES_KERNEL_SIZE * 8)
+
+#define EMITTER_TYPE_PARTICLE 0
+#define EMITTER_TYPE_CUBE 1
 
 CBUFFER_START(AddParticlesParameters)
-    uint AddParticleCount;
+    uint FluidEmitterCount;
 
     float Mass;
 CBUFFER_END
-
-extern ByteAddressBuffer ParticlesToAdd;
 
 struct FluidEmitter
 {
@@ -1583,11 +1587,11 @@ struct FluidEmitter
 
     uint ParameterOffset;
 
-    uint ParticleCount;
+    uint ParticleCountInclusiveSum;
 };
 
 extern ByteAddressBuffer FluidEmitters;
-extern ByteAddressBuffer FluidEmitterParameters;
+extern Buffer<uint> FluidEmitterPartitions;
 
 FluidEmitter GetFluidEmitter(uint index)
 {
@@ -1597,123 +1601,120 @@ FluidEmitter GetFluidEmitter(uint index)
     FluidEmitter emitter;
     emitter.Type = word.x;
     emitter.ParameterOffset = word.y;
-    emitter.ParticleCount = word.z;
+    emitter.ParticleCountInclusiveSum = word.z;
 
     return emitter;
 }
 
-void GetParticleToAdd(uint particleIndex, out float3 position, out float3 velocity, out float mass)
+void GetEmittedParticle(uint emiterType, uint emitterParameterOffset, inout Random random, out float3 position, out float3 velocity, out float mass)
 {
-    const float4 word0 = asfloat(ParticlesToAdd.Load4(particleIndex * 24));
-    const float2 word1 = asfloat(ParticlesToAdd.Load2(particleIndex * 24 + 16));
+    // todo
+    switch(emitterType)
+    {
+        case EMITTER_TYPE_PARTICLE:
+            break;
+        case EMITTER_TYPE_CUBE:
+            break;
+    }
 
-    position = word0.xyz;
-    velocity = float3(word0.w, word1);
     mass = Mass;
 }
 
-void GetParticleToAddCube(uint particleIndex, out float3 position, out float3 velocity, out float mass)
-{
-    const float4 word0 = asfloat(ParticlesToAdd.Load4(particleIndex * 24));
-    const float2 word1 = asfloat(ParticlesToAdd.Load2(particleIndex * 24 + 16));
-
-    position = word0.xyz;
-    velocity = float3(word0.w, word1);
-    mass = Mass;
-}
-
-struct FluidEmitterPartition
-{
-    uint EmitterIndex;
-
-    uint RemainParticleCount;
-};
-
-extern StructuredBuffer<FluidEmitterPartition> FluidEmitterPartitions;
-
-groupshared FluidEmitterPartition FluidEmitterRange_GSM[2];
-groupshared uint EmitterParticleCounts_GSM[];
-groupshared uint EmitterParameterOffsets_GSM[];
+groupshared uint EmitterOffset_GSM;
+groupshared uint EmitterCount_GSM;
+groupshared uint EmitterParticleOffset_GSM;
+groupshared uint EmitterTypes_GSM[MAX_EMITTER_PARTICLE_COUNT_PER_GROUP];
+groupshared uint EmitterParameterOffsets_GSM[MAX_EMITTER_PARTICLE_COUNT_PER_GROUP];
+groupshared uint EmitterIndices_GSM[MAX_EMITTER_PARTICLE_COUNT_PER_GROUP + 1];
+groupshared uint TotalEmitterParticleCount_GSM;
 
 [numthreads(ADD_PARTICLES_KERNEL_SIZE, 1, 1)]
 void AddParticles(uint3 tid : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 {
-    if (gi < 2)
+    uint i, j;
+
+    // clear emitter indices
+    for (i = gi; i < MAX_EMITTER_PARTICLE_COUNT_PER_GROUP; i += ADD_PARTICLES_KERNEL_SIZE)
     {
-        FluidEmitterRange_GSM[gi] = FluidEmitterPartitions[gid.x + gi];
+        EmitterIndices_GSM[i] = ~0u;
     }
-
-    GroupMemoryBarrierWithGroupSync();
-
-    const uint emitterCount = FluidEmitterRange_GSM[1].EmitterIndex - FluidEmitterRange_GSM[0].EmitterIndex;
-
-    uint i;
-    for (i = gi; i < emitterCount; i += ADD_PARTICLES_KERNEL_SIZE)
-    {
-        const uint emitterIndex = FluidEmitterRange_GSM[0].EmitterIndex + i;
-        const FluidEmitter emitter = GetFluidEmitter(emitterIndex);
-        EmitterParticleCounts_GSM[i] = emitter.ParticleCount;
-        EmitterParameterOffsets_GSM[i] = emitter.ParameterOffset;
-    }
-
-    GroupMemoryBarrierWithGroupSync();
 
     if (!gi)
     {
-        EmitterParticleCounts_GSM[0] = FluidEmitterRange_GSM[0].RemainParticleCount;
-        EmitterParticleCounts_GSM[emitterCount - 1] -= FluidEmitterRange_GSM[1].RemainParticleCount;
+        EmitterOffset_GSM = FluidEmitterPartitions[gid.x];
+        EmitterCount_GSM = FluidEmitterPartitions[gid.x + 1] - EmitterOffset_GSM;
+        EmitterParticleOffset_GSM = gid.x * PARTICLE_TO_GRID_KERNEL_SIZE;
     }
 
     GroupMemoryBarrierWithGroupSync();
 
-    // prefix sum
-    for (i = waveSumDstOffset -waveSumSrcOffset; i <= MAX_PARTITION_SIZE; i *= laneCount)
+    // load emitters to gsm
+    for (i = gi; i < EmitterCount_GSM; i += ADD_PARTICLES_KERNEL_SIZE)
     {
-        for (j = gi; j < i; j += kernelSize)
+        const FluidEmitter emitter = GetFluidEmitter(i + EmitterOffset_GSM);
+        EmitterTypes_GSM[i] = emitter.Type;
+        EmitterParameterOffsets_GSM[i] = emitter.ParameterOffset;
+        EmitterIndices_GSM[emitter.ParticleCountInclusiveSum] = i + 1;
+
+        if (i == EmitterCount_GSM - 1)
+            TotalEmitterParticleCount_GSM = emitter.ParticleCountInclusiveSum;
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    // broadcast emitters
+    for (i = 1; i < TotalEmitterParticleCount_GSM; i *= 2)
+    {
+        for (j = gi; j + i < TotalEmitterParticleCount_GSM; j += ADD_PARTICLES_KERNEL_SIZE)
         {
-            const uint exclusiveSum = WavePrefixSum(ParticleCounts_GSM[j + waveSumSrcOffset]);
-            const uint prevWaveExclusiveSum = ParticleCounts_GSM[j / laneCount + waveSumDstOffset];
-
-            ParticleCounts_GSM[j + waveSumSrcOffset] = prevWaveExclusiveSum + exclusiveSum;
+            const uint current = EmitterIndices_GSM[j];
+            if (current != ~0)
+            {
+                const uint nextIndex = j + i;
+                const uint next = EmitterIndices_GSM[nextIndex];
+                if (next == ~0)
+                    EmitterIndices_GSM[nextIndex] = current;
+            }
         }
-
-        waveSumDstOffset = waveSumSrcOffset;
-        waveSumSrcOffset -= i * laneCount;
 
         GroupMemoryBarrierWithGroupSync();
     }
 
-    
-
-    if (tid.x >= AddParticleCount)
-        return;
-
-    float3 position;
-    float3 velocity;
-    float mass;
-    GetParticleToAdd(tid.x, position, velocity, mass);
-
+    const bool pingpongFlag = GetFluidParticlePositionPingPongFlag();
     const uint poolSize = GetPooledParticlePropertyCount();
     const uint prevParticleCount = GetFluidParticleCount();
 
-    uint propertyIndex;
-    if (tid.x < poolSize)
-        propertyIndex = GetPooledParticleProperty(poolSize - 1 - tid.x);
-    else
-        propertyIndex = prevParticleCount + tid.x;
+    for (i = gi; i < TotalEmitterParticleCount_GSM; i += ADD_PARTICLES_KERNEL_SIZE)
+    {
+        const uint emitterIndex = EmitterIndices_GSM[i];
+        const uint emitterType = EmitterTypes_GSM[emitterIndex];
+        const uint emitterParameterOffset = EmitterParameterOffsets_GSM[emitterIndex];
 
-    ParticlePositionIndexed positionIndexed;
-    positionIndexed.Position = position;
-    positionIndexed.Index = propertyIndex;
+        float3 position;
+        float3 velocity;
+        float mass;
+        GetParticleToAdd(emitterType, emitterParameterOffset, position, velocity, mass);
 
-    ParticleProperties properties;
-    properties.SetVelocity(velocity);
-    properties.SetZeroAffine();
-    properties.Mass = mass;
+        const uint particleIndex = EmitterParticleOffset_GSM + i;
 
-    const bool pingpongFlag = GetFluidParticlePositionPingPongFlag();
-    SetFluidParticlePosition(prevParticleCount + tid.x, positionIndexed, pingpongFlag);
-    SetFluidParticleProperties(propertyIndex, properties);
+        uint propertyIndex;
+        if (particleIndex < poolSize)
+            propertyIndex = GetPooledParticleProperty(poolSize - 1 - particleIndex);
+        else
+            propertyIndex = prevParticleCount + particleIndex;
+
+        ParticlePositionIndexed positionIndexed;
+        positionIndexed.Position = position;
+        positionIndexed.Index = propertyIndex;
+
+        ParticleProperties properties;
+        properties.SetVelocity(velocity);
+        properties.SetZeroAffine();
+        properties.Mass = mass;
+
+        SetFluidParticlePosition(prevParticleCount + particleIndex, positionIndexed, pingpongFlag);
+        SetFluidParticlePosition(propertyIndex, properties);
+    }
 }
 
 /// end add particle
