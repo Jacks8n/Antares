@@ -7,7 +7,7 @@ using UnityEngine;
 
 namespace Antares.SDF
 {
-    public static class SDFShapes
+    public static class SDFShape
     {
         public static unsafe int GetParameterCount<T>() where T : unmanaged, ISDFShape
         {
