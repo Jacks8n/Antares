@@ -1,50 +1,49 @@
 ﻿using System.Collections.Generic;
 using System.Runtime.InteropServices;
-using Unity.Collections;
 using UnityEngine;
 
 namespace Antares.Physics
 {
     public static partial class FluidEmitter
     {
-        public class Particle : IFluidEmitter<Particle.EmitterParams, Particle.ParticleParams>
+        public class Particle : FluidEmitterBase<NullFluidEmitterParameter, Particle.Parameters>
         {
-            [StructLayout(LayoutKind.Sequential, Size = 0)]
-            public struct EmitterParams { }
-
             [StructLayout(LayoutKind.Sequential, Pack = 1)]
-            public struct ParticleParams
+            public struct Parameters
             {
                 private readonly Vector3 Position;
 
                 private readonly Vector3 Velocity;
 
-                public ParticleParams(Vector3 position, Vector3 velocity)
+                public Parameters(Vector3 position, Vector3 velocity)
                 {
                     Position = position;
                     Velocity = velocity;
                 }
             }
 
-            public FluidEmitterType EmitterType => FluidEmitterType.Particle;
+            public override FluidEmitterType EmitterType => FluidEmitterType.Particle;
 
-            public EmitterParams EmitterParam => throw new System.NotImplementedException();
+            public override int ParticleCount => _particles.Count;
 
-            private readonly List<ParticleParams> _descriptors = new List<ParticleParams>();
+            private List<Parameters> _particles;
 
-            public void GetDescriptors(NativeArray<ParticleParams> buffer)
+            public Particle() : base()
             {
-                for (int i = 0; i < _descriptors.Count; i++)
-                    buffer[i] = _descriptors[i];
+                _particles = new List<Parameters>();
             }
 
-            public void AddParticle(ParticleParams particle) => _descriptors.Add(particle);
+            public void AddParticle(Parameters parameters) => _particles.Add(parameters);
 
-            public void AddParticle(Vector3 position, Vector3 velocity) => AddParticle(new ParticleParams(position, velocity));
+            public void AddParticle(Vector3 position, Vector3 velocity) => AddParticle(new Parameters(position, velocity));
 
-            public unsafe int GetDescriptorCount() => _descriptors.Count;
+            public override void ClearParticles() => _particles.Clear();
 
-            public void ClearDescriptors() => _descriptors.Clear();
+            protected override void GetParameters<T>(T builder)
+            {
+                for (int i = 0; i < _particles.Count; i++)
+                    builder.SetParticleParameters(i, _particles[i]);
+            }
         }
     }
 }

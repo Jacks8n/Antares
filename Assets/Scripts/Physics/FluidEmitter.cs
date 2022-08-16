@@ -1,5 +1,4 @@
-﻿using Unity.Collections;
-using UnityEngine.Rendering;
+﻿using UnityEngine.Rendering;
 
 namespace Antares.Physics
 {
@@ -7,6 +6,6 @@ namespace Antares.Physics
     {
         public static Particle ParticleEmitter { get; } = new Particle();
 
-        public static Cube CubeEmitter { get; } = new Cube();
+        public static ObjectPool<Cube> CubeEmitterPool { get; } = new ObjectPool<Cube>(null, emitter => emitter.ClearEmitter());
     }
 }

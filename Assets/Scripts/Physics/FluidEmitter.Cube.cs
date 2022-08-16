@@ -1,16 +1,16 @@
-﻿using UnityEngine;
-using System.Collections.Generic;
+﻿using System;
 using System.Runtime.InteropServices;
-using Unity.Collections;
+using UnityEngine;
 
 namespace Antares.Physics
 {
     public static partial class FluidEmitter
     {
-        public class Cube : IFluidEmitter<Cube.Descriptor>
+        [Serializable]
+        public class Cube : FluidEmitterBase<Cube.Parameters, NullFluidEmitterParameter>
         {
             [StructLayout(LayoutKind.Sequential, Pack = 1)]
-            public struct Descriptor
+            public struct Parameters
             {
                 private readonly Vector3 Min;
 
@@ -20,43 +20,80 @@ namespace Antares.Physics
 
                 private readonly Vector3 AngularVelocity;
 
-                public Descriptor(Vector3 min, Vector3 max, Vector3 linearVelocity, Vector3 angularVelocity)
+                public Parameters(Vector3 min, Vector3 max, Vector3 linearVelocity, Vector3 angularVelocity)
                 {
                     Min = min;
                     Max = max;
                     LinearVelocity = linearVelocity;
                     AngularVelocity = angularVelocity;
                 }
-
-                public Descriptor(Vector3 min, Vector3 max, Vector3 linearVelocity)
-                    : this(min, max, linearVelocity, Vector3.zero)
-                {
-                }
-
-                public Descriptor(Vector3 min, Vector3 max) : this(min, max, Vector3.zero)
-                {
-                }
             }
 
-            public FluidEmitterType EmitterType => FluidEmitterType.Cube;
+            [field: SerializeField]
+            public Vector3 Min { get; set; }
 
-            private readonly LinkedList<Descriptor> _descriptors = new LinkedList<Descriptor>();
+            [field: SerializeField]
+            public Vector3 Max { get; set; }
 
-            public void GetDescriptors(NativeArray<Descriptor> buffer)
+            [field: SerializeField]
+            public Vector3 LinearVelocity { get; set; }
+
+            [field: SerializeField]
+            public Vector3 AngularVelocity { get; set; }
+
+            public override FluidEmitterType EmitterType => FluidEmitterType.Cube;
+
+            public override int ParticleCount => _particleCount;
+
+            [SerializeField, Min(0)]
+            private int _particleCount;
+
+            public Cube(Vector3 min, Vector3 max, Vector3 linearVelocity, Vector3 angularVelocity, int particleCount = 0) : base()
             {
-                int i = 0;
-                var node = _descriptors.First;
-                while (node != null)
-                    buffer[i++] = node.Value;
+                Min = min;
+                Max = max;
+                LinearVelocity = linearVelocity;
+                AngularVelocity = angularVelocity;
+                _particleCount = particleCount;
             }
 
-            public LinkedListNode<Descriptor> AddEmitter(Descriptor descriptor) => _descriptors.AddLast(descriptor);
+            public Cube(Vector3 min, Vector3 max, Vector3 linearVelocity, int particleCount = 0)
+                : this(min, max, linearVelocity, Vector3.zero, particleCount)
+            {
+            }
 
-            public void RemoveEmitter(LinkedListNode<Descriptor> descriptor) => _descriptors.Remove(descriptor);
+            public Cube(Vector3 min, Vector3 max, int particleCount = 0)
+                : this(min, max, Vector3.zero, particleCount)
+            {
+            }
 
-            public unsafe int GetDescriptorCount() => _descriptors.Count;
+            public Cube() : this(Vector3.zero, Vector3.zero)
+            {
+            }
 
-            public void ClearDescriptors() => _descriptors.Clear();
+            public void AddParticles(int count)
+            {
+                Debug.Assert(count >= 0);
+
+                _particleCount += count;
+            }
+
+            public override void ClearEmitter()
+            {
+                Min = Vector3.zero;
+                Max = Vector3.zero;
+                LinearVelocity = Vector3.zero;
+                AngularVelocity = Vector3.zero;
+
+                ClearParticles();
+            }
+
+            public override void ClearParticles() => _particleCount = 0;
+
+            protected override void GetParameters<T>(T builder)
+            {
+                builder.SetEmitterParameters(new Parameters(Min, Max, LinearVelocity, AngularVelocity));
+            }
         }
     }
 }
