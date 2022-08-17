@@ -1,5 +1,6 @@
 ﻿using System.Collections.Generic;
 using Antares.Graphics;
+using Unity.Collections;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;

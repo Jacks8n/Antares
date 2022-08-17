@@ -5,12 +5,10 @@ using Unity.Collections;
 
 namespace Antares.Physics
 {
-    public enum FluidEmitterType { Particle, Cube }
-
     [StructLayout(LayoutKind.Sequential, Size = 0)]
     public struct NullFluidEmitterParameter { }
 
-    public abstract class FluidEmitterBase<TEmitterParam, TParticleParam>
+    public abstract class FluidEmitterBase<TEmitterParam, TParticleParam> : IFluidEmitter
         where TEmitterParam : unmanaged where TParticleParam : unmanaged
     {
         protected interface IFluidEmitterDataBuilder

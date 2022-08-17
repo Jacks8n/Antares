@@ -62,37 +62,6 @@ namespace Antares.Graphics
                 }
             }
 
-            [StructLayout(LayoutKind.Sequential, Pack = 1)]
-            public struct AddParticlesParameters
-            {
-                private readonly uint ParticleCount;
-
-                private readonly float Mass;
-
-                /// <summary>
-                /// create parameters to add particles from an array
-                /// </summary>
-                public AddParticlesParameters(uint particleCount, float mass)
-                {
-                    ParticleCount = particleCount;
-                    Mass = mass;
-                }
-            }
-
-            [StructLayout(LayoutKind.Sequential, Pack = 1)]
-            public struct ParticleToAdd
-            {
-                private readonly Vector3 Position;
-
-                private readonly Vector3 Velocity;
-
-                public ParticleToAdd(Vector3 position, Vector3 velocity)
-                {
-                    Position = position;
-                    Velocity = velocity;
-                }
-            }
-
             public const int MaxParticleCount = 1 << 20;
 
             public const int BlockSizeLevel0 = 4;
@@ -147,8 +116,6 @@ namespace Antares.Graphics
             public int ClearFluidGridLevel0 { get; private set; }
             public int ClearFluidGridLevel1 { get; private set; }
 
-            public int AddParticlesKernel { get; private set; }
-
             void IShaderSpec.Initialize()
             {
                 GenerateIndirectArgs0Kernel = Shader.FindKernel("GenerateIndirectArgs0");
@@ -165,7 +132,6 @@ namespace Antares.Graphics
                 GridToParticleKernel = Shader.FindKernel("GridToParticle");
                 ClearFluidGridLevel0 = Shader.FindKernel("ClearFluidGridLevel0");
                 ClearFluidGridLevel1 = Shader.FindKernel("ClearFluidGridLevel1");
-                AddParticlesKernel = Shader.FindKernel("AddParticles");
             }
         }
     }
