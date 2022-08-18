@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using Antares.Physics;
 using Sirenix.OdinInspector;
+using Sirenix.OdinInspector.Editor.Validation;
 using Unity.Collections;
 using UnityEngine;
 
@@ -54,35 +55,90 @@ namespace Antares.Graphics
 
             public struct EmitterParameterBufferBuilder
             {
-                private int _parameterBufferSize;
+                private int _emitterDispatchCount;
+
+                private int _parameterByteCount;
+
+                private int _partitionCount;
+
+                private int _groupParticleCount;
+
+                private int _groupParticleCountInclusiveSum;
+
+                private NativeArray<FluidEmitter> _emitterDispatchBuffer;
+
+                private NativeArray<int> _partitionBuffer;
 
                 private NativeArray<byte> _parameterBuffer;
 
-                public void Reserve<T>(List<T> emitters) where T : IFluidEmitter
+                public unsafe void Reserve<T>(List<T> emitters) where T : IFluidEmitter
                 {
-                    for (int i = 0; i < emitters.Count; i++)
-                        _parameterBufferSize += emitters[i].ParameterByteCount;
-                }
+                    _emitterDispatchCount += emitters.Count;
 
-                public void Allocate()
-                {
-                    
-                }
-
-                public static void GetEmitterParameterBuffer<T>(List<T> emitters, NativeSlice<byte> buffer) where T : IFluidEmitter
-                {
-                    int offset = 0;
                     for (int i = 0; i < emitters.Count; i++)
                     {
                         T emitter = emitters[i];
 
-                        int byteCount = emitter.ParameterByteCount;
-                        emitter.GetParameters(buffer.Slice(offset, byteCount));
+                        _groupParticleCount += emitter.ParticleCount;
+                        if (_groupParticleCount > MaxEmitterParticleCountPerGroup)
+                        {
+                            int groupCount = _groupParticleCount / MaxEmitterParticleCountPerGroup;
+                            _emitterDispatchCount += groupCount;
+                            _partitionCount += groupCount;
+                            _groupParticleCount = _groupParticleCount % MaxEmitterParticleCountPerGroup;
+                        }
 
-                        offset += emitter.ParameterByteCount;
+                        _parameterByteCount += emitter.ParameterByteCount;
                     }
                 }
+
+                public void Allocate()
+                {
+                    _emitterDispatchBuffer = new NativeArray<FluidEmitter>(_emitterDispatchCount, Allocator.Temp);
+                    _partitionBuffer = new NativeArray<int>(_partitionCount, Allocator.Temp);
+                    _parameterBuffer = new NativeArray<byte>(_parameterByteCount, Allocator.Temp);
+
+                    _emitterDispatchCount = 0;
+                    _parameterByteCount = 0;
+                    _partitionCount = 0;
+                    _groupParticleCount = 0;
+                }
+
+                public void AddEmitters<T>(List<T> emitters) where T : IFluidEmitter
+                {
+                    for (int i = 0; i < emitters.Count; i++)
+                    {
+                        T emitter = emitters[i];
+
+                        int parameterByteCount = emitter.ParameterByteCount;
+                        emitter.GetParameters(_parameterBuffer.Slice(_parameterByteCount, parameterByteCount));
+
+                        int particleCount = emitter.ParticleCount;
+                        _groupParticleCount += particleCount;
+
+                        FluidEmitterType emitterType = emitter.EmitterType;
+                        while (_groupParticleCount > MaxEmitterParticleCountPerGroup)
+                        {
+                            _emitterDispatchBuffer[_emitterDispatchCount++] =
+                                new FluidEmitter(emitterType, parameterByteCount, _groupParticleCountInclusiveSum);
+
+                            _groupParticleCount -= MaxEmitterParticleCountPerGroup;
+                            particleCount = _groupParticleCount;
+                        }
+
+                        _groupParticleCountInclusiveSum += particleCount;
+
+                        _emitterDispatchBuffer[_emitterDispatchCount] =
+                            new FluidEmitter(emitter.EmitterType, parameterByteCount, _groupParticleCountInclusiveSum);
+
+                        _parameterByteCount += emitter.ParameterByteCount;
+                    }
+
+                    _emitterDispatchCount += emitters.Count;
+                }
             }
+
+            private const int MaxEmitterParticleCountPerGroup = 1024;
 
             [field: SerializeField, LabelText(nameof(Shader))]
             public ComputeShader Shader { get; private set; }

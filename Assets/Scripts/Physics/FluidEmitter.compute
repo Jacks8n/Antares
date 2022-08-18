@@ -24,6 +24,7 @@ struct FluidEmitter
 {
     uint Type;
 
+    // in bytes
     uint ParameterOffset;
 
     uint ParticleCountInclusiveSum;
