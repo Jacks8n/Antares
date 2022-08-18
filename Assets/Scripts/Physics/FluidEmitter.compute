@@ -20,7 +20,7 @@ float Mass;
 uint RandomSeed;
 CBUFFER_END
 
-struct FluidEmitter
+struct FluidEmitterDispatch
 {
     uint Type;
 
@@ -38,18 +38,18 @@ extern Buffer<uint> FluidEmitterPartitions;
 // cube emitter: { min pos, max pos }
 extern ByteAddressBuffer FluidEmitterParameters;
 
-FluidEmitter GetFluidEmitter(uint index)
+FluidEmitterDispatch GetFluidEmitterDispatch(uint index)
 {
-    const uint size = sizeof(FluidEmitter);
+    const uint size = sizeof(FluidEmitterDispatch);
     const uint3 word = FluidEmitters.Load3(index * size);
 
-    FluidEmitter emitter;
+    FluidEmitterDispatch emitter;
     emitter.Type = word.x;
     emitter.ParameterOffset = word.y;
     emitter.ParticleCountInclusiveSum = word.z;
 
     float foo[] = (float[sizeof(emitter) / 4])emitter;
-    emitter = (FluidEmitter)foo;
+    emitter = (FluidEmitterDispatch)foo;
 
     return emitter;
 }
@@ -133,13 +133,13 @@ void AddParticles(uint3 tid : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint 
     // load emitters to gsm
     for (i = gi; i < EmitterCount_GSM; i += ADD_PARTICLES_KERNEL_SIZE)
     {
-        const FluidEmitter emitter = GetFluidEmitter(i + EmitterOffset_GSM);
-        EmitterTypes_GSM[i] = emitter.Type;
-        EmitterParameterOffsets_GSM[i] = emitter.ParameterOffset;
-        EmitterIndices_GSM[emitter.ParticleCountInclusiveSum] = i + 1;
+        const FluidEmitterDispatch dispatch = GetFluidEmitterDispatch(i + EmitterOffset_GSM);
+        EmitterTypes_GSM[i] = dispatch.Type;
+        EmitterParameterOffsets_GSM[i] = dispatch.ParameterOffset;
+        EmitterIndices_GSM[dispatch.ParticleCountInclusiveSum] = i + 1;
 
         if (i == EmitterCount_GSM - 1)
-            TotalEmitterParticleCount_GSM = emitter.ParticleCountInclusiveSum;
+            TotalEmitterParticleCount_GSM = dispatch.ParticleCountInclusiveSum;
     }
 
     GroupMemoryBarrierWithGroupSync();

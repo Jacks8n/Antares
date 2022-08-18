@@ -8,11 +8,91 @@ using UnityEngine.Rendering;
 using static Antares.Graphics.ARenderLayouts;
 using static Antares.Graphics.ARenderUtilities;
 using static Antares.Graphics.AShaderSpecifications;
+using static Antares.Graphics.AShaderSpecifications.FluidEmitterCompute;
 
 namespace Antares.Physics
 {
     public class APhysicsPipeline
     {
+        public struct EmitterParameterBufferBuilder
+        {
+            private int _emitterDispatchCount;
+
+            private int _parameterByteCount;
+
+            private int _partitionCount;
+
+            private int _groupParticleCount;
+
+            private NativeArray<FluidEmitterDispatch> _emitterDispatchBuffer;
+
+            private NativeArray<int> _partitionBuffer;
+
+            private NativeArray<byte> _parameterBuffer;
+
+            public unsafe void Reserve<T>(List<T> emitters) where T : IFluidEmitter
+            {
+                _emitterDispatchCount += emitters.Count;
+
+                for (int i = 0; i < emitters.Count; i++)
+                {
+                    T emitter = emitters[i];
+
+                    _groupParticleCount += emitter.ParticleCount;
+                    if (_groupParticleCount > MaxEmitterParticleCountPerGroup)
+                    {
+                        int groupCount = _groupParticleCount / MaxEmitterParticleCountPerGroup;
+                        _emitterDispatchCount += groupCount;
+                        _partitionCount += groupCount;
+                        _groupParticleCount = _groupParticleCount % MaxEmitterParticleCountPerGroup;
+                    }
+
+                    _parameterByteCount += emitter.ParameterByteCount;
+                }
+            }
+
+            public void Allocate()
+            {
+                _emitterDispatchBuffer = new NativeArray<FluidEmitterDispatch>(_emitterDispatchCount, Allocator.Temp);
+                _partitionBuffer = new NativeArray<int>(_partitionCount + 1, Allocator.Temp);
+                _partitionBuffer[0] = 0;
+                _parameterBuffer = new NativeArray<byte>(_parameterByteCount, Allocator.Temp);
+
+                _emitterDispatchCount = 0;
+                _parameterByteCount = 0;
+                _partitionCount = 0;
+                _groupParticleCount = 0;
+            }
+
+            public void AddEmitters<T>(List<T> emitters) where T : IFluidEmitter
+            {
+                for (int i = 0; i < emitters.Count; i++)
+                {
+                    T emitter = emitters[i];
+
+                    int parameterByteOffset = _parameterByteCount;
+                    int parameterByteCount = emitter.ParameterByteCount;
+                    _parameterByteCount += parameterByteCount;
+
+                    emitter.GetParameters(_parameterBuffer.Slice(parameterByteOffset, parameterByteCount));
+
+                    FluidEmitterType type = emitter.EmitterType;
+                    _groupParticleCount += emitter.ParticleCount;
+                    while (_groupParticleCount > MaxEmitterParticleCountPerGroup)
+                    {
+                        _emitterDispatchBuffer[_emitterDispatchCount++] =
+                            new FluidEmitterDispatch(type, parameterByteOffset, MaxEmitterParticleCountPerGroup);
+                        _partitionBuffer[++_partitionCount] = _emitterDispatchCount;
+
+                        _groupParticleCount -= MaxEmitterParticleCountPerGroup;
+                    }
+
+                    _emitterDispatchBuffer[_emitterDispatchCount++] =
+                        new FluidEmitterDispatch(emitter.EmitterType, parameterByteOffset, _groupParticleCount);
+                }
+            }
+        }
+
         public bool IsSceneLoaded { get; private set; } = false;
 
         public int MaxAddParticleCount { get => 1024; }
