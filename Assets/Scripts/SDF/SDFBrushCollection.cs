@@ -49,7 +49,7 @@ namespace Antares.SDF
         [Button]
         private void GatherBrushes()
         {
-            SDFBrushHelper[] brushHelpers = FindObjectsOfType<SDFBrushHelper>();
+            SDFBrushComponent[] brushHelpers = FindObjectsOfType<SDFBrushComponent>();
 
             var numericalBrushes = new List<Texture3D>();
             var numericalBrushIndices = new List<int>();

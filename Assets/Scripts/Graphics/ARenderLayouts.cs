@@ -87,6 +87,14 @@ namespace Antares.Graphics
 
             public static int PartitionSums { get; } = Shader.PropertyToID(nameof(PartitionSums));
 
+            public static int FluidEmitterDispatches { get; } = Shader.PropertyToID(nameof(FluidEmitterDispatches));
+
+            public static int FluidEmitterPartitions { get; } = Shader.PropertyToID(nameof(FluidEmitterPartitions));
+
+            public static int FluidEmitterProperties { get; } = Shader.PropertyToID(nameof(FluidEmitterProperties));
+
+            #region cbuffer bindings
+
             public static int PhysicsSceneParameters { get; } = Shader.PropertyToID(nameof(PhysicsSceneParameters));
 
             public static int PhysicsFrameParameters { get; } = Shader.PropertyToID(nameof(PhysicsFrameParameters));
@@ -94,6 +102,8 @@ namespace Antares.Graphics
             public static int AddParticlesParameters { get; } = Shader.PropertyToID(nameof(AddParticlesParameters));
 
             public static int DebugFluidParticleParameters { get; } = Shader.PropertyToID(nameof(DebugFluidParticleParameters));
+
+            #endregion
 
             public static readonly int[] NonAttachmentRTs = new int[] {
                 TiledRM,

@@ -8,9 +8,9 @@ namespace Antares.Physics
 
         int ParticleCount { get; }
 
-        int ParameterByteCount { get; }
+        int PropertyByteCount { get; }
 
-        void GetParameters(NativeSlice<byte> buffer);
+        void GetProperties(NativeSlice<byte> buffer);
 
         void ClearEmitter();
 

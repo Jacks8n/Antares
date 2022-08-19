@@ -7,7 +7,7 @@ namespace Antares.Physics
     public static partial class FluidEmitter
     {
         [Serializable]
-        public class Cube : FluidEmitterBase<Cube.Parameters, NullFluidEmitterParameter>
+        public class Cube : FluidEmitterBase<Cube.Parameters, NullFluidEmitterProperty>
         {
             [StructLayout(LayoutKind.Sequential, Pack = 1)]
             public struct Parameters
@@ -30,10 +30,10 @@ namespace Antares.Physics
             }
 
             [field: SerializeField]
-            public Vector3 Min { get; set; }
+            public Vector3 Offset { get; set; }
 
             [field: SerializeField]
-            public Vector3 Max { get; set; }
+            public Vector3 Size { get; set; }
 
             [field: SerializeField]
             public Vector3 LinearVelocity { get; set; }
@@ -48,22 +48,22 @@ namespace Antares.Physics
             [SerializeField, Min(0)]
             private int _particleCount;
 
-            public Cube(Vector3 min, Vector3 max, Vector3 linearVelocity, Vector3 angularVelocity, int particleCount = 0) : base()
+            public Cube(Vector3 offset, Vector3 size, Vector3 linearVelocity, Vector3 angularVelocity, int particleCount = 0) : base()
             {
-                Min = min;
-                Max = max;
+                Offset = offset;
+                Size = size;
                 LinearVelocity = linearVelocity;
                 AngularVelocity = angularVelocity;
                 _particleCount = particleCount;
             }
 
-            public Cube(Vector3 min, Vector3 max, Vector3 linearVelocity, int particleCount = 0)
-                : this(min, max, linearVelocity, Vector3.zero, particleCount)
+            public Cube(Vector3 offset, Vector3 size, Vector3 linearVelocity, int particleCount = 0)
+                : this(offset, size, linearVelocity, Vector3.zero, particleCount)
             {
             }
 
-            public Cube(Vector3 min, Vector3 max, int particleCount = 0)
-                : this(min, max, Vector3.zero, particleCount)
+            public Cube(Vector3 offset, Vector3 size, int particleCount = 0)
+                : this(offset, size, Vector3.zero, particleCount)
             {
             }
 
@@ -80,8 +80,8 @@ namespace Antares.Physics
 
             public override void ClearEmitter()
             {
-                Min = Vector3.zero;
-                Max = Vector3.zero;
+                Offset = Vector3.zero;
+                Size = Vector3.zero;
                 LinearVelocity = Vector3.zero;
                 AngularVelocity = Vector3.zero;
 
@@ -90,9 +90,9 @@ namespace Antares.Physics
 
             public override void ClearParticles() => _particleCount = 0;
 
-            protected override void GetParameters<T>(T builder)
+            protected override void GetProperties<T>(T builder)
             {
-                builder.SetEmitterParameters(new Parameters(Min, Max, LinearVelocity, AngularVelocity));
+                builder.SetEmitterProperty(new Parameters(Offset, Offset + Size, LinearVelocity, AngularVelocity));
             }
         }
     }

@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using UnityEngine;
 
@@ -6,14 +7,17 @@ namespace Antares.Physics
 {
     public static partial class FluidEmitter
     {
-        public class Particle : FluidEmitterBase<NullFluidEmitterParameter, Particle.Parameters>
+        public class Particle : FluidEmitterBase<NullFluidEmitterProperty, Particle.Parameters>
         {
+            [Serializable]
             [StructLayout(LayoutKind.Sequential, Pack = 1)]
             public struct Parameters
             {
-                private readonly Vector3 Position;
+                [SerializeField]
+                private Vector3 Position;
 
-                private readonly Vector3 Velocity;
+                [SerializeField]
+                private Vector3 Velocity;
 
                 public Parameters(Vector3 position, Vector3 velocity)
                 {
@@ -26,6 +30,7 @@ namespace Antares.Physics
 
             public override int ParticleCount => _particles.Count;
 
+            [SerializeField]
             private List<Parameters> _particles;
 
             public Particle() : base()
@@ -39,10 +44,10 @@ namespace Antares.Physics
 
             public override void ClearParticles() => _particles.Clear();
 
-            protected override void GetParameters<T>(T builder)
+            protected override void GetProperties<T>(T builder)
             {
                 for (int i = 0; i < _particles.Count; i++)
-                    builder.SetParticleParameters(i, _particles[i]);
+                    builder.SetParticleProperty(i, _particles[i]);
             }
         }
     }

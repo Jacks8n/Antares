@@ -10,7 +10,7 @@ using UnityEngine;
 namespace Antares.SDF
 {
     [ExecuteAlways, RequireComponent(typeof(MeshRenderer), typeof(MeshFilter))]
-    public class SDFBrushHelper : SerializedMonoBehaviour
+    public class SDFBrushComponent : SerializedMonoBehaviour
     {
         [OdinSerialize, NonSerialized]
         private ISDFShape _shape;

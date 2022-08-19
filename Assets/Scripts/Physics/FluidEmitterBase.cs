@@ -6,48 +6,48 @@ using Unity.Collections;
 namespace Antares.Physics
 {
     [StructLayout(LayoutKind.Sequential, Size = 0)]
-    public struct NullFluidEmitterParameter { }
+    public struct NullFluidEmitterProperty { }
 
-    public abstract class FluidEmitterBase<TEmitterParam, TParticleParam> : IFluidEmitter
-        where TEmitterParam : unmanaged where TParticleParam : unmanaged
+    public abstract class FluidEmitterBase<TEmitterProperty, TParticleProperty> : IFluidEmitter
+        where TEmitterProperty : unmanaged where TParticleProperty : unmanaged
     {
         protected interface IFluidEmitterDataBuilder
         {
-            public void SetEmitterParameters(TEmitterParam emitterParam);
+            public void SetEmitterProperty(TEmitterProperty emitterProperty);
 
-            public void SetParticleParameters(int index, TParticleParam particleParam);
+            public void SetParticleProperty(int index, TParticleProperty particleProperty);
         }
 
         private struct FluidEmitterDataBuilder : IFluidEmitterDataBuilder
         {
-            private NativeSlice<TEmitterParam> _emitterParameters;
+            private NativeSlice<TEmitterProperty> _emitterProperty;
 
-            private NativeSlice<TParticleParam> _particleParameters;
+            private NativeSlice<TParticleProperty> _particleProperties;
 
-            public FluidEmitterDataBuilder(NativeSlice<TEmitterParam> emitterParameters, NativeSlice<TParticleParam> particleParameters)
+            public FluidEmitterDataBuilder(NativeSlice<TEmitterProperty> emitterProperty, NativeSlice<TParticleProperty> particleProperties)
             {
-                _emitterParameters = emitterParameters;
-                _particleParameters = particleParameters;
+                _emitterProperty = emitterProperty;
+                _particleProperties = particleProperties;
             }
 
-            public void SetEmitterParameters(TEmitterParam emitterParam)
+            public void SetEmitterProperty(TEmitterProperty emitterProperty)
             {
-                _emitterParameters[0] = emitterParam;
+                _emitterProperty[0] = emitterProperty;
             }
 
-            public void SetEmitterParameters(NullFluidEmitterParameter _)
+            public void SetEmitterProperty(NullFluidEmitterProperty _)
             {
-                throw new Exception($"No {nameof(TEmitterParam)} is Provided for This Emitter");
+                throw new Exception($"No {nameof(TEmitterProperty)} is Provided for This Emitter");
             }
 
-            public void SetParticleParameters(int index, TParticleParam particleParam)
+            public void SetParticleProperty(int index, TParticleProperty particleParam)
             {
-                _particleParameters[index] = particleParam;
+                _particleProperties[index] = particleParam;
             }
 
-            public void SetParticleParameters(NullFluidEmitterParameter _)
+            public void SetParticleProperty(NullFluidEmitterProperty _)
             {
-                throw new Exception($"No {nameof(TParticleParam)} is Provided for this Emitter");
+                throw new Exception($"No {nameof(TParticleProperty)} is Provided for this Emitter");
             }
         }
 
@@ -55,30 +55,30 @@ namespace Antares.Physics
 
         public abstract int ParticleCount { get; }
 
-        public unsafe int ParameterByteCount => sizeof(TEmitterParam) + ParticleCount * sizeof(TParticleParam);
+        public unsafe int PropertyByteCount => sizeof(TEmitterProperty) + ParticleCount * sizeof(TParticleProperty);
 
         public unsafe FluidEmitterBase()
         {
-            Debug.Assert(sizeof(TEmitterParam) % 4 == 0);
-            Debug.Assert(sizeof(TParticleParam) % 4 == 0);
+            Debug.Assert(sizeof(TEmitterProperty) % 4 == 0);
+            Debug.Assert(sizeof(TParticleProperty) % 4 == 0);
         }
 
-        public unsafe void GetParameters(NativeSlice<byte> buffer)
+        public unsafe void GetProperties(NativeSlice<byte> buffer)
         {
-            Debug.Assert(buffer.Length == ParameterByteCount);
+            Debug.Assert(buffer.Length == PropertyByteCount);
 
-            int emitterParamSize = sizeof(TEmitterParam);
-            NativeSlice<TEmitterParam> emitterParamSlice = buffer.Slice(0, emitterParamSize).SliceConvert<TEmitterParam>();
-            NativeSlice<TParticleParam> particleParamSlice = buffer.Slice(emitterParamSize).SliceConvert<TParticleParam>();
+            int emitterPropertySize = sizeof(TEmitterProperty);
+            NativeSlice<TEmitterProperty> emitterPropertySlice = buffer.Slice(0, emitterPropertySize).SliceConvert<TEmitterProperty>();
+            NativeSlice<TParticleProperty> particlePropertySlice = buffer.Slice(emitterPropertySize).SliceConvert<TParticleProperty>();
 
-            FluidEmitterDataBuilder builder = new FluidEmitterDataBuilder(emitterParamSlice, particleParamSlice);
-            GetParameters(builder);
+            FluidEmitterDataBuilder builder = new FluidEmitterDataBuilder(emitterPropertySlice, particlePropertySlice);
+            GetProperties(builder);
         }
 
         public virtual void ClearEmitter() { ClearParticles(); }
 
         public virtual void ClearParticles() { }
 
-        protected abstract void GetParameters<T>(T builder) where T : IFluidEmitterDataBuilder;
+        protected abstract void GetProperties<T>(T builder) where T : IFluidEmitterDataBuilder;
     }
 }

@@ -5,6 +5,11 @@ using UnityEngine;
 using Antares.Physics;
 using Antares.SDF;
 
+namespace Antares.Physics
+{
+    public enum FluidEmitterType { Particle, Cube }
+}
+
 namespace Antares.Graphics
 {
     public partial class AShaderSpecifications
@@ -62,6 +67,37 @@ namespace Antares.Graphics
                 }
             }
 
+            [StructLayout(LayoutKind.Sequential, Pack = 1)]
+            public struct AddParticlesParameters
+            {
+                private readonly float Mass;
+
+                private readonly uint RandomSeed;
+
+                public AddParticlesParameters(float mass, int randomSeed = 0)
+                {
+                    Mass = mass;
+                    RandomSeed = (uint)randomSeed;
+                }
+            }
+
+            [StructLayout(LayoutKind.Sequential, Pack = 1)]
+            public struct FluidEmitterDispatch
+            {
+                private readonly uint Type;
+
+                private readonly uint ParamterOffset;
+
+                private readonly uint ParticleCountInclusiveSum;
+
+                public FluidEmitterDispatch(FluidEmitterType type, int paramterOffset, int particleCountInclusiveSum)
+                {
+                    Type = (uint)type;
+                    ParamterOffset = (uint)paramterOffset;
+                    ParticleCountInclusiveSum = (uint)particleCountInclusiveSum;
+                }
+            }
+
             public const int MaxParticleCount = 1 << 20;
 
             public const int BlockSizeLevel0 = 4;
@@ -84,9 +120,13 @@ namespace Antares.Graphics
 
             public const int ClearPartitionSumsKernelSize = 128;
 
-            public const int AddParticlesKernelSize = 128;
+            public const int MaxEmitterParticleCountPerGroup = 1024;
 
-            public static int MaxAddParticleCount { get => AddParticlesKernelSize * SystemInfo.maxComputeWorkGroupSizeX; }
+            public const int MaxFluidEmitterPartitionCount = 1024;
+
+            public const int MaxFluidEmitterDispatchCount = 65536;
+
+            public const int MaxFluidEmitterPropertyCount = MaxFluidEmitterDispatchCount * 4;
 
             public static Vector3Int GridSizeLevel0 { get => new Vector3Int(64 * GridChannelCount, 32, 32) * BlockSizeLevel0; }
             public static Vector3Int GridSizeLevel1 { get => new Vector3Int(64 * GridChannelCount, 32, 32) * BlockSizeLevel1; }
@@ -116,6 +156,8 @@ namespace Antares.Graphics
             public int ClearFluidGridLevel0 { get; private set; }
             public int ClearFluidGridLevel1 { get; private set; }
 
+            public int AddParticlesKernel { get; private set; }
+
             void IShaderSpec.Initialize()
             {
                 GenerateIndirectArgs0Kernel = Shader.FindKernel("GenerateIndirectArgs0");
@@ -132,6 +174,7 @@ namespace Antares.Graphics
                 GridToParticleKernel = Shader.FindKernel("GridToParticle");
                 ClearFluidGridLevel0 = Shader.FindKernel("ClearFluidGridLevel0");
                 ClearFluidGridLevel1 = Shader.FindKernel("ClearFluidGridLevel1");
+                AddParticlesKernel = Shader.FindKernel("AddParticles");
             }
         }
     }

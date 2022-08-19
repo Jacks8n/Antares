@@ -24,3 +24,5 @@ MonoBehaviour:
     <Shader>k__BackingField: {fileID: 7200000, guid: e66fc16e865ce1a4380fb0d907a45886, type: 3}
   <DebugFluidParticle>k__BackingField:
     <Material>k__BackingField: {fileID: 2100000, guid: dda532582c775904f8f5742efb0f4b4c, type: 2}
+  <FluidEmitter>k__BackingField:
+    <Shader>k__BackingField: {fileID: 7200000, guid: e7918183b568b1d40a6cbbe7ec05dbcc, type: 3}

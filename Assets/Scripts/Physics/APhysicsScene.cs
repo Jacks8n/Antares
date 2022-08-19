@@ -4,13 +4,14 @@ using Sirenix.OdinInspector;
 using UnityEngine;
 using UnityEngine.Rendering;
 
-using static Antares.Graphics.AShaderSpecifications.FluidSolverCompute;
-
 namespace Antares.Physics
 {
     [ExecuteAlways]
+    [DefaultExecutionOrder(ExecutionOrder)]
     public class APhysicsScene : MonoBehaviour
     {
+        public const int ExecutionOrder = 1000;
+
         public static APhysicsScene Instance { get; private set; }
 
         public APhysicsPipeline PhysicsPipeline { get; private set; }
@@ -24,7 +25,7 @@ namespace Antares.Physics
         [field: SerializeField, LabelText(nameof(TimeScale))]
         public float TimeScale { get; private set; } = 1f;
 
-        private List<ParticleToAdd> _particlesToAdd;
+        public FluidEmitter.Particle ParticleFluidEmitter { get; private set; }
 
         private void OnEnable()
         {
@@ -41,7 +42,7 @@ namespace Antares.Physics
                     CommandBufferPool.Release(cmd);
                 }
 
-                _particlesToAdd = new List<ParticleToAdd>();
+                ParticleFluidEmitter = new FluidEmitter.Particle();
 
                 if (Instance)
                     Instance.enabled = false;
@@ -64,7 +65,7 @@ namespace Antares.Physics
             if (PhysicsPipeline != null)
                 PhysicsPipeline.UnloadPhysicsScene();
 
-            _particlesToAdd = null;
+            ParticleFluidEmitter = null;
         }
 
         private void FixedUpdate()
@@ -77,44 +78,27 @@ namespace Antares.Physics
             Iterate(Time.fixedDeltaTime * TimeScale);
         }
 
-        public void AddParticles(List<ParticleToAdd> particles)
-        {
-            for (int i = 0; i < particles.Count; i++)
-                _particlesToAdd.Add(particles[i]);
-        }
-
-        public void AddParticlesCube(Vector3 size, Vector3 offset, Vector3 velocity, int particleCount, bool useRandomVelocity = false)
-        {
-            for (int i = 0; i < particleCount; i++)
-            {
-                Vector3 particlePosition = new Vector3(Random.value * size.x, Random.value * size.y, Random.value * size.z);
-                particlePosition += offset;
-
-                Vector3 particleVelocity = velocity;
-                if (useRandomVelocity)
-                {
-                    particleVelocity.x *= Random.value;
-                    particleVelocity.y *= Random.value;
-                    particleVelocity.z *= Random.value;
-                }
-
-                _particlesToAdd.Add(new ParticleToAdd(particlePosition, particleVelocity));
-            }
-        }
-
         private void Iterate(float deltaTime)
         {
             if (PhysicsPipeline != null && PhysicsPipeline.IsSceneLoaded)
             {
                 CommandBuffer cmd = CommandBufferPool.Get();
 
-                int addParticleCount = _particlesToAdd.Count;
-                if (addParticleCount > 0)
+                List<FluidEmitter.Particle> particleEmitters = FluidEmitterComponent<FluidEmitter.Particle>.GetEmitterInstances();
+                List<FluidEmitter.Cube> cubeEmitters = FluidEmitterComponent<FluidEmitter.Cube>.GetEmitterInstances();
+                using (var builder = new APhysicsPipeline.EmitterBufferBuilder())
                 {
-                    PhysicsPipeline.AddParticles(cmd, _particlesToAdd);
-                    _particlesToAdd.Clear();
+                    builder.Reserve(particleEmitters);
+                    builder.Reserve(cubeEmitters);
+
+                    builder.Allocate();
+
+                    builder.AddEmitter(particleEmitters);
+                    builder.AddEmitter(cubeEmitters);
+
+                    PhysicsPipeline.AddParticles(cmd, builder);
+                    PhysicsPipeline.Solve(cmd, deltaTime, builder.TotalParticleCount);
                 }
-                PhysicsPipeline.Solve(cmd, deltaTime, addParticleCount);
 
                 UnityEngine.Graphics.ExecuteCommandBuffer(cmd);
 
@@ -124,78 +108,15 @@ namespace Antares.Physics
 
 #if UNITY_EDITOR
 
-        private enum TestSample { Cube }
-
         [SerializeField]
-        [TitleGroup("Test Samples")]
-        [System.Diagnostics.CodeAnalysis.SuppressMessage("Style", "IDE0044:Add readonly modifier", Justification = "<Pending>")]
-        private TestSample _sampleType;
-
-        [SerializeField]
-        [TitleGroup("Test Samples")]
-        [LabelText("Size")]
-        [ShowIf(nameof(_sampleType), TestSample.Cube)]
-        private Vector3 _sampleParams_CubeSize;
-
-        [SerializeField]
-        [TitleGroup("Test Samples")]
-        [LabelText("Offset")]
-        private Vector3 _sampleParams_Offset;
-
-        [SerializeField]
-        [TitleGroup("Test Samples")]
-        [LabelText("Velocity")]
-        private Vector3 _sampleParams_Velocity;
-
-        [SerializeField]
-        [TitleGroup("Test Samples")]
-        [LabelText("Use Random Velocity")]
-        private bool _sampleParams_RandomVelocity;
-
-        [SerializeField]
-        [TitleGroup("Test Samples")]
-        [LabelText("Particle Count")]
-        [Range(1, 256)]
-        private int _sampleParams_ParticleCount;
-
-        [SerializeField]
-        [TitleGroup("Test Samples")]
-        [LabelText("Capture Immediately after Adding Particales")]
-        private bool _sampleParams_CaptureImmediately;
-
-        [SerializeField]
-        [TitleGroup("Test Samples")]
+        [TitleGroup("Debugging")]
         [LabelText("Capture Count")]
         [Range(1, 8)]
         private int _sampleParams_CaptureCount;
 
         private bool _isCapturing;
 
-        [TitleGroup("Test Samples")]
-        [Button]
-        private void AddTestParticles()
-        {
-            if (!enabled)
-            {
-                Debug.LogWarning($"Enable {nameof(APhysicsScene)} before Adding Particles.");
-                return;
-            }
-
-            switch (_sampleType)
-            {
-                case TestSample.Cube:
-                    AddParticlesCube(_sampleParams_CubeSize, _sampleParams_Offset, _sampleParams_Velocity,
-                        _sampleParams_ParticleCount, _sampleParams_RandomVelocity);
-                    break;
-                default:
-                    Debug.LogWarning("Unspported Sample Type.");
-                    return;
-            }
-
-            if (_sampleParams_CaptureImmediately)
-                CaptureFrame();
-        }
-
+        [TitleGroup("Debugging")]
         [Button]
         private void CaptureFrame()
         {
