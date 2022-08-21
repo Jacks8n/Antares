@@ -69,7 +69,7 @@ namespace Antares.Graphics
 
             public static int FluidParticleProperties { get; } = Shader.PropertyToID(nameof(FluidParticleProperties));
 
-            public static int FluidParticlePropertiesPool { get; } = Shader.PropertyToID(nameof(FluidParticlePropertiesPool));
+            public static int FluidParticlePropertyPool { get; } = Shader.PropertyToID(nameof(FluidParticlePropertyPool));
 
             public static int FluidGridLevel0 { get; } = Shader.PropertyToID(nameof(FluidGridLevel0));
 

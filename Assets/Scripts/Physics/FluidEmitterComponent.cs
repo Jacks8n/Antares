@@ -50,6 +50,8 @@ namespace Antares.Physics
 
         protected virtual void OnEnable()
         {
+            Emitter.ClearParticles();
+
             _linkedListNode = EmitterInstances.AddLast(Emitter);
         }
 

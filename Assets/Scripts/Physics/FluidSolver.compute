@@ -1609,7 +1609,10 @@ struct FluidParticleProperty_Particle
 
 #define DEF_GET_EMITTER_DATA(emitter, particle)
 
-void GetEmitterProperty() { }
+void GetEmitterProperty()
+{
+
+}
 
 #undef DEF_GET_EMITTER_DATA
 
@@ -1657,14 +1660,14 @@ void GetEmittedParticle(
 
                 const float3 cubeMin = float3(word0.xyz);
                 const float3 cubeMax = float3(word0.w, word1.xy);
+                const float3 linearVelocity = float3(word1.zw, word2.x);
+                const float3 angularVelocity = float3(word2.yzw);
+
                 const float3 uvw = random.Next01x3();
                 position = lerp(cubeMin, cubeMax, uvw);
 
                 const float3 cubeCenter = (cubeMax + cubeMin) * 0.5;
-                const float3 angularVelocity = float3(word2.yzw);
                 velocity = cross(angularVelocity, position - cubeCenter);
-
-                const float3 linearVelocity = float3(word1.zw, word2.x);
                 velocity += linearVelocity;
             }
             break;
@@ -1701,31 +1704,33 @@ void AddParticles(uint3 tid : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint 
 
     if (!gi)
     {
+        EmitterIndices_GSM[0] = 0;
         EmitterOffset_GSM = FluidEmitterPartitions[gid.x];
         EmitterCount_GSM = FluidEmitterPartitions[gid.x + 1] - EmitterOffset_GSM;
-        EmitterParticleOffset_GSM = gid.x * ADD_PARTICLES_KERNEL_SIZE;
+        EmitterParticleOffset_GSM = gid.x * MAX_EMITTER_PARTICLE_COUNT_PER_GROUP;
     }
 
     GroupMemoryBarrierWithGroupSync();
 
     // load emitters to gsm
+    FluidEmitterDispatch dispatch;
     for (i = gi; i < EmitterCount_GSM; i += ADD_PARTICLES_KERNEL_SIZE)
     {
-        const FluidEmitterDispatch dispatch = GetFluidEmitterDispatch(i + EmitterOffset_GSM);
+        dispatch = GetFluidEmitterDispatch(i + EmitterOffset_GSM);
         EmitterTypes_GSM[i] = dispatch.Type;
         EmitterParameterOffsets_GSM[i] = dispatch.ParameterOffset;
         EmitterIndices_GSM[dispatch.ParticleCountInclusiveSum] = i + 1;
-
-        if (i == EmitterCount_GSM - 1)
-            TotalEmitterParticleCount_GSM = dispatch.ParticleCountInclusiveSum;
     }
+
+    if (i == EmitterCount_GSM - 1)
+        TotalEmitterParticleCount_GSM = dispatch.ParticleCountInclusiveSum;
 
     GroupMemoryBarrierWithGroupSync();
 
     // broadcast emitters
     for (i = 1; i < TotalEmitterParticleCount_GSM; i *= 2)
     {
-        for (j = gi; j + i < TotalEmitterParticleCount_GSM; j += ADD_PARTICLES_KERNEL_SIZE)
+        for (j = gi; j < TotalEmitterParticleCount_GSM - i; j += ADD_PARTICLES_KERNEL_SIZE)
         {
             const uint current = EmitterIndices_GSM[j];
             if (current != ~0)

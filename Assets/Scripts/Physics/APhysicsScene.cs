@@ -1,4 +1,5 @@
 ﻿using System.Collections.Generic;
+using System.Threading;
 using Antares.Graphics;
 using Sirenix.OdinInspector;
 using UnityEngine;
@@ -136,10 +137,14 @@ namespace Antares.Physics
                 _isCapturing = true;
 
                 for (int i = 0; i < _sampleParams_CaptureCount; i++)
+                {
                     if (Application.isPlaying)
                         Iterate(Time.fixedDeltaTime * TimeScale);
                     else
                         Iterate(1f / 60f * TimeScale);
+
+                    Thread.Sleep(20);
+                }
 
                 _isCapturing = false;
             });

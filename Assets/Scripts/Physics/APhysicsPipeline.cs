@@ -106,7 +106,7 @@ namespace Antares.Physics
 
         private ComputeBuffer _fluidParticlePositionsBuffer;
         private ComputeBuffer _fluidParticlePropertiesBuffer;
-        private ComputeBuffer _fluidParticlePropertiesPoolBuffer;
+        private ComputeBuffer _fluidParticlePropertyPoolBuffer;
 
         private RenderTexture _fluidGridLevel0;
         private RenderTexture _fluidGridLevel1;
@@ -139,7 +139,7 @@ namespace Antares.Physics
             const int maxParticleCount = MaxParticleCount;
             _fluidParticlePositionsBuffer = new ComputeBuffer(4 + 2 * 4 * maxParticleCount, 4, ComputeBufferType.Structured, ComputeBufferMode.Immutable);
             _fluidParticlePropertiesBuffer = new ComputeBuffer(maxParticleCount * 8, 4, ComputeBufferType.Raw, ComputeBufferMode.Immutable);
-            _fluidParticlePropertiesPoolBuffer = new ComputeBuffer(1 + maxParticleCount, 4, ComputeBufferType.Structured, ComputeBufferMode.Immutable);
+            _fluidParticlePropertyPoolBuffer = new ComputeBuffer(1 + maxParticleCount, 4, ComputeBufferType.Structured, ComputeBufferMode.Immutable);
 
             _fluidGridLevel0 = CreateRWVolumeRT(GraphicsFormat.R32_SInt, GridSizeLevel0);
             _fluidGridLevel1 = CreateRWVolumeRT(GraphicsFormat.R32_UInt, GridSizeLevel1);
@@ -171,7 +171,7 @@ namespace Antares.Physics
             ConstantBuffer.UpdateData(cmd, parameters);
 
             cmd.SetBufferData(_fluidParticlePositionsBuffer, new uint[] { 0, 0 });
-            cmd.SetBufferData(_fluidParticlePropertiesPoolBuffer, new uint[] { 0 });
+            cmd.SetBufferData(_fluidParticlePropertyPoolBuffer, new uint[] { 0 });
             cmd.SetBufferData(_fluidBlockParticleOffsetsBuffer, new uint[] { 0, 1, 1, 0, 1, 1 });
             cmd.SetBufferData(_partitionSumsBuffer, new uint[] { 0 });
             cmd.SetBufferData(_indirectArgsBuffer, new uint[] { 0, 1, 1, 0, 1, 1, 0, 1, 1, 1, 0, 0, 0 });
@@ -202,7 +202,7 @@ namespace Antares.Physics
 
             _fluidParticlePositionsBuffer.Release();
             _fluidParticlePropertiesBuffer.Release();
-            _fluidParticlePropertiesPoolBuffer.Release();
+            _fluidParticlePropertyPoolBuffer.Release();
             _fluidBlockParticleOffsetsBuffer.Release();
             _partitionSumsBuffer.Release();
             _indirectArgsBuffer.Release();
@@ -247,7 +247,7 @@ namespace Antares.Physics
             cmd.SetComputeBufferParam(shader, kernel, Bindings.PartitionSums, _partitionSumsBuffer);
             cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticlePositions, _fluidParticlePositionsBuffer);
             cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidBlockParticleOffsets, _fluidBlockParticleOffsetsBuffer);
-            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticlePropertiesPool, _fluidParticlePropertiesPoolBuffer);
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticlePropertyPool, _fluidParticlePropertyPoolBuffer);
             cmd.DispatchCompute(shader, kernel, 1, 1, 1);
 
             kernel = fluidSolver.ClearPartitionSumsKernel;
@@ -258,7 +258,7 @@ namespace Antares.Physics
             cmd.SetComputeBufferParam(shader, kernel, Bindings.PartitionSums, _partitionSumsBuffer);
             cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticlePositions, _fluidParticlePositionsBuffer);
             cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidBlockParticleOffsets, _fluidBlockParticleOffsetsBuffer);
-            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticlePropertiesPool, _fluidParticlePropertiesPoolBuffer);
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticlePropertyPool, _fluidParticlePropertyPoolBuffer);
             cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel1, _fluidGridLevel1);
             cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel2, _fluidGridLevel2);
             cmd.DispatchCompute(shader, kernel, _indirectArgsBuffer, 0);
@@ -347,7 +347,7 @@ namespace Antares.Physics
             cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidEmitterProperties, _fluidEmitterPropertyBuffer);
             cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticlePositions, _fluidParticlePositionsBuffer);
             cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticleProperties, _fluidParticlePropertiesBuffer);
-            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticlePropertiesPool, _fluidParticlePropertiesPoolBuffer);
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticlePropertyPool, _fluidParticlePropertyPoolBuffer);
             cmd.DispatchCompute(shader, kernel, emitterBufferBuilder.PartitionCount, 1, 1);
         }
 
