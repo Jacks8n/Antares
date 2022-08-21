@@ -25,7 +25,12 @@ namespace Antares.Physics
         [field: SerializeField, LabelText(nameof(TimeScale))]
         public float TimeScale { get; private set; } = 1f;
 
-        public FluidEmitter.Particle ParticleFluidEmitter { get; private set; }
+        private APhysicsPipeline.EmitterBufferBuilder _emitterBufferBuilder;
+
+        private void Awake()
+        {
+            _emitterBufferBuilder = new APhysicsPipeline.EmitterBufferBuilder();
+        }
 
         private void OnEnable()
         {
@@ -41,8 +46,6 @@ namespace Antares.Physics
 
                     CommandBufferPool.Release(cmd);
                 }
-
-                ParticleFluidEmitter = new FluidEmitter.Particle();
 
                 if (Instance)
                     Instance.enabled = false;
@@ -64,8 +67,6 @@ namespace Antares.Physics
 
             if (PhysicsPipeline != null)
                 PhysicsPipeline.UnloadPhysicsScene();
-
-            ParticleFluidEmitter = null;
         }
 
         private void FixedUpdate()
@@ -84,26 +85,30 @@ namespace Antares.Physics
             {
                 CommandBuffer cmd = CommandBufferPool.Get();
 
-                List<FluidEmitter.Particle> particleEmitters = FluidEmitterComponent<FluidEmitter.Particle>.GetEmitterInstances();
-                List<FluidEmitter.Cube> cubeEmitters = FluidEmitterComponent<FluidEmitter.Cube>.GetEmitterInstances();
-                using (var builder = new APhysicsPipeline.EmitterBufferBuilder())
-                {
-                    builder.Reserve(particleEmitters);
-                    builder.Reserve(cubeEmitters);
+                List<FluidEmitter.Particle> particleEmitters = FluidEmitterComponent<FluidEmitter.Particle>.GetEmitterInstanceList();
+                List<FluidEmitter.Cube> cubeEmitters = FluidEmitterComponent<FluidEmitter.Cube>.GetEmitterInstanceList();
 
-                    builder.Allocate();
+                _emitterBufferBuilder.AddEmitter(particleEmitters);
+                _emitterBufferBuilder.AddEmitter(cubeEmitters);
+                _emitterBufferBuilder.Submit();
 
-                    builder.AddEmitter(particleEmitters);
-                    builder.AddEmitter(cubeEmitters);
+                ClearEmitters(particleEmitters);
+                ClearEmitters(cubeEmitters);
 
-                    PhysicsPipeline.AddParticles(cmd, builder);
-                    PhysicsPipeline.Solve(cmd, deltaTime, builder.TotalParticleCount);
-                }
+                PhysicsPipeline.AddParticles(cmd, _emitterBufferBuilder);
+                PhysicsPipeline.Solve(cmd, deltaTime, _emitterBufferBuilder.TotalParticleCount);
+                _emitterBufferBuilder.Clear();
 
                 UnityEngine.Graphics.ExecuteCommandBuffer(cmd);
 
                 CommandBufferPool.Release(cmd);
             }
+        }
+
+        private void ClearEmitters<T>(List<T> emitters) where T : IFluidEmitter
+        {
+            for (int i = 0; i < emitters.Count; i++)
+                emitters[i].ClearParticles();
         }
 
 #if UNITY_EDITOR

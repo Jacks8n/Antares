@@ -1,4 +1,4 @@
-﻿using Unity.Collections;
+﻿using System.Collections.Generic;
 
 namespace Antares.Physics
 {
@@ -10,7 +10,7 @@ namespace Antares.Physics
 
         int PropertyByteCount { get; }
 
-        void GetProperties(NativeSlice<byte> buffer);
+        void GetProperties(List<byte> buffer);
 
         void ClearEmitter();
 

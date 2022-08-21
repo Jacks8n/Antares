@@ -6,28 +6,36 @@ namespace Antares.Physics
 {
     public class FluidEmitterComponent<T> : MonoBehaviour where T : IFluidEmitter, new()
     {
+        public static LinkedList<T> EmitterInstances
+        {
+            get
+            {
+                if (_emitterInstances == null)
+                    _emitterInstances = new LinkedList<T>();
+
+                return _emitterInstances;
+            }
+        }
+
         private static LinkedList<T> _emitterInstances;
 
-        private static List<T> _emitterInstancesList;
+        private static List<T> _emitterInstanceList;
 
-        public static List<T> GetEmitterInstances()
+        public static List<T> GetEmitterInstanceList()
         {
-            if (_emitterInstances == null)
-                _emitterInstances = new LinkedList<T>();
-
-            if (_emitterInstancesList == null)
-                _emitterInstancesList = new List<T>();
+            if (_emitterInstanceList == null)
+                _emitterInstanceList = new List<T>();
             else
-                _emitterInstancesList.Clear();
+                _emitterInstanceList.Clear();
 
-            LinkedListNode<T> node = _emitterInstances.First;
+            LinkedListNode<T> node = EmitterInstances.First;
             while (node != null)
             {
-                _emitterInstancesList.Add(node.Value);
+                _emitterInstanceList.Add(node.Value);
                 node = node.Next;
             }
 
-            return _emitterInstancesList;
+            return _emitterInstanceList;
         }
 
         [field: SerializeField, LabelText(nameof(Emitter))]
@@ -42,12 +50,12 @@ namespace Antares.Physics
 
         protected virtual void OnEnable()
         {
-            _linkedListNode = _emitterInstances.AddLast(Emitter);
+            _linkedListNode = EmitterInstances.AddLast(Emitter);
         }
 
         protected virtual void OnDisable()
         {
-            _emitterInstances.Remove(_linkedListNode);
+            EmitterInstances.Remove(_linkedListNode);
             _linkedListNode = null;
         }
     }

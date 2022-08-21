@@ -44,10 +44,10 @@ namespace Antares.Physics
 
             public override void ClearParticles() => _particles.Clear();
 
-            protected override void GetProperties<T>(T builder)
+            protected override void GetParticleProperties<T>(T builder)
             {
                 for (int i = 0; i < _particles.Count; i++)
-                    builder.SetParticleProperty(i, _particles[i]);
+                    builder.AddProperty(_particles[i]);
             }
         }
     }

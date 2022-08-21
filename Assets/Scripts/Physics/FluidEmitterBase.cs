@@ -1,7 +1,8 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
-using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
 
 namespace Antares.Physics
 {
@@ -11,43 +12,32 @@ namespace Antares.Physics
     public abstract class FluidEmitterBase<TEmitterProperty, TParticleProperty> : IFluidEmitter
         where TEmitterProperty : unmanaged where TParticleProperty : unmanaged
     {
-        protected interface IFluidEmitterDataBuilder
+        protected interface IFluidEmitterDataBuilder<T> where T : unmanaged
         {
-            public void SetEmitterProperty(TEmitterProperty emitterProperty);
-
-            public void SetParticleProperty(int index, TParticleProperty particleProperty);
+            public void AddProperty(T property);
         }
 
-        private struct FluidEmitterDataBuilder : IFluidEmitterDataBuilder
+        private struct FluidEmitterDataBuilder<T> : IFluidEmitterDataBuilder<T> where T : unmanaged
         {
-            private NativeSlice<TEmitterProperty> _emitterProperty;
+            private readonly List<byte> _buffer;
 
-            private NativeSlice<TParticleProperty> _particleProperties;
-
-            public FluidEmitterDataBuilder(NativeSlice<TEmitterProperty> emitterProperty, NativeSlice<TParticleProperty> particleProperties)
+            public FluidEmitterDataBuilder(List<byte> buffer)
             {
-                _emitterProperty = emitterProperty;
-                _particleProperties = particleProperties;
+                _buffer = buffer;
             }
 
-            public void SetEmitterProperty(TEmitterProperty emitterProperty)
+            public unsafe void AddProperty(T property)
             {
-                _emitterProperty[0] = emitterProperty;
+                byte* ptr = stackalloc byte[sizeof(T)];
+                UnsafeUtility.WriteArrayElement(ptr, 0, property);
+
+                for (int i = 0; i < sizeof(T); i++)
+                    _buffer.Add(ptr[i]);
             }
 
-            public void SetEmitterProperty(NullFluidEmitterProperty _)
+            public void AddProperty(NullFluidEmitterProperty _)
             {
                 throw new Exception($"No {nameof(TEmitterProperty)} is Provided for This Emitter");
-            }
-
-            public void SetParticleProperty(int index, TParticleProperty particleParam)
-            {
-                _particleProperties[index] = particleParam;
-            }
-
-            public void SetParticleProperty(NullFluidEmitterProperty _)
-            {
-                throw new Exception($"No {nameof(TParticleProperty)} is Provided for this Emitter");
             }
         }
 
@@ -63,22 +53,21 @@ namespace Antares.Physics
             Debug.Assert(sizeof(TParticleProperty) % 4 == 0);
         }
 
-        public unsafe void GetProperties(NativeSlice<byte> buffer)
+        public unsafe void GetProperties(List<byte> buffer)
         {
-            Debug.Assert(buffer.Length == PropertyByteCount);
+            FluidEmitterDataBuilder<TEmitterProperty> emitterBuilder = new FluidEmitterDataBuilder<TEmitterProperty>(buffer);
+            GetEmitterProperties(emitterBuilder);
 
-            int emitterPropertySize = sizeof(TEmitterProperty);
-            NativeSlice<TEmitterProperty> emitterPropertySlice = buffer.Slice(0, emitterPropertySize).SliceConvert<TEmitterProperty>();
-            NativeSlice<TParticleProperty> particlePropertySlice = buffer.Slice(emitterPropertySize).SliceConvert<TParticleProperty>();
-
-            FluidEmitterDataBuilder builder = new FluidEmitterDataBuilder(emitterPropertySlice, particlePropertySlice);
-            GetProperties(builder);
+            FluidEmitterDataBuilder<TParticleProperty> particleBuilder = new FluidEmitterDataBuilder<TParticleProperty>(buffer);
+            GetParticleProperties(particleBuilder);
         }
 
         public virtual void ClearEmitter() { ClearParticles(); }
 
         public virtual void ClearParticles() { }
 
-        protected abstract void GetProperties<T>(T builder) where T : IFluidEmitterDataBuilder;
+        protected virtual void GetEmitterProperties<T>(T builder) where T : IFluidEmitterDataBuilder<TEmitterProperty> { }
+
+        protected virtual void GetParticleProperties<T>(T builder) where T : IFluidEmitterDataBuilder<TParticleProperty> { }
     }
 }

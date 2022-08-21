@@ -24,7 +24,7 @@ struct ParticlePositionIndexed
 
 // these properties are read and written only once in each iteration, so it's
 // unworthy to sort them every frame. instead they stay at where they are initialized.
-struct ParticleProperties
+struct ParticleProperty
 {
     float3 AffineRow0;
 
@@ -77,8 +77,8 @@ struct ParticleProperties
 // }
 // initial value: { 0, 0, x{2}, ((x{4}){n}){2} }
 extern A_RWBUFFER(uint) FluidParticlePositions;
-// layout: { ((alignas(32) particle properties){n} }
-// initial value: { <valid particle properties>{n}, x* }
+// layout: { ((alignas(32) particle property){n} }
+// initial value: { <valid particle property>{n}, x* }
 extern A_RWSTORAGE(globallycoherent) A_RWBYTEADDRESS_BUFFER FluidParticleProperties;
 
 /// begin particle access
@@ -159,14 +159,14 @@ ParticlePositionIndexed GetFluidParticlePosition(uint index, bool pingpong)
 
 #endif
 
-uint GetFluidParticlePropertiesByteOffset(uint index)
+uint GetFluidParticlePropertyByteOffset(uint index)
 {
     return index * 32;
 }
 
-ParticleProperties GetFluidParticleProperties(uint index)
+ParticleProperty GetFluidParticleProperty(uint index)
 {
-    const uint offset = GetFluidParticlePropertiesByteOffset(index);
+    const uint offset = GetFluidParticlePropertyByteOffset(index);
 
     const uint4 word0 = FluidParticleProperties.Load4(offset);
     const uint4 word1 = FluidParticleProperties.Load4(offset +16);
@@ -176,28 +176,28 @@ ParticleProperties GetFluidParticleProperties(uint index)
     const float4 word1lo = f16tof32(word1);
     const float4 word1hi = f16tof32(word1 >> 16);
 
-    ParticleProperties properties;
-    properties.AffineRow0 = word0lo.xyz;
-    properties.VelocityX = word0lo.w;
-    properties.AffineRow1 = word0hi.xyz;
-    properties.VelocityY = word0hi.w;
-    properties.AffineRow2 = word1lo.xyz;
-    properties.VelocityZ = word1hi.x;
-    properties.Mass = word1hi.w;
+    ParticleProperty property;
+    property.AffineRow0 = word0lo.xyz;
+    property.VelocityX = word0lo.w;
+    property.AffineRow1 = word0hi.xyz;
+    property.VelocityY = word0hi.w;
+    property.AffineRow2 = word1lo.xyz;
+    property.VelocityZ = word1hi.x;
+    property.Mass = word1hi.w;
 
-    return properties;
+    return property;
 }
 
 #ifndef A_UAV_READONLY
 
-    void SetFluidParticleProperties(uint index, ParticleProperties properties)
+    void SetFluidParticleProperty(uint index, ParticleProperty property)
     {
-        const uint offset = GetFluidParticlePropertiesByteOffset(index);
+        const uint offset = GetFluidParticlePropertyByteOffset(index);
 
-        const uint4 word0lo = f32tof16(float4(properties.AffineRow0, properties.VelocityX));
-        const uint4 word0hi = f32tof16(float4(properties.AffineRow1, properties.VelocityY)) << 16;
-        const uint3 word1lo = f32tof16(properties.AffineRow2);
-        const uint2 word1hi = f32tof16(float2(properties.VelocityZ, properties.Mass)) << 16;
+        const uint4 word0lo = f32tof16(float4(property.AffineRow0, property.VelocityX));
+        const uint4 word0hi = f32tof16(float4(property.AffineRow1, property.VelocityY)) << 16;
+        const uint3 word1lo = f32tof16(property.AffineRow2);
+        const uint2 word1hi = f32tof16(float2(property.VelocityZ, property.Mass)) << 16;
 
         const uint4 word0 = word0lo | word0hi;
         const uint4 word1 = uint4(word1lo.x | word1hi.x, word1lo.yz, word1hi.y);
@@ -208,7 +208,7 @@ ParticleProperties GetFluidParticleProperties(uint index)
 
     void SetFluidParticleAffineVelocity(uint index, float3x3 affine, float3 velocity)
     {
-        const uint offset = GetFluidParticlePropertiesByteOffset(index);
+        const uint offset = GetFluidParticlePropertyByteOffset(index);
 
         const uint4 word0lo = f32tof16(float4(affine._m00_m01_m02, velocity.x));
         const uint4 word0hi = f32tof16(float4(affine._m10_m11_m12, velocity.y)) << 16;

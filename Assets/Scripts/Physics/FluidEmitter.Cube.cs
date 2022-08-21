@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Runtime.InteropServices;
+using Sirenix.OdinInspector;
 using UnityEngine;
 
 namespace Antares.Physics
@@ -45,7 +46,7 @@ namespace Antares.Physics
 
             public override int ParticleCount => _particleCount;
 
-            [SerializeField, Min(0)]
+            [ShowInInspector, ReadOnly, Min(0)]
             private int _particleCount;
 
             public Cube(Vector3 offset, Vector3 size, Vector3 linearVelocity, Vector3 angularVelocity, int particleCount = 0) : base()
@@ -90,9 +91,9 @@ namespace Antares.Physics
 
             public override void ClearParticles() => _particleCount = 0;
 
-            protected override void GetProperties<T>(T builder)
+            protected override void GetEmitterProperties<T>(T builder)
             {
-                builder.SetEmitterProperty(new Parameters(Offset, Offset + Size, LinearVelocity, AngularVelocity));
+                builder.AddProperty(new Parameters(Offset, Offset + Size, LinearVelocity, AngularVelocity));
             }
         }
     }

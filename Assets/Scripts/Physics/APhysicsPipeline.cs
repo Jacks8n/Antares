@@ -1,9 +1,5 @@
-﻿using System;
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using Antares.Graphics;
-using Sirenix.OdinInspector.Editor.Validation;
-using Unity.Collections;
-using Unity.Collections.LowLevel.Unsafe;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
@@ -19,11 +15,9 @@ namespace Antares.Physics
     {
         public class EmitterBufferBuilder
         {
-            public int EmitterDispatchCount { get; private set; }
-
-            public int PropertyByteCount { get; private set; }
-
             public int TotalParticleCount { get; private set; }
+
+            public int PartitionCount => PartitionBuffer.Count - 1;
 
             public List<FluidEmitterDispatch> EmitterDispatchBuffer { get; private set; }
 
@@ -31,46 +25,48 @@ namespace Antares.Physics
 
             public List<byte> PropertyBuffer { get; private set; }
 
-            private int _groupSpace;
+            public bool Submitted { get; private set; }
 
-            private int _partitionCount;
+            private int _groupSpace;
 
             public EmitterBufferBuilder()
             {
-                EmitterDispatchCount = 0;
-                PropertyByteCount = 0;
-                TotalParticleCount = 0;
-                _partitionCount = 0;
-                _groupSpace = MaxEmitterParticleCountPerGroup;
-
                 EmitterDispatchBuffer = new List<FluidEmitterDispatch>();
                 PartitionBuffer = new List<int>();
                 PropertyBuffer = new List<byte>();
+
+                Clear();
             }
 
             public void AddEmitter<T>(T emitter) where T : IFluidEmitter
             {
+                Debug.Assert(!Submitted);
+
                 int propertyByteOffset = PropertyBuffer.Count;
                 emitter.GetProperties(PropertyBuffer);
 
                 int particleCount = emitter.ParticleCount;
                 TotalParticleCount += particleCount;
 
-                if (_groupSpace == 0)
-                    _groupSpace = MaxEmitterParticleCountPerGroup;
-
                 FluidEmitterType type = emitter.EmitterType;
-                while (particleCount > _groupSpace)
+                if (particleCount >= _groupSpace)
                 {
-                    EmitterDispatchBuffer.Add(new FluidEmitterDispatch(type, propertyByteOffset, MaxEmitterParticleCountPerGroup));
-                    PartitionBuffer.Add(EmitterDispatchBuffer.Count);
+                    int remainder = (particleCount - _groupSpace) % MaxEmitterParticleCountPerGroup;
+                    for (int i = (particleCount - remainder + MaxEmitterParticleCountPerGroup - 1) / MaxEmitterParticleCountPerGroup; i > 0; i--)
+                    {
+                        EmitterDispatchBuffer.Add(new FluidEmitterDispatch(type, propertyByteOffset, MaxEmitterParticleCountPerGroup));
+                        PartitionBuffer.Add(EmitterDispatchBuffer.Count);
+                    }
 
-                    particleCount -= _groupSpace;
+                    particleCount = remainder;
                     _groupSpace = MaxEmitterParticleCountPerGroup;
                 }
-                _groupSpace -= particleCount;
 
-                EmitterDispatchBuffer.Add(new FluidEmitterDispatch(emitter.EmitterType, propertyByteOffset, MaxEmitterParticleCountPerGroup - _groupSpace));
+                if (particleCount > 0)
+                {
+                    _groupSpace -= particleCount;
+                    EmitterDispatchBuffer.Add(new FluidEmitterDispatch(type, propertyByteOffset, MaxEmitterParticleCountPerGroup - _groupSpace));
+                }
             }
 
             public void AddEmitter<T>(List<T> emitters) where T : IFluidEmitter
@@ -81,7 +77,21 @@ namespace Antares.Physics
 
             public void Submit()
             {
-                PartitionBuffer.Add(EmitterDispatchCount);
+                PartitionBuffer.Add(EmitterDispatchBuffer.Count);
+                Submitted = true;
+            }
+
+            public void Clear()
+            {
+                TotalParticleCount = 0;
+                Submitted = false;
+                _groupSpace = MaxEmitterParticleCountPerGroup;
+
+                EmitterDispatchBuffer.Clear();
+                PartitionBuffer.Clear();
+                PropertyBuffer.Clear();
+
+                PartitionBuffer.Add(0);
             }
         }
 
@@ -111,6 +121,8 @@ namespace Antares.Physics
         private ComputeBuffer _fluidEmitterDispatchBuffer;
         private ComputeBuffer _fluidEmitterPartitionBuffer;
         private ComputeBuffer _fluidEmitterPropertyBuffer;
+
+        private EmitterBufferBuilder _emitterBufferBuilder;
 
         public void LoadPhysicsScene(CommandBuffer cmd, APhysicsScene scene)
         {
@@ -175,6 +187,8 @@ namespace Antares.Physics
             cmd.DispatchCompute(shader, kernel, groupCount, 1, 1);
 
             #endregion
+
+            _emitterBufferBuilder = new EmitterBufferBuilder();
 
             IsSceneLoaded = true;
         }
@@ -313,6 +327,8 @@ namespace Antares.Physics
 
         public void AddParticles(CommandBuffer cmd, EmitterBufferBuilder emitterBufferBuilder)
         {
+            Debug.Assert(emitterBufferBuilder.Submitted);
+
             if (emitterBufferBuilder.TotalParticleCount == 0)
                 return;
 
@@ -332,7 +348,7 @@ namespace Antares.Physics
             cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticlePositions, _fluidParticlePositionsBuffer);
             cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticleProperties, _fluidParticlePropertiesBuffer);
             cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticlePropertiesPool, _fluidParticlePropertiesPoolBuffer);
-            cmd.DispatchCompute(shader, kernel, emitterBufferBuilder._partitionCount, 1, 1);
+            cmd.DispatchCompute(shader, kernel, emitterBufferBuilder.PartitionCount, 1, 1);
         }
 
         public void RenderDebugParticles(CommandBuffer cmd, Camera camera, float particleSize = .25f)

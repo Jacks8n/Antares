@@ -90,7 +90,7 @@ CBUFFER_END
 
 // layout: { property count, property index* }
 // initial value: { 0, x* }
-extern RWBuffer<uint> FluidParticlePropertiesPool;
+extern RWBuffer<uint> FluidParticlePropertyPool;
 
 uint GetPooledParticlePropertyCountOffset()
 {
@@ -105,32 +105,32 @@ uint GetPooledParticlePropertyOffset(uint index)
 uint GetPooledParticlePropertyCount()
 {
     const uint offset = GetPooledParticlePropertyCountOffset();
-    return FluidParticlePropertiesPool.Load(offset);
+    return FluidParticlePropertyPool.Load(offset);
 }
 
 void SetPooledParticlePropertyCount(uint count)
 {
     const uint offset = GetPooledParticlePropertyCountOffset();
-    FluidParticlePropertiesPool[offset] = count;
+    FluidParticlePropertyPool[offset] = count;
 }
 
 uint GetPooledParticleProperty(uint index)
 {
     const uint offset = GetPooledParticlePropertyOffset(index);
-    return FluidParticlePropertiesPool.Load(offset);
+    return FluidParticlePropertyPool.Load(offset);
 }
 
 void SetPooledParticleProperty(uint index, uint propertyIndex)
 {
     const uint offset = GetPooledParticlePropertyOffset(index);
-    FluidParticlePropertiesPool[offset] = propertyIndex;
+    FluidParticlePropertyPool[offset] = propertyIndex;
 }
 
-uint AllocatePooledParticleProperties(uint count)
+uint AllocatePooledParticleProperty(uint count)
 {
     uint lo;
     const uint offset = GetPooledParticlePropertyCountOffset();
-    InterlockedAdd(FluidParticlePropertiesPool[offset], count, lo);
+    InterlockedAdd(FluidParticlePropertyPool[offset], count, lo);
 
     return lo;
 }
@@ -373,7 +373,7 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
 
     // allocate pool
     if (!gi)
-        PooledParticlePropertyOffset_GSM = AllocatePooledParticleProperties(PooledParticlePropertyCount_GSM);
+        PooledParticlePropertyOffset_GSM = AllocatePooledParticleProperty(PooledParticlePropertyCount_GSM);
 
     GroupMemoryBarrierWithGroupSync();
 
@@ -785,10 +785,10 @@ void ParticleToGrid0(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
         // read particle from arrays attached to block
         const uint particleIndex = i + ParticleOffset_GSM;
         const ParticlePositionIndexed position = GetFluidParticlePosition(particleIndex, pingpongFlag);
-        const ParticleProperties properties = GetFluidParticleProperties(position.Index);
+        const ParticleProperty property = GetFluidParticleProperty(position.Index);
 
-        const float3 velocity = properties.GetVelocity();
-        const float3x3 affine = properties.GetAffine();
+        const float3 velocity = property.GetVelocity();
+        const float3x3 affine = property.GetAffine();
 
         // calculate indices and weights
         uint3 gridIndex;
@@ -825,7 +825,7 @@ void ParticleToGrid0(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
                     const float3 affineVelocity = mul(affine, x);
 
                     float4 massMomentum;
-                    massMomentum.x = weight * properties.Mass;
+                    massMomentum.x = weight * property.Mass;
                     massMomentum.yzw = massMomentum.x * (velocity + affineVelocity);
                     float sdf = length(x) - FLUID_PARTICLE_RADIUS;
 
@@ -1078,7 +1078,7 @@ void ParticleToGrid1(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
         const uint particleIndex = ParticleOffset_GSM + i;
 
         ParticlePositionIndexed position = GetFluidParticlePosition(particleIndex, pingpongFlag);
-        ParticleProperties properties = GetFluidParticleProperties(position.Index);
+        ParticleProperty property = GetFluidParticleProperty(position.Index);
 
         uint3 gridIndexOffset;
         float3 gridToParticleOffset;
@@ -1109,8 +1109,8 @@ void ParticleToGrid1(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 
         // tait-murnaghan equation of state
         const float pressure = (FLUID_EOS_BULK_MODULUS * 0.25) * Pow4(density * (1.0 / FLUID_EOS_REST_DENSITY));
-        const float volume = properties.Mass / density;
-        const float3x3 affine = properties.GetAffine();
+        const float volume = property.Mass / density;
+        const float3x3 affine = property.GetAffine();
 
         float3x3 stress = FLUID_VISCOSITY_COEFFICIENT * (affine + transpose(affine));
         stress._m00 -= pressure;
@@ -1576,9 +1576,9 @@ void ClearFluidGridLevel1(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
 #define EMITTER_TYPE_CUBE 1
 
 CBUFFER_START(AddParticlesParameters)
-float Mass;
+    float Mass;
 
-uint RandomSeed;
+    uint RandomSeed;
 CBUFFER_END
 
 struct FluidEmitterDispatch
@@ -1591,12 +1591,32 @@ struct FluidEmitterDispatch
     uint ParticleCountInclusiveSum;
 };
 
+struct FluidEmitterProperty_Cube
+{
+    float3 Min;
+    float3 Max;
+
+    float3 LinearVelocity;
+    float3 AngularVelocity;
+};
+
+struct FluidParticleProperty_Particle
+{
+    float3 Position;
+
+    float3 Velocity;
+};
+
+#define DEF_GET_EMITTER_DATA(emitter, particle)
+
+void GetEmitterProperty() { }
+
+#undef DEF_GET_EMITTER_DATA
+
 extern ByteAddressBuffer FluidEmitterDispatches;
 extern Buffer<uint> FluidEmitterPartitions;
 
 // layout: { <valid emitter paramter layout>* }
-// particle emitter: { position, velocity }
-// cube emitter: { min pos, max pos }
 extern ByteAddressBuffer FluidEmitterProperties;
 
 FluidEmitterDispatch GetFluidEmitterDispatch(uint index)
@@ -1616,45 +1636,45 @@ void GetEmittedParticle(
     uint emitterType, uint emitterParameterOffset, uint emitterParticleIndex,
     inout Random random, out float3 position, out float3 velocity, out float mass)
 {
-    switch (emitterType)
+    switch(emitterType)
     {
-    case EMITTER_TYPE_PARTICLE:
-    {
-        const uint offset = emitterParameterOffset + emitterParticleIndex * 24;
-        const float4 word0 = asfloat(FluidEmitterProperties.Load4(offset));
-        const float2 word1 = asfloat(FluidEmitterProperties.Load2(offset + 16));
+        case EMITTER_TYPE_PARTICLE:
+            {
+                const uint offset = emitterParameterOffset +emitterParticleIndex * 24;
+                const float4 word0 = asfloat(FluidEmitterProperties.Load4(offset));
+                const float2 word1 = asfloat(FluidEmitterProperties.Load2(offset +16));
 
-        position = word0.xyz;
-        velocity = float3(word0.w, word1);
-    }
-    break;
-    case EMITTER_TYPE_CUBE:
-    {
-        const uint offset = emitterParameterOffset;
-        const float4 word0 = asfloat(FluidEmitterProperties.Load4(offset));
-        const float4 word1 = asfloat(FluidEmitterProperties.Load4(offset + 16));
-        const float4 word2 = asfloat(FluidEmitterProperties.Load4(offset + 32));
+                position = word0.xyz;
+                velocity = float3(word0.w, word1);
+            }
+            break;
+        case EMITTER_TYPE_CUBE:
+            {
+                const uint offset = emitterParameterOffset;
+                const float4 word0 = asfloat(FluidEmitterProperties.Load4(offset));
+                const float4 word1 = asfloat(FluidEmitterProperties.Load4(offset +16));
+                const float4 word2 = asfloat(FluidEmitterProperties.Load4(offset +32));
 
-        const float3 cubeMin = float3(word0.xyz);
-        const float3 cubeMax = float3(word0.w, word1.xy);
-        const float3 uvw = random.Next01x3();
-        position = lerp(cubeMin, cubeMax, uvw);
+                const float3 cubeMin = float3(word0.xyz);
+                const float3 cubeMax = float3(word0.w, word1.xy);
+                const float3 uvw = random.Next01x3();
+                position = lerp(cubeMin, cubeMax, uvw);
 
-        const float3 cubeCenter = (cubeMax + cubeMin) * 0.5;
-        const float3 angularVelocity = float3(word2.yzw);
-        velocity = cross(angularVelocity, position - cubeCenter);
+                const float3 cubeCenter = (cubeMax + cubeMin) * 0.5;
+                const float3 angularVelocity = float3(word2.yzw);
+                velocity = cross(angularVelocity, position - cubeCenter);
 
-        const float3 linearVelocity = float3(word1.zw, word2.x);
-        velocity += linearVelocity;
-    }
-    break;
-    default:
-    {
-        // conspicuous value for debugging
-        position = float(-42.0).xxx;
-        velocity = float(-42.0).xxx;
-    }
-    break;
+                const float3 linearVelocity = float3(word1.zw, word2.x);
+                velocity += linearVelocity;
+            }
+            break;
+        default:
+            {
+                // conspicuous value for debugging
+                position = float(-42.0).xxx;
+                velocity = float(-42.0).xxx;
+            }
+            break;
     }
 
     mass = Mass;
@@ -1750,13 +1770,13 @@ void AddParticles(uint3 tid : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint 
         positionIndexed.Position = position;
         positionIndexed.Index = propertyIndex;
 
-        ParticleProperties properties;
-        properties.SetVelocity(velocity);
-        properties.SetZeroAffine();
-        properties.Mass = mass;
+        ParticleProperty property;
+        property.SetVelocity(velocity);
+        property.SetZeroAffine();
+        property.Mass = mass;
 
         SetFluidParticlePosition(prevParticleCount + particleIndex, positionIndexed, pingpongFlag);
-        SetFluidParticleProperties(propertyIndex, properties);
+        SetFluidParticleProperty(propertyIndex, property);
     }
 }
 
