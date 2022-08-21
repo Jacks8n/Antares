@@ -142,8 +142,6 @@ namespace Antares.Physics
                         Iterate(Time.fixedDeltaTime * TimeScale);
                     else
                         Iterate(1f / 60f * TimeScale);
-
-                    Thread.Sleep(20);
                 }
 
                 _isCapturing = false;
