@@ -1679,7 +1679,7 @@ groupshared uint EmitterIndices_GSM[MAX_EMITTER_PARTICLE_COUNT_PER_GROUP + 1];
 groupshared uint TotalEmitterParticleCount_GSM;
 
 [numthreads(ADD_PARTICLES_KERNEL_SIZE, 1, 1)]
-void AddParticles(uint3 tid : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
+void AddParticles(const uint3 tid : SV_DispatchThreadID, const uint3 gid : SV_GroupID, const uint gi : SV_GroupIndex)
 {
     uint i, j;
 
@@ -1709,7 +1709,7 @@ void AddParticles(uint3 tid : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint 
         EmitterIndices_GSM[dispatch.ParticleCountInclusiveSum] = i + 1;
     }
 
-    if (i == EmitterCount_GSM - 1)
+    if (i == EmitterCount_GSM + ADD_PARTICLES_KERNEL_SIZE - 1)
         TotalEmitterParticleCount_GSM = dispatch.ParticleCountInclusiveSum;
 
     GroupMemoryBarrierWithGroupSync();

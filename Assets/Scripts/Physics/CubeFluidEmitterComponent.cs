@@ -4,7 +4,6 @@ using UnityEngine;
 namespace Antares.Physics
 {
     [ExecuteInEditMode]
-    [DefaultExecutionOrder(APhysicsScene.ExecutionOrder - 1)]
     public class CubeFluidEmitterComponent : FluidEmitterComponent<FluidEmitter.Cube>
     {
         [field: SerializeField, LabelText(nameof(Flux)), Range(1, 1024)]
@@ -19,9 +18,9 @@ namespace Antares.Physics
             _fluxRemainder = 0f;
         }
 
-        private void FixedUpdate()
+        public override void Elapse(float deltaTime)
         {
-            _fluxRemainder += Flux * Time.fixedDeltaTime;
+            _fluxRemainder += Flux * deltaTime;
 
             int particleCount = Mathf.FloorToInt(_fluxRemainder);
             if (particleCount > 0)

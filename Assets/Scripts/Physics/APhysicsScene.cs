@@ -1,18 +1,17 @@
-﻿using System.Collections.Generic;
-using System.Threading;
+﻿using System;
+using System.Collections.Generic;
 using Antares.Graphics;
 using Sirenix.OdinInspector;
 using UnityEngine;
 using UnityEngine.Rendering;
 
+using UGraphics = UnityEngine.Graphics;
+
 namespace Antares.Physics
 {
     [ExecuteAlways]
-    [DefaultExecutionOrder(ExecutionOrder)]
     public class APhysicsScene : MonoBehaviour
     {
-        public const int ExecutionOrder = 1000;
-
         public static APhysicsScene Instance { get; private set; }
 
         public APhysicsPipeline PhysicsPipeline { get; private set; }
@@ -86,11 +85,23 @@ namespace Antares.Physics
             {
                 CommandBuffer cmd = CommandBufferPool.Get();
 
-                List<FluidEmitter.Particle> particleEmitters = FluidEmitterComponent<FluidEmitter.Particle>.GetEmitterInstanceList();
-                List<FluidEmitter.Cube> cubeEmitters = FluidEmitterComponent<FluidEmitter.Cube>.GetEmitterInstanceList();
+#if UNITY_EDITOR
+                float emitterDeltaTime = _debugging_DisableEmitters ? 0f : deltaTime;
+#else
+                float emitterDeltaTime = deltaTime;
+#endif
 
-                _emitterBufferBuilder.AddEmitter(particleEmitters);
-                _emitterBufferBuilder.AddEmitter(cubeEmitters);
+                var particleEmitters = FluidEmitterComponent<FluidEmitter.Particle>.GetEmitterInstanceList(emitterDeltaTime);
+                var cubeEmitters = FluidEmitterComponent<FluidEmitter.Cube>.GetEmitterInstanceList(emitterDeltaTime);
+
+#if UNITY_EDITOR
+                if (!_debugging_DisableEmitters)
+#endif
+                {
+                    _emitterBufferBuilder.AddEmitter(particleEmitters);
+                    _emitterBufferBuilder.AddEmitter(cubeEmitters);
+                }
+
                 _emitterBufferBuilder.Submit();
 
                 ClearEmitters(particleEmitters);
@@ -100,7 +111,7 @@ namespace Antares.Physics
                 PhysicsPipeline.Solve(cmd, deltaTime, _emitterBufferBuilder.TotalParticleCount);
                 _emitterBufferBuilder.Clear();
 
-                UnityEngine.Graphics.ExecuteCommandBuffer(cmd);
+                UGraphics.ExecuteCommandBuffer(cmd);
 
                 CommandBufferPool.Release(cmd);
             }
@@ -114,13 +125,18 @@ namespace Antares.Physics
 
 #if UNITY_EDITOR
 
-        [SerializeField]
         [TitleGroup("Debugging")]
-        [LabelText("Capture Count")]
         [Range(1, 8)]
-        private int _sampleParams_CaptureCount;
+        [ShowInInspector]
+        [LabelText("Capture Count")]
+        private int _debugging_CaptureCount;
 
-        private bool _isCapturing;
+        [TitleGroup("Debugging")]
+        [ShowInInspector]
+        [LabelText("Disable Emitters")]
+        private bool _debugging_DisableEmitters;
+
+        private volatile bool _isCapturing;
 
         [TitleGroup("Debugging")]
         [Button]
@@ -132,20 +148,29 @@ namespace Antares.Physics
                 return;
             }
 
+            if (!Application.isPlaying)
+            {
+                Debug.LogWarning("Capturing Physics Frame is Only Available in Play Mode");
+                return;
+            }
+
             ARenderPipeline.AddCaptureEvent(() =>
             {
                 _isCapturing = true;
 
-                for (int i = 0; i < _sampleParams_CaptureCount; i++)
-                {
-                    if (Application.isPlaying)
-                        Iterate(Time.fixedDeltaTime * TimeScale);
-                    else
-                        Iterate(1f / 60f * TimeScale);
-                }
+                for (int i = 0; i < _debugging_CaptureCount; i++)
+                    Iterate(Time.fixedDeltaTime * TimeScale);
 
                 _isCapturing = false;
             });
+        }
+
+        [TitleGroup("Debugging")]
+        [Button("Enable Emitters and Capture Immediately")]
+        private void CaptureEmitters()
+        {
+            _debugging_DisableEmitters = false;
+            CaptureFrame();
         }
 
 #endif

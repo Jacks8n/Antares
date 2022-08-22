@@ -30,16 +30,16 @@ namespace Antares.Physics
                 }
             }
 
-            [field: SerializeField]
+            [field: SerializeField, LabelText(nameof(Offset))]
             public Vector3 Offset { get; set; }
 
-            [field: SerializeField]
+            [field: SerializeField, LabelText(nameof(Size))]
             public Vector3 Size { get; set; }
 
-            [field: SerializeField]
+            [field: SerializeField, LabelText(nameof(LinearVelocity))]
             public Vector3 LinearVelocity { get; set; }
 
-            [field: SerializeField]
+            [field: SerializeField, LabelText(nameof(AngularVelocity))]
             public Vector3 AngularVelocity { get; set; }
 
             public override FluidEmitterType EmitterType => FluidEmitterType.Cube;

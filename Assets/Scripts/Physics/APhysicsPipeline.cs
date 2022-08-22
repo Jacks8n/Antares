@@ -122,8 +122,6 @@ namespace Antares.Physics
         private ComputeBuffer _fluidEmitterPartitionBuffer;
         private ComputeBuffer _fluidEmitterPropertyBuffer;
 
-        private EmitterBufferBuilder _emitterBufferBuilder;
-
         public void LoadPhysicsScene(CommandBuffer cmd, APhysicsScene scene)
         {
             Debug.Assert(!IsSceneLoaded);
@@ -188,8 +186,6 @@ namespace Antares.Physics
 
             #endregion
 
-            _emitterBufferBuilder = new EmitterBufferBuilder();
-
             IsSceneLoaded = true;
         }
 
@@ -207,8 +203,8 @@ namespace Antares.Physics
             _partitionSumsBuffer.Release();
             _indirectArgsBuffer.Release();
             _fluidEmitterDispatchBuffer.Release();
-            _fluidEmitterPropertyBuffer.Release();
             _fluidEmitterPartitionBuffer.Release();
+            _fluidEmitterPropertyBuffer.Release();
 
             _fluidGridLevel0.Release();
             _fluidGridLevel1.Release();
@@ -338,7 +334,7 @@ namespace Antares.Physics
 
             FluidSolverCompute fluidEmitter = _shaderSpecs.FluidSolver;
             ComputeShader shader = fluidEmitter.Shader;
-            AddParticlesParameters parameters = new AddParticlesParameters(mass: 1f);
+            AddParticlesParameters parameters = new AddParticlesParameters(mass: 1f, randomSeed: Random.Range(0, int.MaxValue));
             ConstantBuffer.Push(cmd, parameters, shader, Bindings.AddParticlesParameters);
 
             int kernel = fluidEmitter.AddParticlesKernel;

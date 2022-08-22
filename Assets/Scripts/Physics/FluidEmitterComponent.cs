@@ -6,32 +6,37 @@ namespace Antares.Physics
 {
     public class FluidEmitterComponent<T> : MonoBehaviour where T : IFluidEmitter, new()
     {
-        public static LinkedList<T> EmitterInstances
+        public static LinkedList<FluidEmitterComponent<T>> EmitterComponentInstances
         {
             get
             {
-                if (_emitterInstances == null)
-                    _emitterInstances = new LinkedList<T>();
+                if (_emitterComponentInstances == null)
+                    _emitterComponentInstances = new LinkedList<FluidEmitterComponent<T>>();
 
-                return _emitterInstances;
+                return _emitterComponentInstances;
             }
         }
 
-        private static LinkedList<T> _emitterInstances;
+        private static LinkedList<FluidEmitterComponent<T>> _emitterComponentInstances;
 
         private static List<T> _emitterInstanceList;
 
-        public static List<T> GetEmitterInstanceList()
+        public static List<T> GetEmitterInstanceList(float deltaTime = 0f)
         {
             if (_emitterInstanceList == null)
                 _emitterInstanceList = new List<T>();
             else
                 _emitterInstanceList.Clear();
 
-            LinkedListNode<T> node = EmitterInstances.First;
+            LinkedListNode<FluidEmitterComponent<T>> node = EmitterComponentInstances.First;
             while (node != null)
             {
-                _emitterInstanceList.Add(node.Value);
+                FluidEmitterComponent<T> component = node.Value;
+
+                if (deltaTime > 0f)
+                    component.Elapse(deltaTime);
+
+                _emitterInstanceList.Add(component.Emitter);
                 node = node.Next;
             }
 
@@ -41,23 +46,22 @@ namespace Antares.Physics
         [field: SerializeField, LabelText(nameof(Emitter))]
         public T Emitter { get; private set; }
 
-        private LinkedListNode<T> _linkedListNode;
-
-        protected virtual void Awake()
-        {
-            Emitter = new T();
-        }
+        private LinkedListNode<FluidEmitterComponent<T>> _linkedListNode;
 
         protected virtual void OnEnable()
         {
             Emitter.ClearParticles();
 
-            _linkedListNode = EmitterInstances.AddLast(Emitter);
+            _linkedListNode = EmitterComponentInstances.AddLast(this);
+        }
+
+        public virtual void Elapse(float deltaTime)
+        {
         }
 
         protected virtual void OnDisable()
         {
-            EmitterInstances.Remove(_linkedListNode);
+            EmitterComponentInstances.Remove(_linkedListNode);
             _linkedListNode = null;
         }
     }
