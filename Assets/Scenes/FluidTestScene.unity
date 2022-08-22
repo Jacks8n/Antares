@@ -170,6 +170,56 @@ Transform:
   m_Father: {fileID: 0}
   m_RootOrder: 2
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &57499991
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 57499993}
+  - component: {fileID: 57499992}
+  m_Layer: 0
+  m_Name: CubeEmitter (1)
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!114 &57499992
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 57499991}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5ea2a4ec45387b944a25969a0954c16e, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  <Emitter>k__BackingField:
+    <Offset>k__BackingField: {x: 120, y: 120, z: 120}
+    <Size>k__BackingField: {x: 5, y: 5, z: 5}
+    <LinearVelocity>k__BackingField: {x: 0, y: 20, z: 0}
+    <AngularVelocity>k__BackingField: {x: 0, y: 10, z: 0}
+  <Flux>k__BackingField: 1024
+--- !u!4 &57499993
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 57499991}
+  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
+  m_LocalPosition: {x: 120, y: 120, z: 120}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 0}
+  m_RootOrder: 10
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!1 &380155333
 GameObject:
   m_ObjectHideFlags: 0
@@ -429,14 +479,14 @@ Transform:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 877507952}
-  m_LocalRotation: {x: 0.11507512, y: 0.88111955, z: -0.36497167, w: 0.27781594}
-  m_LocalPosition: {x: 0, y: 85, z: 100}
+  m_LocalRotation: {x: 0.1464466, y: 0.8535535, z: -0.35355338, w: 0.35355338}
+  m_LocalPosition: {x: 70, y: 90, z: 60}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
   m_RootOrder: 1
-  m_LocalEulerAnglesHint: {x: 45, y: 145, z: 0}
+  m_LocalEulerAnglesHint: {x: 45, y: 135, z: 0}
 --- !u!1 &1028241137
 GameObject:
   m_ObjectHideFlags: 0
@@ -453,7 +503,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 1
+  m_IsActive: 0
 --- !u!4 &1028241138
 Transform:
   m_ObjectHideFlags: 0
@@ -462,7 +512,7 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 1028241137}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 70, y: 50, z: 27}
+  m_LocalPosition: {x: 72, y: 50, z: 27}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -482,11 +532,11 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   <Emitter>k__BackingField:
-    <Offset>k__BackingField: {x: 70, y: 50, z: 27}
-    <Size>k__BackingField: {x: 4, y: 4, z: 4}
+    <Offset>k__BackingField: {x: 72, y: 50, z: 27}
+    <Size>k__BackingField: {x: 3, y: 3, z: 3}
     <LinearVelocity>k__BackingField: {x: 10, y: 10, z: 0}
     <AngularVelocity>k__BackingField: {x: -1, y: -1, z: 0}
-  <Flux>k__BackingField: 512
+  <Flux>k__BackingField: 1024
 --- !u!1 &1324188163
 GameObject:
   m_ObjectHideFlags: 0

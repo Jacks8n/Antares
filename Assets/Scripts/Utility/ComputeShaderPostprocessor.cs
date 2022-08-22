@@ -9,16 +9,16 @@ namespace Antares.Utility
 {
     public class ComputeShaderPostprocessor : AssetPostprocessor
     {
-        private static readonly Dictionary<ComputeShader, Action<ComputeShader>> Handlers = new Dictionary<ComputeShader, Action<ComputeShader>>();
+        private static readonly Dictionary<ComputeShader, Action<ComputeShader>> Callbacks = new Dictionary<ComputeShader, Action<ComputeShader>>();
 
         public static void SetImportHandler(ComputeShader shader, Action<ComputeShader> callback)
         {
-            Handlers[shader] = callback;
+            Callbacks[shader] = callback;
         }
 
         public static void RemoveImportHandler(ComputeShader shader)
         {
-            Handlers.Remove(shader);
+            Callbacks.Remove(shader);
         }
 
         private static void OnPostprocessAllAssets(string[] importedAssets, string[] deletedAssets, string[] movedAssets, string[] movedFromAssetPaths)
@@ -28,9 +28,12 @@ namespace Antares.Utility
                 if (str.EndsWith(".compute"))
                 {
                     var shader = AssetDatabase.LoadAssetAtPath(str, typeof(ComputeShader)) as ComputeShader;
-                    if (shader != null && Handlers.TryGetValue(shader, out var handler))
+                    if (shader != null && Callbacks.TryGetValue(shader, out var callback))
                     {
-                        handler.Invoke(shader);
+                        if (callback != null)
+                            callback(shader);
+                        else
+                            Callbacks.Remove(shader);
                     }
                 }
             }

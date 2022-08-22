@@ -473,7 +473,7 @@ DEF_LINEARIZE_FLUID_BLOCK_GRID_INDEX_FUNC(1)
 //   { particle count, block position, prefix sum of particle count, unused{3} }*
 // }
 // initial value: { 0, 1, 1, 0, 1, 1, x{2}, { 0, x{3}, x, x{3} }* }
-extern A_RWBUFFER(uint) FluidBlockParticleOffsets;
+extern A_RWSTORAGE(globallycoherent) A_RWBUFFER(uint) FluidBlockParticleOffsets;
 
 uint GetFluidBlockCountOffset(uint level)
 {

@@ -320,11 +320,10 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
         const uint blockIndex = BlockAllocationOffset_GSM + gi;
         const bool allocated = blockIndex < FLUID_BLOCK_COUNT_LEVEL0;
 
-        uint _;
         if (allocated)
         {
             const uint offset = GetFluidBlockParticleCountOffset(blockIndex);
-            InterlockedExchange(FluidBlockParticleOffsets[offset], 0, _);
+            FluidBlockParticleOffsets[offset] = 0;
         }
 
         const uint encodedBlockIndex = allocated ? EncodeFluidBlockIndex(blockIndex) : FLUID_GRID_VALUE_INVALID;
@@ -1590,31 +1589,6 @@ struct FluidEmitterDispatch
 
     uint ParticleCountInclusiveSum;
 };
-
-struct FluidEmitterProperty_Cube
-{
-    float3 Min;
-    float3 Max;
-
-    float3 LinearVelocity;
-    float3 AngularVelocity;
-};
-
-struct FluidParticleProperty_Particle
-{
-    float3 Position;
-
-    float3 Velocity;
-};
-
-#define DEF_GET_EMITTER_DATA(emitter, particle)
-
-void GetEmitterProperty()
-{
-
-}
-
-#undef DEF_GET_EMITTER_DATA
 
 extern StructuredBuffer<FluidEmitterDispatch> FluidEmitterDispatches;
 extern Buffer<uint> FluidEmitterPartitions;

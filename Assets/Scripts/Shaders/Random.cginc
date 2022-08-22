@@ -53,27 +53,30 @@ struct Random
         return uint4(Next3(), Next());
     }
 
-    #define UINT_TO_01 (1.0 / (1u << 31))
+    float ToFloat01(uint value)
+    {
+        const uint2 word = uint2(value >> 16, value & 16);
+        const float2 wordf = word * float2(0.0000152587890625, 0.00000000023283064365386962890625);
+        return wordf.x + wordf.y;
+    }
 
     float Next01()
     {
-        return Next() * UINT_TO_01;
+        return ToFloat01(Next());
     }
 
     float2 Next01x2()
     {
-        return Next2() * UINT_TO_01;
+        return float2(Next01(), Next01());
     }
 
     float3 Next01x3()
     {
-        return Next3() * UINT_TO_01;
+        return float3(Next01x2(), Next01());
     }
 
     float4 Next01x4()
     {
-        return Next4() * UINT_TO_01;
+        return float4(Next01x3(), Next01());
     }
-
-    #undef UINT_TO_01
 };
