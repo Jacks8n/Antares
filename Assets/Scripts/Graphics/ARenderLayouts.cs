@@ -93,6 +93,8 @@ namespace Antares.Graphics
 
             public static int FluidEmitterProperties { get; } = Shader.PropertyToID(nameof(FluidEmitterProperties));
 
+            public static int DebugBuffer { get; } = Shader.PropertyToID(nameof(DebugBuffer));
+
             #region cbuffer bindings
 
             public static int PhysicsSceneParameters { get; } = Shader.PropertyToID(nameof(PhysicsSceneParameters));
