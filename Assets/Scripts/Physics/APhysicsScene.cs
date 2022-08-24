@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using Antares.Graphics;
 using Sirenix.OdinInspector;
+using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -114,6 +115,15 @@ namespace Antares.Physics
                 UGraphics.ExecuteCommandBuffer(cmd);
 
                 CommandBufferPool.Release(cmd);
+
+#if UNITY_EDITOR
+                PhysicsPipeline.DebugBuffer.Read();
+                PhysicsPipeline.DebugBuffer.PrintAll();
+                PhysicsPipeline.DebugBuffer.ForEach(value =>
+                {
+                    EditorApplication.isPlaying = false;
+                });
+#endif
             }
         }
 

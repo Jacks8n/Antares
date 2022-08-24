@@ -154,12 +154,12 @@ float3 GetGridSpacePosition(float3 worldSpacePosition)
 
 int3 GetKernelMinGridIndex(float3 gridSpacePosition)
 {
-    return int3(ceil(GetGridSpacePosition(gridSpacePosition) - 1.5));
+    return int3(ceil(gridSpacePosition - 1.5));
 }
 
-bool IsGridInBound(int3 gridIndex)
+bool IsGridInBound(float3 gridSpacePosition)
 {
-    return all(gridIndex >= 0 & gridIndex < FLUID_VIRTUAL_GRID_EXTENT);
+    return all(gridSpacePosition > 0.5 & gridSpacePosition <= float3(FLUID_VIRTUAL_GRID_EXTENT - 1.5));
 }
 
 /// end internal data/funcs
@@ -205,11 +205,12 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
     {
         position = GetFluidParticlePosition(tid.x, pingpongFlag);
 
-        const int3 gridPositionLevel0 = GetKernelMinGridIndex(position.Position);
-        valid = IsGridInBound(gridPositionLevel0);
+        const float3 gridSpacePosition = GetGridSpacePosition(position.Position);
 
+        valid = IsGridInBound(position.Position);
         if (valid)
         {
+            const int3 gridPositionLevel0 = GetKernelMinGridIndex(gridSpacePosition);
             GetFluidGridPositions(gridPositionLevel0, gridPositionLevel1, gridPositionLevel2, gridOffsetLevel1);
 
             uint acquired = !FLUID_GRID_VALUE_EMPTY;
@@ -595,9 +596,11 @@ void SortParticles(uint3 tid : SV_DispatchThreadID)
     const bool pingpongFlag = GetFluidParticlePositionPingPongFlag();
 
     const ParticlePositionIndexed position = GetFluidParticlePosition(tid.x, pingpongFlag);
-    const int3 gridPositionLevel0 = GetKernelMinGridIndex(position.Position);
-    if (!IsGridInBound(gridPositionLevel0))
+    const float3 gridSpacePosition = GetGridSpacePosition(position.Position);
+    if (!IsGridInBound(gridSpacePosition))
         return;
+
+    const int3 gridPositionLevel0 = GetKernelMinGridIndex(gridSpacePosition);
 
     uint3 gridPositionLevel2;
     uint3 gridOffsetLevel1;
@@ -711,15 +714,23 @@ void CalculateWeights(float3 gridToParticle, out float3 weight0, out float3 weig
     weight0 = 0.5 * Square(1.5 - gridToParticle);
     weight1 = 0.75 - Square(gridToParticle - 1.0);
     weight2 = 0.5 * Square(gridToParticle - 0.5);
+
+    if (any(gridToParticle < 0.5 | gridToParticle > 1.5))
+    {
+        DebugLog(gridToParticle.x);
+        DebugLog(gridToParticle.y);
+        DebugLog(gridToParticle.z);
+    }
 }
 
 void CalculateParticleGridTransfer(
-    float3 particlePosition, uint3 gridPositionLevel1, out uint3 gridIndex,
+    float3 gridSpacePosition, uint3 gridPositionLevel1, out uint3 gridIndex,
     out float3 gridToParticle, out float3 weight0, out float3 weight1, out float3 weight2)
 {
-    const float3 blockSpacePos = GetGridSpacePosition(particlePosition) - gridPositionLevel1 * FLUID_BLOCK_SIZE_LEVEL0;
-    gridIndex = uint3(GetKernelMinGridIndex(blockSpacePos));
-    gridToParticle = blockSpacePos - gridIndex;
+    gridIndex = uint3(GetKernelMinGridIndex(gridSpacePosition)) % FLUID_BLOCK_SIZE_LEVEL0;
+
+    const uint3 gridPositionLevel0 = gridPositionLevel1 * FLUID_BLOCK_SIZE_LEVEL0 + gridIndex;
+    gridToParticle = gridSpacePosition - gridPositionLevel0;
 
     CalculateWeights(gridToParticle, weight0, weight1, weight2);
 }
@@ -786,6 +797,8 @@ void ParticleToGrid0(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
         const ParticlePositionIndexed position = GetFluidParticlePosition(particleIndex, pingpongFlag);
         const ParticleProperty property = GetFluidParticleProperty(position.Index);
 
+        const float3 gridSpacePosition = GetGridSpacePosition(position.Position);
+
         const float3 velocity = property.GetVelocity();
         const float3x3 affine = property.GetAffine();
 
@@ -794,7 +807,7 @@ void ParticleToGrid0(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
         float3 gridToParticle;
         float3 weights[3];
         CalculateParticleGridTransfer(
-            position.Position, GridPositionLevel1_GSM, gridIndex, gridToParticle,
+            gridSpacePosition, GridPositionLevel1_GSM, gridIndex, gridToParticle,
             weights[0], weights[1], weights[2]);
 
         const uint gridIndexEncoded = GetFluidBlockGridIndexLinearLevel0(gridIndex, FLUID_BLOCK_PADDING);
@@ -1079,11 +1092,13 @@ void ParticleToGrid1(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
         ParticlePositionIndexed position = GetFluidParticlePosition(particleIndex, pingpongFlag);
         ParticleProperty property = GetFluidParticleProperty(position.Index);
 
+        const float3 gridSpacePosition = GetGridSpacePosition(position.Position);
+
         uint3 gridIndexOffset;
         float3 gridToParticleOffset;
         float3 weights[3];
         CalculateParticleGridTransfer(
-            position.Position, GridPositionLevel1_GSM, gridIndexOffset, gridToParticleOffset,
+            gridSpacePosition, GridPositionLevel1_GSM, gridIndexOffset, gridToParticleOffset,
             weights[0], weights[1], weights[2]);
 
         const uint gridIndexOffsetEncoded = GetFluidBlockGridIndexLinearLevel0(gridIndexOffset, FLUID_BLOCK_PADDING);
@@ -1462,11 +1477,13 @@ void GridToParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 
         ParticlePositionIndexed position = GetFluidParticlePosition(particleIndex, pingpongFlag);
 
+        const float3 gridSpacePosition = GetGridSpacePosition(position.Position);
+
         uint3 gridIndexOffset;
         float3 gridToParticleOffset;
         float3 weights[3];
         CalculateParticleGridTransfer(
-            position.Position, GridPositionLevel1_GSM, gridIndexOffset, gridToParticleOffset,
+            gridSpacePosition, GridPositionLevel1_GSM, gridIndexOffset, gridToParticleOffset,
             weights[0], weights[1], weights[2]);
 
         const uint gridIndexOffsetEncoded = GetFluidBlockGridIndexLinearLevel0(gridIndexOffset, FLUID_BLOCK_PADDING);
