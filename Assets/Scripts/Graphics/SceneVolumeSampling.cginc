@@ -1,4 +1,6 @@
-﻿// two macros can be defined before including. once they're defined,
+﻿#pragma once
+
+// two macros can be defined before including. once they're defined,
 // related arguments can be omitted during invocation
 // SCENE_VOLUME_TEXEL : float3
 // SCENE_VOLUME_SAMPLER : SamplerState
@@ -26,6 +28,7 @@ float3 SampleNormal(SamplerState state, float3 texel, float3 uvw, float mip)
 }
 
 #ifdef SCENE_VOLUME_TEXEL
+
 float3 SampleNormal(SamplerState state, float3 uvw, float mip)
 {
     const float2 offset = float2(0.5, -0.5);
@@ -46,9 +49,11 @@ float3 SampleNormalLocal(SamplerState state, float3 localPos, float mip)
     const float3 uvw = localPos * SCENE_VOLUME_TEXEL;
     return SampleNormal(state, uvw, mip);
 }
+
 #endif
 
 #ifdef SCENE_VOLUME_SAMPLER
+
 float SampleNormalizedSDF(float3 uvw, float mip)
 {
     return SceneVolume.SampleLevel(SCENE_VOLUME_SAMPLER, uvw, mip);
@@ -62,9 +67,11 @@ float3 SampleNormal(float3 texel, float3 uvw, float mip)
                          SampleNormalizedSDF(uvw + offset.xyy * texel, mip) * offset.xyy +
                          SampleNormalizedSDF(uvw + offset.yxy * texel, mip) * offset.yxy);
 }
+
 #endif
 
 #if defined(SCENE_VOLUME_TEXEL) && defined(SCENE_VOLUME_SAMPLER)
+
 float SampleNormalizedSDFLocal(float3 localPos, float mip)
 {
     const float3 uvw = localPos * SCENE_VOLUME_TEXEL;
@@ -85,4 +92,5 @@ float3 SampleNormalLocal(float3 localPos, float mip)
     const float3 uvw = localPos * SCENE_VOLUME_TEXEL;
     return SampleNormal(uvw, mip);
 }
+
 #endif

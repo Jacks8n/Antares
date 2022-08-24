@@ -168,10 +168,9 @@ bool IsGridInBound(float3 gridSpacePosition)
 
 #define GENERATE_PARTICLE_HISTOGRAM_KERNEL_SIZE 128
 
-groupshared uint BlockAllocationCountLevel1_GSM;
-groupshared uint3 BlockAllocationLevel1_GSM[GENERATE_PARTICLE_HISTOGRAM_KERNEL_SIZE];
 groupshared uint BlockAllocationCountLevel0_GSM;
-groupshared uint3 BlockAllocationLevel0_GSM[GENERATE_PARTICLE_HISTOGRAM_KERNEL_SIZE];
+groupshared uint BlockAllocationCountLevel1_GSM;
+groupshared uint3 BlockAllocation_GSM[GENERATE_PARTICLE_HISTOGRAM_KERNEL_SIZE * 8];
 groupshared uint3 GridPositionsLevel1_GSM[GENERATE_PARTICLE_HISTOGRAM_KERNEL_SIZE];
 groupshared uint PooledParticleProperty_GSM[GENERATE_PARTICLE_HISTOGRAM_KERNEL_SIZE];
 groupshared uint PooledParticlePropertyCount_GSM;
@@ -207,7 +206,7 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
 
         const float3 gridSpacePosition = GetGridSpacePosition(position.Position);
 
-        valid = IsGridInBound(position.Position);
+        valid = IsGridInBound(gridSpacePosition);
         if (valid)
         {
             const int3 gridPositionLevel0 = GetKernelMinGridIndex(gridSpacePosition);
@@ -222,7 +221,7 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
             {
                 uint index;
                 InterlockedAdd(BlockAllocationCountLevel1_GSM, 1, index);
-                BlockAllocationLevel1_GSM[index] = gridPositionLevel2;
+                BlockAllocation_GSM[index] = gridPositionLevel2;
             }
 
             // allocate adjacent level 1 blocks
@@ -252,7 +251,7 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
                 {
                     uint index;
                     InterlockedAdd(BlockAllocationCountLevel1_GSM, 1, index);
-                    BlockAllocationLevel1_GSM[index] = adjacentGridPositionLevel2;
+                    BlockAllocation_GSM[index] = adjacentGridPositionLevel2;
                 }
             }
         }
@@ -267,12 +266,14 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
     GroupMemoryBarrierWithGroupSync();
 
     // update level 2 grids
-    if (gi < BlockAllocationCountLevel1_GSM)
+    // note that allocated level 2 grid might exceed the particle count, since adjacent level 1 blocks are allocated
+    uint i;
+    for (i = gi; i < BlockAllocationCountLevel1_GSM; i += GENERATE_PARTICLE_HISTOGRAM_KERNEL_SIZE)
     {
-        uint blockIndex = BlockAllocationOffset_GSM + gi;
+        uint blockIndex = BlockAllocationOffset_GSM + i;
         blockIndex = blockIndex < FLUID_BLOCK_COUNT_LEVEL1 ? EncodeFluidBlockIndex(blockIndex) : FLUID_GRID_VALUE_INVALID;
 
-        FluidGridLevel2[BlockAllocationLevel1_GSM[gi]] = blockIndex;
+        FluidGridLevel2[BlockAllocation_GSM[i]] = blockIndex;
     }
 
     // find level 0 blocks to allocate
@@ -301,7 +302,7 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
             {
                 uint index;
                 InterlockedAdd(BlockAllocationCountLevel0_GSM, 1, index);
-                BlockAllocationLevel0_GSM[index] = gridIndexLevel1;
+                BlockAllocation_GSM[index] = gridIndexLevel1;
                 GridPositionsLevel1_GSM[index] = gridPositionLevel1;
             }
         }
@@ -316,6 +317,7 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
     GroupMemoryBarrierWithGroupSync();
 
     // update level 1 grids
+    // level 1 grids must be less than or equal to particle count
     if (gi < BlockAllocationCountLevel0_GSM)
     {
         const uint blockIndex = BlockAllocationOffset_GSM + gi;
@@ -328,7 +330,7 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
         }
 
         const uint encodedBlockIndex = allocated ? EncodeFluidBlockIndex(blockIndex) : FLUID_GRID_VALUE_INVALID;
-        FluidGridLevel1[BlockAllocationLevel0_GSM[gi]] = encodedBlockIndex;
+        FluidGridLevel1[BlockAllocation_GSM[gi]] = encodedBlockIndex;
 
         if (allocated)
         {
@@ -609,7 +611,7 @@ void SortParticles(uint3 tid : SV_DispatchThreadID)
     uint blockIndexLevel1Linear = FluidGridLevel2[gridPositionLevel2];
     if (blockIndexLevel1Linear == FLUID_GRID_VALUE_INVALID)
         return;
-    
+
     blockIndexLevel1Linear = DecodeFluidBlockIndex(blockIndexLevel1Linear);
     const uint3 blockIndexLevel1Spatial = GetFluidBlockIndexSpatialLevel1(blockIndexLevel1Linear);
     const uint3 gridIndexLevel1Spatial = blockIndexLevel1Spatial * FLUID_BLOCK_SIZE_LEVEL1 + gridOffsetLevel1;
@@ -624,6 +626,18 @@ void SortParticles(uint3 tid : SV_DispatchThreadID)
     uint dstIndex;
     InterlockedAdd(FluidBlockParticleOffsets[particleCountOffset], 1, dstIndex);
     dstIndex += GetFluidBlockParticleCountPrefixSum(blockIndexLevel0Linear);
+
+    bool foo = tid.x + SORT_PARTICLES_KERNEL_SIZE < particleCount;
+    if (foo)
+    {
+        const uint bar = GetFluidBlockParticleCountPrefixSum(blockIndexLevel0Linear + 1);
+        if (dstIndex >= bar)
+        {
+            DebugLog(dstIndex);
+            DebugLog(float(particleCount));
+            DebugLog(GetFluidBlockParticleCountPrefixSum(GetFluidBlockCount(0) - 1) + GetFluidBlockParticleCount(GetFluidBlockCount(0) - 1));
+        }
+    }
 
     SetFluidParticlePosition(dstIndex, position, !pingpongFlag);
 }
@@ -714,13 +728,6 @@ void CalculateWeights(float3 gridToParticle, out float3 weight0, out float3 weig
     weight0 = 0.5 * Square(1.5 - gridToParticle);
     weight1 = 0.75 - Square(gridToParticle - 1.0);
     weight2 = 0.5 * Square(gridToParticle - 0.5);
-
-    if (any(gridToParticle < 0.5 | gridToParticle > 1.5))
-    {
-        DebugLog(gridToParticle.x);
-        DebugLog(gridToParticle.y);
-        DebugLog(gridToParticle.z);
-    }
 }
 
 void CalculateParticleGridTransfer(
