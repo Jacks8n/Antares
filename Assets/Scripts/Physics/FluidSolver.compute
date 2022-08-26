@@ -24,7 +24,7 @@
 // 3. rendering fluids
 
 #pragma use_dxc
-#pragma enable_d3d11_debug_symbols
+// #pragma enable_d3d11_debug_symbols
 
 #pragma kernel GenerateIndirectArgs0
 #pragma kernel GenerateIndirectArgs1
@@ -322,11 +322,11 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
     {
         const uint blockIndex = BlockAllocationOffset_GSM + gi;
         const bool allocated = blockIndex < FLUID_BLOCK_COUNT_LEVEL0;
-
         if (allocated)
         {
             const uint offset = GetFluidBlockParticleCountOffset(blockIndex);
             FluidBlockParticleOffsets[offset] = 0;
+            DeviceMemoryBarrier();
         }
 
         const uint encodedBlockIndex = allocated ? EncodeFluidBlockIndex(blockIndex) : FLUID_GRID_VALUE_INVALID;
@@ -348,7 +348,6 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
         uint blockIndexLevel0Linear;
         do
         {
-            DeviceMemoryBarrier();
             blockIndexLevel0Linear = FluidGridLevel1[gridIndexLevel1];
         } while (blockIndexLevel0Linear == FLUID_GRID_VALUE_PREEMPTED);
 
@@ -561,7 +560,8 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
         PartitionSums[GetPartitionInclusiveSumOffset(PartitionIndex_GSM)] = partitionSum + GlobalExclusiveSum_GSM;
 
     // hierarchical exclusive prefix sum
-    for (i = waveSumDstOffset -waveSumSrcOffset; i <= MAX_PARTITION_SIZE; i *= laneCount)
+    i = waveSumDstOffset -waveSumSrcOffset;
+    while (i <= MAX_PARTITION_SIZE)
     {
         for (j = gi; j < i; j += kernelSize)
         {
@@ -572,7 +572,8 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
         }
 
         waveSumDstOffset = waveSumSrcOffset;
-        waveSumSrcOffset -= i * laneCount;
+        i *= laneCount;
+        waveSumSrcOffset -= i;
 
         GroupMemoryBarrierWithGroupSync();
     }
@@ -626,18 +627,6 @@ void SortParticles(uint3 tid : SV_DispatchThreadID)
     uint dstIndex;
     InterlockedAdd(FluidBlockParticleOffsets[particleCountOffset], 1, dstIndex);
     dstIndex += GetFluidBlockParticleCountPrefixSum(blockIndexLevel0Linear);
-
-    bool foo = tid.x + SORT_PARTICLES_KERNEL_SIZE < particleCount;
-    if (foo)
-    {
-        const uint bar = GetFluidBlockParticleCountPrefixSum(blockIndexLevel0Linear + 1);
-        if (dstIndex >= bar)
-        {
-            DebugLog(dstIndex);
-            DebugLog(float(particleCount));
-            DebugLog(GetFluidBlockParticleCountPrefixSum(GetFluidBlockCount(0) - 1) + GetFluidBlockParticleCount(GetFluidBlockCount(0) - 1));
-        }
-    }
 
     SetFluidParticlePosition(dstIndex, position, !pingpongFlag);
 }
