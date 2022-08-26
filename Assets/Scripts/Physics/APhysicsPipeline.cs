@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using Antares.Graphics;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
@@ -148,7 +149,7 @@ namespace Antares.Physics
 
             _partitionSumsBuffer = new ComputeBuffer(1 + 2 * PrefixSumPartitionCount, 4, ComputeBufferType.Structured, ComputeBufferMode.Immutable);
 
-            _indirectArgsBuffer = new ComputeBuffer(3 * 3 + 4, 4, ComputeBufferType.Structured | ComputeBufferType.IndirectArguments, ComputeBufferMode.Immutable);
+            _indirectArgsBuffer = new ComputeBuffer(19, 4, ComputeBufferType.Structured | ComputeBufferType.IndirectArguments, ComputeBufferMode.Immutable);
 
             unsafe
             {
@@ -161,10 +162,6 @@ namespace Antares.Physics
 
             #region initialize buffers/textures
 
-            // level 2 will be cleared at the beginning of every frame
-            _shaderSpecs.TextureUtilCS.ClearVolume(cmd, _fluidGridLevel0, 0);
-            _shaderSpecs.TextureUtilCS.ClearVolume(cmd, _fluidGridLevel1, 0);
-
             var parameters = new PhysicsSceneParameters(_renderPipeline.Scene, _physicsScene);
             ConstantBuffer.UpdateData(cmd, parameters);
 
@@ -172,15 +169,33 @@ namespace Antares.Physics
             cmd.SetBufferData(_fluidParticlePropertyPoolBuffer, new uint[] { 0 });
             cmd.SetBufferData(_fluidBlockParticleOffsetsBuffer, new uint[] { 0, 1, 1, 0, 1, 1 });
             cmd.SetBufferData(_partitionSumsBuffer, new uint[] { 0 });
-            cmd.SetBufferData(_indirectArgsBuffer, new uint[] { 0, 1, 1, 0, 1, 1, 0, 1, 1, 1, 0, 0, 0 });
+            cmd.SetBufferData(_indirectArgsBuffer, new uint[] {
+                0, 1, 1, 
+                0, 1, 1, 
+                0, 1, 1,
+                1, 0, 0, 0, 
+                0, ClearFluidGridDispatchAlignment, 1,
+                0, ClearFluidGridDispatchAlignment, 1
+            });
 
             cmd.SetGlobalBuffer(Bindings.FluidParticlePositions, _fluidParticlePositionsBuffer);
 
             ComputeShader shader = _shaderSpecs.FluidSolver.Shader;
 
-            int kernel = _shaderSpecs.FluidSolver.ClearPartitionSumsKernel;
-            int kernelSize = ClearPartitionSumsKernelSize;
-            int groupCount = (PrefixSumPartitionCount + kernelSize - 1) / kernelSize;
+            // level 2 will be fully cleared at the beginning of every frame
+            int kernel = _shaderSpecs.FluidSolver.ClearFluidGridLevel0;
+            int groupCount = (BlockCountLevel0 + ClearFluidGridDispatchAlignment - 1) / ClearFluidGridDispatchAlignment;
+            cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel0, _fluidGridLevel0);
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidBlockParticleOffsets, _fluidBlockParticleOffsetsBuffer);
+            cmd.DispatchCompute(shader, kernel, groupCount, ClearFluidGridDispatchAlignment, 1);
+
+            kernel = _shaderSpecs.FluidSolver.ClearFluidGridLevel1;
+            groupCount = (BlockCountLevel1 + ClearFluidGridDispatchAlignment - 1) / ClearFluidGridDispatchAlignment;
+            cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel1, _fluidGridLevel1);
+            cmd.DispatchCompute(shader, kernel, groupCount, ClearFluidGridDispatchAlignment, 1);
+
+            kernel = _shaderSpecs.FluidSolver.ClearPartitionSumsKernel;
+            groupCount = (PrefixSumPartitionCount + ClearPartitionSumsKernelSize - 1) / ClearPartitionSumsKernelSize;
             cmd.SetComputeBufferParam(shader, kernel, Bindings.PartitionSums, _partitionSumsBuffer);
             cmd.DispatchCompute(shader, kernel, groupCount, 1, 1);
 
@@ -230,14 +245,6 @@ namespace Antares.Physics
 
             int kernel;
 
-            kernel = fluidSolver.ClearFluidGridLevel0;
-            cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel0, _fluidGridLevel0);
-            cmd.DispatchCompute(shader, kernel, _fluidBlockParticleOffsetsBuffer, 0);
-
-            kernel = fluidSolver.ClearFluidGridLevel1;
-            cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel1, _fluidGridLevel1);
-            cmd.DispatchCompute(shader, kernel, _fluidBlockParticleOffsetsBuffer, 12);
-
             kernel = fluidSolver.GenerateIndirectArgs0Kernel;
             cmd.SetComputeBufferParam(shader, kernel, Bindings.IndirectArgs, _indirectArgsBuffer);
             cmd.SetComputeBufferParam(shader, kernel, Bindings.PartitionSums, _partitionSumsBuffer);
@@ -246,17 +253,26 @@ namespace Antares.Physics
             cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticlePropertyPool, _fluidParticlePropertyPoolBuffer);
             cmd.DispatchCompute(shader, kernel, 1, 1, 1);
 
+            kernel = fluidSolver.ClearFluidGridLevel0;
+            cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel0, _fluidGridLevel0);
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidBlockParticleOffsets, _fluidBlockParticleOffsetsBuffer);
+            cmd.DispatchCompute(shader, kernel, _indirectArgsBuffer, 52);
+
+            kernel = fluidSolver.ClearFluidGridLevel1;
+            cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel1, _fluidGridLevel1);
+            cmd.DispatchCompute(shader, kernel, _indirectArgsBuffer, 64);
+
             kernel = fluidSolver.ClearPartitionSumsKernel;
             cmd.SetComputeBufferParam(shader, kernel, Bindings.PartitionSums, _partitionSumsBuffer);
             cmd.DispatchCompute(shader, kernel, _indirectArgsBuffer, 24);
 
             kernel = fluidSolver.GenerateParticleHistogramKernel;
+            cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel1, _fluidGridLevel1);
+            cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel2, _fluidGridLevel2);
             cmd.SetComputeBufferParam(shader, kernel, Bindings.PartitionSums, _partitionSumsBuffer);
             cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticlePositions, _fluidParticlePositionsBuffer);
             cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidBlockParticleOffsets, _fluidBlockParticleOffsetsBuffer);
             cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticlePropertyPool, _fluidParticlePropertyPoolBuffer);
-            cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel1, _fluidGridLevel1);
-            cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel2, _fluidGridLevel2);
             cmd.DispatchCompute(shader, kernel, _indirectArgsBuffer, 0);
 
             kernel = fluidSolver.GenerateIndirectArgs1Kernel;
@@ -270,10 +286,10 @@ namespace Antares.Physics
             cmd.DispatchCompute(shader, kernel, _indirectArgsBuffer, 0);
 
             kernel = fluidSolver.SortParticlesKernel;
-            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticlePositions, _fluidParticlePositionsBuffer);
-            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidBlockParticleOffsets, _fluidBlockParticleOffsetsBuffer);
             cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel1, _fluidGridLevel1);
             cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel2, _fluidGridLevel2);
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticlePositions, _fluidParticlePositionsBuffer);
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidBlockParticleOffsets, _fluidBlockParticleOffsetsBuffer);
             cmd.DispatchCompute(shader, kernel, _indirectArgsBuffer, 12);
 
             kernel = fluidSolver.GenerateIndirectArgs2Kernel;
@@ -283,27 +299,27 @@ namespace Antares.Physics
             cmd.DispatchCompute(shader, kernel, 1, 1, 1);
 
             kernel = fluidSolver.ParticleToGrid0Kernel;
-            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticlePositions, _fluidParticlePositionsBuffer);
-            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticleProperties, _fluidParticlePropertiesBuffer);
-            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidBlockParticleOffsets, _fluidBlockParticleOffsetsBuffer);
             cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel0, _fluidGridLevel0);
             cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel1, _fluidGridLevel1);
             cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel2, _fluidGridLevel2);
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticlePositions, _fluidParticlePositionsBuffer);
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticleProperties, _fluidParticlePropertiesBuffer);
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidBlockParticleOffsets, _fluidBlockParticleOffsetsBuffer);
             cmd.DispatchCompute(shader, kernel, _fluidBlockParticleOffsetsBuffer, 0);
 
             kernel = fluidSolver.ParticleToGrid1Kernel;
-            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticlePositions, _fluidParticlePositionsBuffer);
-            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticleProperties, _fluidParticlePropertiesBuffer);
-            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidBlockParticleOffsets, _fluidBlockParticleOffsetsBuffer);
             cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel0, _fluidGridLevel0);
             cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel1, _fluidGridLevel1);
             cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel2, _fluidGridLevel2);
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticlePositions, _fluidParticlePositionsBuffer);
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticleProperties, _fluidParticlePropertiesBuffer);
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidBlockParticleOffsets, _fluidBlockParticleOffsetsBuffer);
             cmd.DispatchCompute(shader, kernel, _fluidBlockParticleOffsetsBuffer, 0);
 
             kernel = fluidSolver.SolveGridLevel0Kernel;
-            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidBlockParticleOffsets, _fluidBlockParticleOffsetsBuffer);
             cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel0, _fluidGridLevel0);
             cmd.SetComputeTextureParam(shader, kernel, Bindings.SceneVolume, _renderPipeline.SceneVolume);
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidBlockParticleOffsets, _fluidBlockParticleOffsetsBuffer);
             cmd.DispatchCompute(shader, kernel, _fluidBlockParticleOffsetsBuffer, 0);
 
             kernel = fluidSolver.SolveGridLevel1Kernel;
@@ -311,13 +327,13 @@ namespace Antares.Physics
             cmd.DispatchCompute(shader, kernel, _fluidBlockParticleOffsetsBuffer, 12);
 
             kernel = fluidSolver.GridToParticleKernel;
-            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticlePositions, _fluidParticlePositionsBuffer);
-            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticleProperties, _fluidParticlePropertiesBuffer);
-            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidBlockParticleOffsets, _fluidBlockParticleOffsetsBuffer);
             cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel0, _fluidGridLevel0);
             cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel1, _fluidGridLevel1);
             cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel2, _fluidGridLevel2);
             cmd.SetComputeTextureParam(shader, kernel, Bindings.SceneVolume, _renderPipeline.SceneVolume);
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticlePositions, _fluidParticlePositionsBuffer);
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticleProperties, _fluidParticlePropertiesBuffer);
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidBlockParticleOffsets, _fluidBlockParticleOffsetsBuffer);
             cmd.DispatchCompute(shader, kernel, _fluidBlockParticleOffsetsBuffer, 0);
         }
 
@@ -334,7 +350,7 @@ namespace Antares.Physics
 
             FluidSolverCompute fluidEmitter = _shaderSpecs.FluidSolver;
             ComputeShader shader = fluidEmitter.Shader;
-            AddParticlesParameters parameters = new AddParticlesParameters(mass: 1f, randomSeed: Random.Range(0, int.MaxValue));
+            AddParticlesParameters parameters = new AddParticlesParameters(mass: 1f, randomSeed: UnityEngine.Random.Range(0, int.MaxValue));
             ConstantBuffer.Push(cmd, parameters, shader, Bindings.AddParticlesParameters);
 
             int kernel = fluidEmitter.AddParticlesKernel;

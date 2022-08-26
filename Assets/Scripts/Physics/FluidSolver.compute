@@ -26,20 +26,20 @@
 #pragma use_dxc
 // #pragma enable_d3d11_debug_symbols
 
-#pragma kernel GenerateIndirectArgs0
-#pragma kernel GenerateIndirectArgs1
-#pragma kernel GenerateIndirectArgs2
-#pragma kernel ClearPartitionSums
 #pragma kernel GenerateParticleHistogram
 #pragma kernel GenerateParticleOffsets
 #pragma kernel SortParticles
+#pragma kernel ClearFluidGridLevel0
+#pragma kernel ClearFluidGridLevel1
+#pragma kernel ClearPartitionSums
+#pragma kernel GenerateIndirectArgs0
+#pragma kernel GenerateIndirectArgs1
+#pragma kernel GenerateIndirectArgs2
 #pragma kernel ParticleToGrid0
 #pragma kernel ParticleToGrid1
 #pragma kernel SolveGridLevel0
 #pragma kernel SolveGridLevel1
 #pragma kernel GridToParticle
-#pragma kernel ClearFluidGridLevel0
-#pragma kernel ClearFluidGridLevel1
 #pragma kernel AddParticles
 
 #include "FluidData.cginc"
@@ -322,13 +322,6 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
     {
         const uint blockIndex = BlockAllocationOffset_GSM + gi;
         const bool allocated = blockIndex < FLUID_BLOCK_COUNT_LEVEL0;
-        if (allocated)
-        {
-            const uint offset = GetFluidBlockParticleCountOffset(blockIndex);
-            FluidBlockParticleOffsets[offset] = 0;
-            DeviceMemoryBarrier();
-        }
-
         const uint encodedBlockIndex = allocated ? EncodeFluidBlockIndex(blockIndex) : FLUID_GRID_VALUE_INVALID;
         FluidGridLevel1[BlockAllocation_GSM[gi]] = encodedBlockIndex;
 
@@ -633,6 +626,58 @@ void SortParticles(uint3 tid : SV_DispatchThreadID)
 
 /// end sort particle
 
+/// begin clear fluid grid
+
+// the maximum number of level 0/level 1 blocks can exceed the limit of single dispatch dimension(e.g. 65535 in dx11)
+#define CLEAR_FLUID_GRID_DISPATCH_ALIGNMENT 2
+
+#define CLEAR_FLUID_GRID_LEVEL0_KERNEL_SIZE FLUID_BLOCK_SIZE_LEVEL0
+
+uint GetClearGridDispatchGroupCountX(uint blockCount)
+{
+    return (blockCount + CLEAR_FLUID_GRID_DISPATCH_ALIGNMENT - 1) / CLEAR_FLUID_GRID_DISPATCH_ALIGNMENT;
+}
+
+uint GetClearGridDispatchBlockIndex(uint3 groupID)
+{
+    return groupID.x * CLEAR_FLUID_GRID_DISPATCH_ALIGNMENT + groupID.y;
+}
+
+[numthreads(CLEAR_FLUID_GRID_LEVEL0_KERNEL_SIZE, CLEAR_FLUID_GRID_LEVEL0_KERNEL_SIZE, CLEAR_FLUID_GRID_LEVEL0_KERNEL_SIZE)]
+void ClearFluidGridLevel0(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID, uint gi : SV_GroupIndex)
+{
+    const uint blockIndexLinear = GetClearGridDispatchBlockIndex(gid);
+    const uint3 blockIndexSpatial = GetFluidBlockIndexSpatialLevel0(blockIndexLinear);
+    const uint3 gridOffset = blockIndexSpatial * FLUID_BLOCK_SIZE_LEVEL0 + gtid;
+
+    FluidGridLevel0[gridOffset +FLUID_GRID_CHANNEL0_OFFSET] = 0;
+    FluidGridLevel0[gridOffset +FLUID_GRID_CHANNEL1_OFFSET] = 0;
+    FluidGridLevel0[gridOffset +FLUID_GRID_CHANNEL2_OFFSET] = 0;
+    FluidGridLevel0[gridOffset +FLUID_GRID_CHANNEL3_OFFSET] = 0;
+    FluidGridLevel0[gridOffset +FLUID_GRID_CHANNEL4_OFFSET] = 0;
+
+    if (!gi)
+        FluidBlockParticleOffsets[GetFluidBlockParticleCountOffset(blockIndexLinear)] = 0;
+}
+
+#define CLEAR_FLUID_GRID_LEVEL1_KERNEL_SIZE FLUID_BLOCK_SIZE_LEVEL1
+
+[numthreads(CLEAR_FLUID_GRID_LEVEL1_KERNEL_SIZE, CLEAR_FLUID_GRID_LEVEL1_KERNEL_SIZE, CLEAR_FLUID_GRID_LEVEL1_KERNEL_SIZE)]
+void ClearFluidGridLevel1(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
+{
+    const uint blockIndexLinear = GetClearGridDispatchBlockIndex(gid);
+    const uint3 blockIndex = GetFluidBlockIndexSpatialLevel1(blockIndexLinear);
+    const uint3 gridOffset = blockIndex * FLUID_BLOCK_SIZE_LEVEL1 + gtid;
+
+    FluidGridLevel1[gridOffset +FLUID_GRID_CHANNEL0_OFFSET] = FLUID_GRID_VALUE_EMPTY;
+    FluidGridLevel1[gridOffset +FLUID_GRID_CHANNEL1_OFFSET] = 0;
+    FluidGridLevel1[gridOffset +FLUID_GRID_CHANNEL2_OFFSET] = 0;
+    FluidGridLevel1[gridOffset +FLUID_GRID_CHANNEL3_OFFSET] = 0;
+    FluidGridLevel1[gridOffset +FLUID_GRID_CHANNEL4_OFFSET] = 0;
+}
+
+/// end clear fluid grid
+
 /// begin clear/indirect args
 
 #define CLEAR_PARTITION_SUMS_KERNEL_SIZE 128
@@ -655,8 +700,10 @@ void ClearPartitionSums(uint3 tid : SV_DispatchThreadID)
 //   sort particles group count, indirect args{2},
 //   clear partition sums group count, indirect args{2}
 //   indirect arg, particle count, indirect args{2}
+//   clear level 0 grid indirect args{3},
+//   clear level 1 grid indirect args{3},
 // }
-// initial value: { x, 1, 1, x, 1, 1, x, 1, 1, 1, x, 0, 0 }
+// initial value: { x, 1, 1, x, 1, 1, x, 1, 1, 1, x, 0, 0, x, alignment, 1, x, alignment, 1 }
 extern RWBuffer<uint> IndirectArgs;
 
 uint GetGroupCount(uint nelem, uint kernelSize)
@@ -679,6 +726,12 @@ void GenerateIndirectArgs0()
     const uint prevPoolSize = GetPooledParticlePropertyCount();
     const uint newPoolSize = prevPoolSize - min(CurrentFrameAddParticleCount, prevPoolSize);
     SetPooledParticlePropertyCount(newPoolSize);
+
+    const uint blockCountLevel0 = GetFluidBlockCount(0);
+    IndirectArgs[13] = GetClearGridDispatchGroupCountX(blockCountLevel0);
+
+    const uint blockCountLevel1 = GetFluidBlockCount(1);
+    IndirectArgs[16] = GetClearGridDispatchGroupCountX(blockCountLevel1);
 
     SetFluidBlockCount(0, 0);
     SetFluidBlockCount(1, 0);
@@ -1542,40 +1595,6 @@ void GridToParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 }
 
 /// end grid to particle
-
-/// begin clear fluid grid
-
-#define CLEAR_FLUID_GRID_LEVEL0_KERNEL_SIZE FLUID_BLOCK_SIZE_LEVEL0
-
-[numthreads(CLEAR_FLUID_GRID_LEVEL0_KERNEL_SIZE, CLEAR_FLUID_GRID_LEVEL0_KERNEL_SIZE, CLEAR_FLUID_GRID_LEVEL0_KERNEL_SIZE)]
-void ClearFluidGridLevel0(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
-{
-    const uint3 blockIndex = GetFluidBlockIndexSpatialLevel0(gid.x);
-    const uint3 gridOffset = blockIndex * FLUID_BLOCK_SIZE_LEVEL0 + gtid;
-
-    FluidGridLevel0[gridOffset +FLUID_GRID_CHANNEL0_OFFSET] = 0;
-    FluidGridLevel0[gridOffset +FLUID_GRID_CHANNEL1_OFFSET] = 0;
-    FluidGridLevel0[gridOffset +FLUID_GRID_CHANNEL2_OFFSET] = 0;
-    FluidGridLevel0[gridOffset +FLUID_GRID_CHANNEL3_OFFSET] = 0;
-    FluidGridLevel0[gridOffset +FLUID_GRID_CHANNEL4_OFFSET] = 0;
-}
-
-#define CLEAR_FLUID_GRID_LEVEL1_KERNEL_SIZE FLUID_BLOCK_SIZE_LEVEL1
-
-[numthreads(CLEAR_FLUID_GRID_LEVEL1_KERNEL_SIZE, CLEAR_FLUID_GRID_LEVEL1_KERNEL_SIZE, CLEAR_FLUID_GRID_LEVEL1_KERNEL_SIZE)]
-void ClearFluidGridLevel1(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
-{
-    const uint3 blockIndex = GetFluidBlockIndexSpatialLevel1(gid.x);
-    const uint3 gridOffset = blockIndex * FLUID_BLOCK_SIZE_LEVEL1 + gtid;
-
-    FluidGridLevel1[gridOffset +FLUID_GRID_CHANNEL0_OFFSET] = FLUID_GRID_VALUE_EMPTY;
-    FluidGridLevel1[gridOffset +FLUID_GRID_CHANNEL1_OFFSET] = 0;
-    FluidGridLevel1[gridOffset +FLUID_GRID_CHANNEL2_OFFSET] = 0;
-    FluidGridLevel1[gridOffset +FLUID_GRID_CHANNEL3_OFFSET] = 0;
-    FluidGridLevel1[gridOffset +FLUID_GRID_CHANNEL4_OFFSET] = 0;
-}
-
-/// end clear fluid grid
 
 /// begin add particle
 

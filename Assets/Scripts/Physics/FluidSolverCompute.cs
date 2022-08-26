@@ -120,6 +120,8 @@ namespace Antares.Graphics
 
             public const int ClearPartitionSumsKernelSize = 128;
 
+            public const int ClearFluidGridDispatchAlignment = 2;
+
             public const int MaxEmitterParticleCountPerGroup = 1024;
 
             public const int MaxFluidEmitterPartitionCount = 1024;

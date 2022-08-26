@@ -2,7 +2,6 @@
 using System.Collections.Generic;
 using Antares.Graphics;
 using Sirenix.OdinInspector;
-using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -43,7 +42,7 @@ namespace Antares.Physics
                     PhysicsPipeline = renderPipeline.GetPhysicsPipeline();
                     PhysicsPipeline.LoadPhysicsScene(cmd, this);
 
-                    UnityEngine.Graphics.ExecuteCommandBuffer(cmd);
+                    UGraphics.ExecuteCommandBuffer(cmd);
 
                     CommandBufferPool.Release(cmd);
                 }
