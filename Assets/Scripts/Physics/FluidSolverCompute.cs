@@ -115,7 +115,7 @@ namespace Antares.Graphics
 
             public const int GridChannelCount = 5;
 
-            public const int PrefixSumPartitionSize = 128;
+            public const int PrefixSumPartitionSize = 1024;
             public const int PrefixSumPartitionCount = (BlockCountLevel0 + PrefixSumPartitionSize - 1) / PrefixSumPartitionSize;
 
             public const int ClearPartitionSumsKernelSize = 128;

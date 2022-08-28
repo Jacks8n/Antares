@@ -283,7 +283,6 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
         uint blockIndexLevel1Linear;
         do
         {
-            DeviceMemoryBarrier();
             blockIndexLevel1Linear = FluidGridLevel2[gridPositionLevel2];
         } while (blockIndexLevel1Linear == FLUID_GRID_VALUE_PREEMPTED);
 
@@ -418,7 +417,7 @@ void SetPartitionCount(uint count)
 }
 
 // note: do not clear partition sums before this value is used up
-uint GetParticleCountLastFrame()
+uint GetTotalBlockParticleCount()
 {
     const uint partitionCount = GetPartitionCount();
     if (partitionCount)
@@ -517,8 +516,6 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
             uint minInclusiveSumLane;
             while (true)
             {
-                DeviceMemoryBarrier();
-
                 // no wave divergence until here
                 uint lookbackInclusiveSum = PARTITION_VALUE_NULL;
                 if (valid)
@@ -570,6 +567,28 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
 
         GroupMemoryBarrierWithGroupSync();
     }
+
+    for (i = gi; i < PartitionSize_GSM - 1; i += kernelSize)
+    {
+        int ib = BlockIndexOffset_GSM + i;
+        int np = GetFluidParticleCount();
+        int nb = GetFluidBlockCount(0);
+        int nb1 = GetFluidBlockCount(1);
+        int nscan = ParticleCounts_GSM[i] + GlobalExclusiveSum_GSM;
+        int nnscan = ib != nb - 1 ? ParticleCounts_GSM[i + 1] + GlobalExclusiveSum_GSM : np;
+        int nbp = GetFluidBlockParticleCount(ib);
+        if (nnscan - nscan != nbp)
+        {
+            DebugLog(np);
+            DebugLog(nb);
+            DebugLog(nb1);
+            DebugLog(nnscan);
+            DebugLog(nscan);
+            DebugLog(nbp);
+            DebugLog(ib);
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
 
     for (i = gi; i < PartitionSize_GSM; i += kernelSize)
     {
@@ -714,7 +733,8 @@ uint GetGroupCount(uint nelem, uint kernelSize)
 [numthreads(1, 1, 1)]
 void GenerateIndirectArgs0()
 {
-    const uint particleCount = GetFluidParticleCount() + CurrentFrameAddParticleCount;
+    const uint prevParticleCount = GetFluidParticleCount();
+    const uint particleCount = min(prevParticleCount + CurrentFrameAddParticleCount, FLUID_MAX_PARTICLE_COUNT);
     IndirectArgs[0] = GetGroupCount(particleCount, GENERATE_PARTICLE_HISTOGRAM_KERNEL_SIZE);
     IndirectArgs[3] = GetGroupCount(particleCount, SORT_PARTICLES_KERNEL_SIZE);
     SetFluidParticleCount(particleCount);
@@ -724,7 +744,7 @@ void GenerateIndirectArgs0()
     SetPartitionCount(0);
 
     const uint prevPoolSize = GetPooledParticlePropertyCount();
-    const uint newPoolSize = prevPoolSize - min(CurrentFrameAddParticleCount, prevPoolSize);
+    const uint newPoolSize = prevPoolSize - min(particleCount - prevParticleCount, prevPoolSize);
     SetPooledParticlePropertyCount(newPoolSize);
 
     const uint blockCountLevel0 = GetFluidBlockCount(0);
@@ -750,7 +770,7 @@ void GenerateIndirectArgs2()
     const bool pingpongFlag = GetFluidParticlePositionPingPongFlag();
     SetFluidParticlePositionPingPongFlag(!pingpongFlag);
 
-    const uint particleCount = GetParticleCountLastFrame();
+    const uint particleCount = GetTotalBlockParticleCount();
     IndirectArgs[10] = particleCount;
     SetFluidParticleCount(particleCount);
 }
@@ -1715,8 +1735,12 @@ void AddParticles(const uint3 tid : SV_DispatchThreadID, const uint3 gid : SV_Gr
         EmitterIndices_GSM[dispatch.ParticleCountInclusiveSum] = i + 1;
     }
 
+    const uint prevParticleCount = GetFluidParticleCount();
     if (i == EmitterCount_GSM + ADD_PARTICLES_KERNEL_SIZE - 1)
-        TotalEmitterParticleCount_GSM = dispatch.ParticleCountInclusiveSum;
+    {
+        const uint particleHi = prevParticleCount + EmitterParticleOffset_GSM + MAX_EMITTER_PARTICLE_COUNT_PER_GROUP;
+        TotalEmitterParticleCount_GSM = min(dispatch.ParticleCountInclusiveSum, FLUID_MAX_PARTICLE_COUNT - particleHi);
+    }
 
     GroupMemoryBarrierWithGroupSync();
 
@@ -1740,7 +1764,6 @@ void AddParticles(const uint3 tid : SV_DispatchThreadID, const uint3 gid : SV_Gr
 
     const bool pingpongFlag = GetFluidParticlePositionPingPongFlag();
     const uint poolSize = GetPooledParticlePropertyCount();
-    const uint prevParticleCount = GetFluidParticleCount();
 
     Random random;
     random.Seed(RandomSeed, tid.x);

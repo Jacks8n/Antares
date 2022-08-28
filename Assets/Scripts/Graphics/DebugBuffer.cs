@@ -93,7 +93,7 @@ namespace Antares.Graphics
             _debugBuffer.GetData(_logData);
         }
 
-        public void ForEach(Action<double> action)
+        public bool ForEach(Action<double> action)
         {
             int count = _logData[0].LogCount;
             if (count > MaxDebugLogCount)
@@ -118,11 +118,13 @@ namespace Antares.Graphics
                         break;
                 }
             }
+
+            return count > 0;
         }
 
-        public void PrintAll()
+        public bool PrintAll()
         {
-            ForEach(value => Debug.Log(value));
+            return ForEach(value => Debug.Log(value));
         }
     }
 }

@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using Antares.Graphics;
 using Sirenix.OdinInspector;
+using UnityEditor;
 using UnityEngine;
 using UnityEngine.Rendering;
 
@@ -36,16 +37,18 @@ namespace Antares.Physics
         {
             if (RenderPipelineManager.currentPipeline is ARenderPipeline renderPipeline)
             {
-                {
-                    CommandBuffer cmd = CommandBufferPool.Get();
+                CommandBuffer cmd = CommandBufferPool.Get();
 
-                    PhysicsPipeline = renderPipeline.GetPhysicsPipeline();
-                    PhysicsPipeline.LoadPhysicsScene(cmd, this);
+                PhysicsPipeline = renderPipeline.GetPhysicsPipeline();
+                PhysicsPipeline.LoadPhysicsScene(cmd, this);
 
-                    UGraphics.ExecuteCommandBuffer(cmd);
+                UGraphics.ExecuteCommandBuffer(cmd);
 
-                    CommandBufferPool.Release(cmd);
-                }
+                CommandBufferPool.Release(cmd);
+
+#if UNITY_EDITOR
+                _debugging_AddedParticleCount = 0;
+#endif
 
                 if (Instance)
                     Instance.enabled = false;
@@ -109,11 +112,25 @@ namespace Antares.Physics
 
                 PhysicsPipeline.AddParticles(cmd, _emitterBufferBuilder);
                 PhysicsPipeline.Solve(cmd, deltaTime, _emitterBufferBuilder.TotalParticleCount);
+
+#if UNITY_EDITOR
+                _debugging_AddedParticleCount += _emitterBufferBuilder.TotalParticleCount;
+#endif
+
                 _emitterBufferBuilder.Clear();
 
                 UGraphics.ExecuteCommandBuffer(cmd);
 
                 CommandBufferPool.Release(cmd);
+
+#if UNITY_EDITOR
+                if (_debugging_EnableDebugBuffer)
+                {
+                    PhysicsPipeline.DebugBuffer.Read();
+                    if (PhysicsPipeline.DebugBuffer.PrintAll())
+                        EditorApplication.ExitPlaymode();
+                }
+#endif
             }
         }
 
@@ -135,6 +152,17 @@ namespace Antares.Physics
         [ShowInInspector]
         [LabelText("Disable Emitters")]
         private bool _debugging_DisableEmitters;
+
+        [TitleGroup("Debugging")]
+        [ReadOnly]
+        [ShowInInspector]
+        [LabelText("Added Particle Count")]
+        private long _debugging_AddedParticleCount;
+        
+        [TitleGroup("Debugging")]
+        [ShowInInspector]
+        [LabelText("Enable Readback Debugging")]
+        private bool _debugging_EnableDebugBuffer;
 
         private volatile bool _isCapturing;
 

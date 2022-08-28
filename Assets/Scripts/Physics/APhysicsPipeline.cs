@@ -123,6 +123,10 @@ namespace Antares.Physics
         private ComputeBuffer _fluidEmitterPartitionBuffer;
         private ComputeBuffer _fluidEmitterPropertyBuffer;
 
+#if UNITY_EDITOR
+        public DebugBuffer DebugBuffer { get; private set; }
+#endif
+
         public void LoadPhysicsScene(CommandBuffer cmd, APhysicsScene scene)
         {
             Debug.Assert(!IsSceneLoaded);
@@ -170,10 +174,10 @@ namespace Antares.Physics
             cmd.SetBufferData(_fluidBlockParticleOffsetsBuffer, new uint[] { 0, 1, 1, 0, 1, 1 });
             cmd.SetBufferData(_partitionSumsBuffer, new uint[] { 0 });
             cmd.SetBufferData(_indirectArgsBuffer, new uint[] {
-                0, 1, 1, 
-                0, 1, 1, 
                 0, 1, 1,
-                1, 0, 0, 0, 
+                0, 1, 1,
+                0, 1, 1,
+                1, 0, 0, 0,
                 0, ClearFluidGridDispatchAlignment, 1,
                 0, ClearFluidGridDispatchAlignment, 1
             });
@@ -201,6 +205,10 @@ namespace Antares.Physics
 
             #endregion
 
+#if UNITY_EDITOR
+            DebugBuffer = new DebugBuffer();
+#endif
+
             IsSceneLoaded = true;
         }
 
@@ -225,11 +233,20 @@ namespace Antares.Physics
             _fluidGridLevel1.Release();
             _fluidGridLevel2.Release();
 
+#if UNITY_EDITOR
+            DebugBuffer.Dispose();
+            DebugBuffer = null;
+#endif
+
             IsSceneLoaded = false;
         }
 
         public void Solve(CommandBuffer cmd, float deltaTime, int currentFrameAddParticleCount)
         {
+#if UNITY_EDITOR
+            DebugBuffer.Reset(cmd);
+#endif
+
             _shaderSpecs.TextureUtilCS.ClearVolume(cmd, _fluidGridLevel2, 0);
 
             FluidSolverCompute fluidSolver = _shaderSpecs.FluidSolver;
@@ -283,6 +300,8 @@ namespace Antares.Physics
             kernel = fluidSolver.GenerateParticleOffsetsKernel;
             cmd.SetComputeBufferParam(shader, kernel, Bindings.PartitionSums, _partitionSumsBuffer);
             cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidBlockParticleOffsets, _fluidBlockParticleOffsetsBuffer);
+            DebugBuffer.SetParam(shader, kernel);
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticlePositions, _fluidParticlePositionsBuffer);
             cmd.DispatchCompute(shader, kernel, _indirectArgsBuffer, 0);
 
             kernel = fluidSolver.SortParticlesKernel;
