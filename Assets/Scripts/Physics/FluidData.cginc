@@ -470,20 +470,20 @@ DEF_LINEARIZE_FLUID_BLOCK_GRID_INDEX_FUNC(1)
 #undef DEF_LINEARIZE_FLUID_BLOCK_GRID_INDEX_FUNC
 
 // layout: {
-//   level 0 block count, indirect groups.yz, level 1 block count, indirect groups.yz, unused{2},
-//   { particle count, block position, prefix sum of particle count, unused{3} }*
+//   level 0 block count, level 1 block count, unused{2},
+//   { particle count, block position.xyz, prefix sum of particle count, unused{3} }*
 // }
-// initial value: { 0, 1, 1, 0, 1, 1, x{2}, { 0, x{3}, x, x{3} }* }
+// initial value: { max level 0 block count, max level 1 block count, x{2}, { 0, x{3}, x, x{3} }* }
 extern A_RWBUFFER(uint) FluidBlockParticleOffsets;
 
 uint GetFluidBlockCountOffset(uint level)
 {
-    return level ? 3 : 0;
+    return level ? 1 : 0;
 }
 
 uint GetFluidBlockInfoOffset(uint blockIndex)
 {
-    return GetFluidBlockCountOffset(1) + 5 + blockIndex * 8;
+    return GetFluidBlockCountOffset(1) + 3 + blockIndex * 8;
 }
 
 uint GetFluidBlockParticleCountOffset(uint blockIndex)

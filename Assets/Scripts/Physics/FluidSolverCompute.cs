@@ -115,12 +115,10 @@ namespace Antares.Graphics
 
             public const int GridChannelCount = 5;
 
+            public const int BlockDispatchPartition = 2;
+
             public const int PrefixSumPartitionSize = 1024;
             public const int PrefixSumPartitionCount = (BlockCountLevel0 + PrefixSumPartitionSize - 1) / PrefixSumPartitionSize;
-
-            public const int ClearPartitionSumsKernelSize = 128;
-
-            public const int ClearFluidGridDispatchAlignment = 2;
 
             public const int MaxEmitterParticleCountPerGroup = 1024;
 
@@ -141,8 +139,6 @@ namespace Antares.Graphics
             public int GenerateIndirectArgs1Kernel { get; private set; }
             public int GenerateIndirectArgs2Kernel { get; private set; }
 
-            public int ClearPartitionSumsKernel { get; private set; }
-
             public int GenerateParticleHistogramKernel { get; private set; }
             public int GenerateParticleOffsetsKernel { get; private set; }
             public int SortParticlesKernel { get; private set; }
@@ -157,6 +153,8 @@ namespace Antares.Graphics
 
             public int ClearFluidGridLevel0 { get; private set; }
             public int ClearFluidGridLevel1 { get; private set; }
+            public int ClearPartitionSumsKernel { get; private set; }
+            public int ResetBlockCounterKernel { get; private set; }
 
             public int AddParticlesKernel { get; private set; }
 
@@ -165,7 +163,6 @@ namespace Antares.Graphics
                 GenerateIndirectArgs0Kernel = Shader.FindKernel("GenerateIndirectArgs0");
                 GenerateIndirectArgs1Kernel = Shader.FindKernel("GenerateIndirectArgs1");
                 GenerateIndirectArgs2Kernel = Shader.FindKernel("GenerateIndirectArgs2");
-                ClearPartitionSumsKernel = Shader.FindKernel("ClearPartitionSums");
                 GenerateParticleHistogramKernel = Shader.FindKernel("GenerateParticleHistogram");
                 GenerateParticleOffsetsKernel = Shader.FindKernel("GenerateParticleOffsets");
                 SortParticlesKernel = Shader.FindKernel("SortParticles");
@@ -176,6 +173,8 @@ namespace Antares.Graphics
                 GridToParticleKernel = Shader.FindKernel("GridToParticle");
                 ClearFluidGridLevel0 = Shader.FindKernel("ClearFluidGridLevel0");
                 ClearFluidGridLevel1 = Shader.FindKernel("ClearFluidGridLevel1");
+                ClearPartitionSumsKernel = Shader.FindKernel("ClearPartitionSums");
+                ResetBlockCounterKernel = Shader.FindKernel("ResetBlockCounter");
                 AddParticlesKernel = Shader.FindKernel("AddParticles");
             }
         }
