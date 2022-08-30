@@ -223,10 +223,6 @@ namespace Antares.Physics
 
         public void Solve(CommandBuffer cmd, float deltaTime, int currentFrameAddParticleCount)
         {
-#if UNITY_EDITOR
-            DebugBuffer.Reset(cmd);
-#endif
-
             _shaderSpecs.TextureUtilCS.ClearVolume(cmd, _fluidGridLevel2, 0);
 
             FluidSolverCompute fluidSolver = _shaderSpecs.FluidSolver;
@@ -264,7 +260,8 @@ namespace Antares.Physics
             cmd.SetComputeBufferParam(shader, kernel, Bindings.PartitionSums, _partitionSumsBuffer);
             cmd.DispatchCompute(shader, kernel, _indirectArgsBuffer, 24);
 
-            kernel = fluidSolver.ResetBlockCounterKernel;
+            kernel = fluidSolver.ResetCountersKernel;
+            cmd.SetComputeBufferParam(shader, kernel, Bindings.PartitionSums, _partitionSumsBuffer);
             cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidBlockParticleOffsets, _fluidBlockParticleOffsetsBuffer);
             cmd.DispatchCompute(shader, kernel, 1, 1, 1);
 

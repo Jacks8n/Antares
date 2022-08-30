@@ -154,7 +154,7 @@ namespace Antares.Graphics
             public int ClearFluidGridLevel0 { get; private set; }
             public int ClearFluidGridLevel1 { get; private set; }
             public int ClearPartitionSumsKernel { get; private set; }
-            public int ResetBlockCounterKernel { get; private set; }
+            public int ResetCountersKernel { get; private set; }
 
             public int AddParticlesKernel { get; private set; }
 
@@ -174,7 +174,7 @@ namespace Antares.Graphics
                 ClearFluidGridLevel0 = Shader.FindKernel("ClearFluidGridLevel0");
                 ClearFluidGridLevel1 = Shader.FindKernel("ClearFluidGridLevel1");
                 ClearPartitionSumsKernel = Shader.FindKernel("ClearPartitionSums");
-                ResetBlockCounterKernel = Shader.FindKernel("ResetBlockCounter");
+                ResetCountersKernel = Shader.FindKernel("ResetCounters");
                 AddParticlesKernel = Shader.FindKernel("AddParticles");
             }
         }
