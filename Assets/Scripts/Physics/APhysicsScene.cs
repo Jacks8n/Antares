@@ -144,14 +144,19 @@ namespace Antares.Physics
 
         [TitleGroup("Debugging")]
         [Range(1, 8)]
-        [ShowInInspector]
+        [SerializeField]
         [LabelText("Capture Count")]
         private int _debugging_CaptureCount;
 
         [TitleGroup("Debugging")]
-        [ShowInInspector]
+        [SerializeField]
         [LabelText("Disable Emitters")]
         private bool _debugging_DisableEmitters;
+
+        [TitleGroup("Debugging")]
+        [SerializeField]
+        [LabelText("Enable Readback Debugging")]
+        private bool _debugging_EnableDebugBuffer;
 
         [TitleGroup("Debugging")]
         [ReadOnly]
@@ -159,12 +164,7 @@ namespace Antares.Physics
         [LabelText("Added Particle Count")]
         private long _debugging_AddedParticleCount;
         
-        [TitleGroup("Debugging")]
-        [ShowInInspector]
-        [LabelText("Enable Readback Debugging")]
-        private bool _debugging_EnableDebugBuffer;
-
-        private volatile bool _isCapturing;
+        private bool _isCapturing;
 
         [TitleGroup("Debugging")]
         [Button]
@@ -199,6 +199,13 @@ namespace Antares.Physics
         {
             _debugging_DisableEmitters = false;
             CaptureFrame();
+        }
+
+        [TitleGroup("Debugging")]
+        [Button]
+        private void ResetAddedParticleCount()
+        {
+            _debugging_AddedParticleCount = 0;
         }
 
 #endif

@@ -514,24 +514,18 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
     // look back to calculate exclusive prefix sum
     if (gi < laneCount)
     {
-        for (i = gi; i - gi < PartitionIndex_GSM; i += laneCount)
+        for (i = gi; i < PartitionIndex_GSM; i += laneCount)
         {
-            const bool valid = i < PartitionIndex_GSM;
             const uint lookbackIndex = PartitionIndex_GSM - i - 1;
 
             // look back with polling
             uint lookbackSum;
+            uint lookbackInclusiveSum;
             uint minInclusiveSumLane;
             while (true)
             {
-                // no wave divergence until here
-                uint lookbackInclusiveSum = SCAN_PARTITION_VALUE_NULL;
-                if (valid)
-                    lookbackInclusiveSum = PartitionSums[GetPartitionInclusiveSumOffset(lookbackIndex)];
-
+                lookbackInclusiveSum = PartitionSums[GetPartitionInclusiveSumOffset(lookbackIndex)];
                 minInclusiveSumLane = WaveActiveMin(lookbackInclusiveSum != SCAN_PARTITION_VALUE_NULL ? gi : 128);
-                if (gi == minInclusiveSumLane)
-                    GlobalExclusiveSum_GSM += lookbackInclusiveSum;
 
                 lookbackSum = 0;
                 if (gi < minInclusiveSumLane)
@@ -543,7 +537,7 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
                     break;
             }
 
-            const uint waveSum = WaveActiveSum(lookbackSum);
+            const uint waveSum = WaveActiveSum(gi == minInclusiveSumLane ? lookbackInclusiveSum : lookbackSum);
             if (!gi)
                 GlobalExclusiveSum_GSM += waveSum;
 
@@ -706,7 +700,12 @@ void ResetCounters()
 //   level 0 block dispatch group count, indirect args{3},
 //   level 1 block dispatch group count, indirect args{3},
 // }
-// initial value: { x, 1, 1, x, 1, 1, x, 1, 1, 1, x, 0, 0, x, 1, 1, x, 1, 1 }
+// initial value: { x, 1, 1,
+//                  x, 1, 1,
+//                  x, 1, 1,
+//                  1, x, 0, 0,
+//                  max level 0 block partition count, 1, 1,
+//                  max level 1 block partition count, 1, 1 }
 extern RWBuffer<uint> IndirectArgs;
 
 uint GetGroupCount(uint nelem, uint kernelSize)
@@ -729,12 +728,6 @@ void GenerateIndirectArgs0()
     const uint prevPoolSize = GetPooledParticlePropertyCount();
     const uint newPoolSize = prevPoolSize - min(particleCount - prevParticleCount, prevPoolSize);
     SetPooledParticlePropertyCount(newPoolSize);
-
-    const uint blockCountLevel0 = GetFluidBlockCount(0);
-    IndirectArgs[13] = GetGroupCount(blockCountLevel0, BLOCK_DISPATCH_PARTITION);
-
-    const uint blockCountLevel1 = GetFluidBlockCount(1);
-    IndirectArgs[16] = GetGroupCount(blockCountLevel1, BLOCK_DISPATCH_PARTITION);
 }
 
 [numthreads(1, 1, 1)]
