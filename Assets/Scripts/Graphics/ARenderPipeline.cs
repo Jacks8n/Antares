@@ -2,10 +2,13 @@
 using Antares.Physics;
 using Antares.SDF;
 using Unity.Collections;
-using UnityEditorInternal;
 using UnityEngine;
 using UnityEngine.Experimental.Rendering;
 using UnityEngine.Rendering;
+
+#if UNITY_EDITOR
+using UnityEditorInternal;
+#endif
 
 using static Antares.Graphics.ARenderLayouts;
 using static Antares.Graphics.ARenderUtilities;
@@ -17,6 +20,8 @@ namespace Antares.Graphics
     public partial class ARenderPipeline : RenderPipeline
     {
         public static ARenderPipeline Instance { get; private set; }
+
+        public static event Action AfterRenderPipelineLoaded;
 
         public bool IsSceneLoaded { get; private set; } = false;
 
@@ -38,7 +43,12 @@ namespace Antares.Graphics
         {
             ShaderSpecs = shaderSpecs;
 
+            if (Instance != null)
+                Instance.Dispose(true);
             Instance = this;
+
+            if (AfterRenderPipelineLoaded != null)
+                AfterRenderPipelineLoaded();
         }
 
         protected override void Dispose(bool disposing)
@@ -420,7 +430,7 @@ namespace Antares.Graphics
 #if UNITY_EDITOR
                     Mesh fullscreen = camera.cameraType == CameraType.SceneView ? FullScreenSceneViewMesh : FullScreenMesh;
 #else
-                    Mesh fullscreen = GetFullScreenMesh();
+                    Mesh fullscreen = FullScreenMesh;
 #endif
 
                     _shadingPropertyBlock.SetVector(Bindings.FrameBufferSize, new Vector4(width, height, 0f, 0f));

@@ -53,18 +53,16 @@ namespace Antares.SDF
                 Instance.enabled = false;
             Instance = this;
 
-            RenderPipeline pipeline = RenderPipelineManager.currentPipeline;
-            if (pipeline is ARenderPipeline)
-                (pipeline as ARenderPipeline).LoadScene(this);
+            if (ARenderPipeline.Instance != null)
+                ARenderPipeline.Instance.LoadScene(this);
         }
 
         private void OnDisable()
         {
             Instance = null;
 
-            RenderPipeline pipeline = RenderPipelineManager.currentPipeline;
-            if (pipeline is ARenderPipeline)
-                (pipeline as ARenderPipeline).UnloadScene();
+            if (ARenderPipeline.Instance != null)
+                ARenderPipeline.Instance.UnloadScene();
         }
 
         private void Update()

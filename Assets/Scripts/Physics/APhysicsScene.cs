@@ -35,11 +35,11 @@ namespace Antares.Physics
 
         private void OnEnable()
         {
-            if (RenderPipelineManager.currentPipeline is ARenderPipeline renderPipeline)
+            if (ARenderPipeline.Instance != null)
             {
                 CommandBuffer cmd = CommandBufferPool.Get();
 
-                PhysicsPipeline = renderPipeline.GetPhysicsPipeline();
+                PhysicsPipeline = ARenderPipeline.Instance.GetPhysicsPipeline();
                 PhysicsPipeline.LoadPhysicsScene(cmd, this);
 
                 UGraphics.ExecuteCommandBuffer(cmd);
@@ -157,7 +157,7 @@ namespace Antares.Physics
         [SerializeField]
         [LabelText("Enable Readback Debugging")]
         private bool _debugging_EnableDebugBuffer;
-
+        
         [TitleGroup("Debugging")]
         [ReadOnly]
         [ShowInInspector]

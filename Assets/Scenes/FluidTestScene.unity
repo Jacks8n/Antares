@@ -189,7 +189,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!114 &21347553
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -197,7 +197,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 21347552}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: e7a6537966891694ab0b07730c6d90d0, type: 3}
   m_Name: 
@@ -1455,7 +1455,7 @@ GameObject:
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
-  m_IsActive: 0
+  m_IsActive: 1
 --- !u!114 &597352203
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1463,7 +1463,7 @@ MonoBehaviour:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 597352202}
-  m_Enabled: 1
+  m_Enabled: 0
   m_EditorHideFlags: 0
   m_Script: {fileID: 11500000, guid: 6ac7db45ff14f4449a66602c9961fe43, type: 3}
   m_Name: 
@@ -2282,6 +2282,7 @@ GameObject:
   - component: {fileID: 877507955}
   - component: {fileID: 877507954}
   - component: {fileID: 877507953}
+  - component: {fileID: 877507956}
   m_Layer: 0
   m_Name: Main Camera
   m_TagString: MainCamera
@@ -2355,14 +2356,38 @@ Transform:
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 877507952}
-  m_LocalRotation: {x: 0.1464466, y: 0.8535535, z: -0.35355338, w: 0.35355338}
-  m_LocalPosition: {x: 70, y: 90, z: 60}
+  m_LocalRotation: {x: 0.20338671, y: 0.33391288, z: -0.0740267, w: 0.91741824}
+  m_LocalPosition: {x: 55, y: 140, z: 45}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
   m_RootOrder: 1
-  m_LocalEulerAnglesHint: {x: 45, y: 135, z: 0}
+  m_LocalEulerAnglesHint: {x: 25, y: 40, z: 0}
+--- !u!114 &877507956
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 877507952}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c03df6ed1cc133d418c7a5f02556fbdf, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: 
+  _sdfScene: {fileID: 21347553}
+  _physicsScene: {fileID: 597352203}
+  _emitterArray:
+  - {fileID: 1423373296}
+  - {fileID: 902900710}
+  - {fileID: 1191803540}
+  - {fileID: 1962532277}
+  - {fileID: 2098129327}
+  - {fileID: 1165895349}
+  - {fileID: 821581843}
+  - {fileID: 859422319}
+  - {fileID: 411120629}
 --- !u!1 &890598052
 GameObject:
   m_ObjectHideFlags: 0
