@@ -803,6 +803,29 @@ void WaveGetMaxInterval(bool flag, out uint interval, out uint maxInterval)
     maxInterval = WaveActiveMax(interval);
 }
 
+void GetAdjacentBlockOffset(uint index, out uint3 offset)
+{
+    // thread index bits: { a, b, c, d, e, [2:0] }
+    // output index bits: { x, y, z }
+    //   |        truth table          |           min form
+    // x | 000000000000000000001111111 |            ab + ac
+    // y | 000000000000111111110000111 |           a~c + bc
+    // z | 000000001111000011110011001 | ~a~cb + ~b~ca + ad~b + ad~e
+    // bit op mask:
+    // [ b  d  a  a] [a  a] [ a  c]
+    // [~c  a ~b  d] [b  c] [~c  b]
+    // [~a ~b ~c ~e] [1  1] [ 1  1]
+
+    const uint4 tmask = uint4(0b001111100100000000011111, 0b100000000000100100000000, 0b000000010000010000000000, 0b010000000001000000000000);
+    const uint4 fmask = uint4(0b000000000000000010011111, 0b000000000010000001000000, 0b000000001000001000100000, 0);
+    const uint4 mask4 = tid.xxxx & uint4(128, 64, 32, 16) ? tmask : fmask;
+    const uint2 mask2 = mask4.xy | mask4.zw;
+    const uint3 mask = (mask2.x | mask2.y).xxx >> uint3(16, 8, 0);
+    const uint ands = mask.x & mask.y & mask.z;
+    const uint3 xyz = ands.xxx & uint3(0b1100, 0b11, tid.x & 8 ? 0b11100000 : 0b11110000);
+    offset = xyz ? uint3(4, 4, 4) : uint3(0, 0, 0);
+}
+
 groupshared uint3 GridPositionLevel1_GSM;
 groupshared uint ParticleCount_GSM;
 groupshared uint ParticleOffset_GSM;
@@ -931,7 +954,11 @@ void ParticleToGrid0(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 
         // write to current block
         const uint3 dstGridOffset = GetFluidBlockIndexSpatialLevel0(gid.x) * FLUID_BLOCK_SIZE_LEVEL0;
-        for (i = gi; i < FLUID_BLOCK_GRID_COUNT_LEVEL0; i += PARTICLE_TO_GRID_KERNEL_SIZE)
+        #if PARTICLE_TO_GRID_KERNEL_SIZE < FLUID_BLOCK_GRID_COUNT_LEVEL0
+            for (i = gi; i < FLUID_BLOCK_GRID_COUNT_LEVEL0; i += PARTICLE_TO_GRID_KERNEL_SIZE)
+        #else
+            if ((i = gi) < FLUID_BLOCK_GRID_COUNT_LEVEL0)
+        #endif
         {
             const uint3 srcGridIndex = GetFluidBlockGridIndexSpatialLevel0(i);
             const uint loadGridIndex = GetFluidBlockGridIndexLinearLevel0(srcGridIndex, FLUID_BLOCK_PADDING);
@@ -1241,7 +1268,11 @@ void ParticleToGrid1(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 
         // write momentum to current blocks
         const uint3 dstGridOffset = GetFluidBlockIndexSpatialLevel0(gid.x) * FLUID_BLOCK_SIZE_LEVEL0;
-        for (i = gi; i < FLUID_BLOCK_GRID_COUNT_LEVEL0; i += PARTICLE_TO_GRID_KERNEL_SIZE)
+        #if PARTICLE_TO_GRID_KERNEL_SIZE < FLUID_BLOCK_GRID_COUNT_LEVEL0
+            for (i = gi; i < FLUID_BLOCK_GRID_COUNT_LEVEL0; i += PARTICLE_TO_GRID_KERNEL_SIZE)
+        #else
+            if ((i = gi) < FLUID_BLOCK_GRID_COUNT_LEVEL0)
+        #endif
         {
             const uint3 srcGridIndex = GetFluidBlockGridIndexSpatialLevel0(i);
             const uint loadGridIndex = GetFluidBlockGridIndexLinearLevel0(srcGridIndex, FLUID_BLOCK_PADDING);
