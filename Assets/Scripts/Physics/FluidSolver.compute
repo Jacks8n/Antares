@@ -803,7 +803,40 @@ void WaveGetMaxInterval(bool flag, out uint interval, out uint maxInterval)
     maxInterval = WaveActiveMax(interval);
 }
 
-void GetAdjacentBlockOffset(uint index, out uint3 offset)
+groupshared uint4 AdjacentBlockOffset_GSM[8];
+
+// make sure that all the threads whose indices are less than 8 will invoke this function.
+// group sync is REQUIRED after invocation.
+void LoadAdjacentBlockIndexLevel1(uint groupIndex, uint3 gridPositionLevel1)
+{
+    if (groupIndex < 8)
+    {
+        const uint3 adjacentGridIndex = uint3(groupIndex & 1, (groupIndex >> 1) & 1, groupIndex >> 2);
+        const uint3 adjacentGridPositionLevel1 = adjacentGridIndex + gridPositionLevel1;
+        const uint3 adjacentGridPositionLevel2 = adjacentGridPositionLevel1 / FLUID_BLOCK_SIZE_LEVEL1;
+        const uint adjacentBlockIndexLevel1Encoded = FluidGridLevel2[adjacentGridPositionLevel2];
+        if (IsValidEncodedFluidBlockIndex(adjacentBlockIndexLevel1Encoded))
+        {
+            const uint3 adjacentBlockIndexLevel1 = GetGridIndexSpatial(DecodeFluidBlockIndex(adjacentBlockIndexLevel1Encoded));
+            const uint3 adjacentGridOffsetLevel1 = adjacentGridPositionLevel1 % FLUID_BLOCK_SIZE_LEVEL1;
+            const uint3 adjacentGridIndexLevel1 = adjacentBlockIndexLevel1 * FLUID_BLOCK_SIZE_LEVEL1 + adjacentGridOffsetLevel1;
+            const uint adjacentBlockIndexLevel0Encoded = FluidGridLevel1[adjacentGridIndexLevel1];
+            if (IsValidEncodedFluidBlockIndex(adjacentBlockIndexLevel0Encoded))
+            {
+                const uint3 adjacentBlockIndexLevel0 = GetGridIndexSpatial(DecodeFluidBlockIndex(adjacentBlockIndexLevel0Encoded));
+                AdjacentBlockOffset_GSM[groupIndex] = uint4(1, adjacentBlockIndexLevel0 * FLUID_BLOCK_SIZE_LEVEL0);
+            }
+            else
+            {
+                AdjacentBlockOffset_GSM[groupIndex] = uint4(2, adjacentGridIndexLevel1);
+            }
+        }
+        else
+            AdjacentBlockOffset_GSM[groupIndex] = uint4(0, 0, 0, 0);
+    }
+}
+
+bool GetAdjacentBlockOffset(uint gridIndex, out uint3 srcGridIndex, out uint3 dstGridIndex)
 {
     // thread index bits: { a, b, c, d, e, [2:0] }
     // output index bits: { x, y, z }
@@ -818,12 +851,30 @@ void GetAdjacentBlockOffset(uint index, out uint3 offset)
 
     const uint4 tmask = uint4(0b001111100100000000011111, 0b100000000000100100000000, 0b000000010000010000000000, 0b010000000001000000000000);
     const uint4 fmask = uint4(0b000000000000000010011111, 0b000000000010000001000000, 0b000000001000001000100000, 0);
-    const uint4 mask4 = tid.xxxx & uint4(128, 64, 32, 16) ? tmask : fmask;
+    const uint4 mask4 = gridIndex.xxxx & uint4(128, 64, 32, 16) ? tmask : fmask;
     const uint2 mask2 = mask4.xy | mask4.zw;
     const uint3 mask = (mask2.x | mask2.y).xxx >> uint3(16, 8, 0);
     const uint ands = mask.x & mask.y & mask.z;
-    const uint3 xyz = ands.xxx & uint3(0b1100, 0b11, tid.x & 8 ? 0b11100000 : 0b11110000);
-    offset = xyz ? uint3(4, 4, 4) : uint3(0, 0, 0);
+    const bool3 xyz = ands.xxx & uint3(0b1100, 0b11, gridIndex.x & 8 ? 0b11100000 : 0b11110000);
+
+    const uint subBlockIndex = dot(xyz ? uint3(4, 2, 1) : uint3(0, 0, 0), uint3(1, 1, 1));
+    const uint4 adjacentBlockIndex = AdjacentBlockIndexLevel1_GSM[subBlockIndex];
+    if (adjacentBlockIndex.x)
+    {
+        const uint3 subBlockOffset = xyz ? uint(4).xxx : uint(0).xxx;
+        const uint3 subBlockSize = xyz ? uint(2).xxx : uint(4).xxx;
+        const uint3 subBlockGridIndex = GetFluidBlockGridIndexSpatialLevel0(gridIndex, subBlockSize.xy);
+        srcGridIndex = subBlockOffset +subBlockGridIndex;
+
+        if (adjacentBlockIndex.x == 1)
+            dstGridIndex = adjacentBlockIndex.yzw + subBlockGridIndex;
+        else // if (adjacentBlockIndex.x == 2)
+            dstGridIndex = adjacentBlockIndex.yzw;
+
+        return true;
+    }
+
+    return false;
 }
 
 groupshared uint3 GridPositionLevel1_GSM;
@@ -833,7 +884,6 @@ groupshared uint ParticleOffset_GSM;
 groupshared int4 FluidGrid_GSM[FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED];
 // size: 4 * 216 = 864 bytes
 groupshared int SDFGrid_GSM[FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED];
-groupshared uint AdjacentBlockIndexLevel1_GSM[8];
 
 [numthreads(PARTICLE_TO_GRID_KERNEL_SIZE, 1, 1)]
 void ParticleToGrid0(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
