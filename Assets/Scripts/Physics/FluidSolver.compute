@@ -803,13 +803,22 @@ void WaveGetMaxInterval(bool flag, out uint interval, out uint maxInterval)
     maxInterval = WaveActiveMax(interval);
 }
 
-groupshared uint4 AdjacentBlockOffset_GSM[8];
+// todo
+groupshared uint AdjacentBlockIndexLevel1_GSM[8];
 
-// make sure that all the threads whose indices are less than 8 will invoke this function.
+#define BLOCK_MAP_NULL 0
+#define BLOCK_MAP_LEVEL0 1
+#define BLOCK_MAP_LEVEL1 2
+
+groupshared uint4 AdjacentBlockOffsets_GSM[8];
+
+// all the threads whose indices are less than 8 must invoke this function.
 // group sync is REQUIRED after invocation.
-void LoadAdjacentBlockIndexLevel1(uint groupIndex, uint3 gridPositionLevel1)
+void LoadAdjacentBlockIndex(uint groupIndex, uint3 gridOffsetLevel0, uint3 gridPositionLevel1)
 {
-    if (groupIndex < 8)
+    if (!groupIndex)
+        AdjacentBlockOffsets_GSM[0] = uint4(BLOCK_MAP_LEVEL0, gridOffsetLevel0);
+    else if (groupIndex < 8)
     {
         const uint3 adjacentGridIndex = uint3(groupIndex & 1, (groupIndex >> 1) & 1, groupIndex >> 2);
         const uint3 adjacentGridPositionLevel1 = adjacentGridIndex + gridPositionLevel1;
@@ -817,33 +826,31 @@ void LoadAdjacentBlockIndexLevel1(uint groupIndex, uint3 gridPositionLevel1)
         const uint adjacentBlockIndexLevel1Encoded = FluidGridLevel2[adjacentGridPositionLevel2];
         if (IsValidEncodedFluidBlockIndex(adjacentBlockIndexLevel1Encoded))
         {
-            const uint3 adjacentBlockIndexLevel1 = GetGridIndexSpatial(DecodeFluidBlockIndex(adjacentBlockIndexLevel1Encoded));
+            const uint3 adjacentBlockIndexLevel1 = GetFluidBlockIndexSpatialLevel1(DecodeFluidBlockIndex(adjacentBlockIndexLevel1Encoded));
             const uint3 adjacentGridOffsetLevel1 = adjacentGridPositionLevel1 % FLUID_BLOCK_SIZE_LEVEL1;
             const uint3 adjacentGridIndexLevel1 = adjacentBlockIndexLevel1 * FLUID_BLOCK_SIZE_LEVEL1 + adjacentGridOffsetLevel1;
             const uint adjacentBlockIndexLevel0Encoded = FluidGridLevel1[adjacentGridIndexLevel1];
             if (IsValidEncodedFluidBlockIndex(adjacentBlockIndexLevel0Encoded))
             {
-                const uint3 adjacentBlockIndexLevel0 = GetGridIndexSpatial(DecodeFluidBlockIndex(adjacentBlockIndexLevel0Encoded));
-                AdjacentBlockOffset_GSM[groupIndex] = uint4(1, adjacentBlockIndexLevel0 * FLUID_BLOCK_SIZE_LEVEL0);
+                const uint3 adjacentBlockIndexLevel0 = GetFluidBlockIndexSpatialLevel0(DecodeFluidBlockIndex(adjacentBlockIndexLevel0Encoded));
+                AdjacentBlockOffsets_GSM[groupIndex] = uint4(BLOCK_MAP_LEVEL0, adjacentBlockIndexLevel0 * FLUID_BLOCK_SIZE_LEVEL0);
             }
             else
-            {
-                AdjacentBlockOffset_GSM[groupIndex] = uint4(2, adjacentGridIndexLevel1);
-            }
+                AdjacentBlockOffsets_GSM[groupIndex] = uint4(BLOCK_MAP_LEVEL1, adjacentGridIndexLevel1);
         }
         else
-            AdjacentBlockOffset_GSM[groupIndex] = uint4(0, 0, 0, 0);
+            AdjacentBlockOffsets_GSM[groupIndex] = uint4(BLOCK_MAP_NULL, 0, 0, 0);
     }
 }
 
-bool GetAdjacentBlockOffset(uint gridIndex, out uint3 srcGridIndex, out uint3 dstGridIndex)
+int GetAdjacentBlockMap(uint groupIndex, out uint3 srcGridIndex, out uint3 dstGridIndex)
 {
-    // thread index bits: { a, b, c, d, e, [2:0] }
-    // output index bits: { x, y, z }
-    //   |        truth table          |           min form
-    // x | 000000000000000000001111111 |            ab + ac
-    // y | 000000000000111111110000111 |           a~c + bc
-    // z | 000000001111000011110011001 | ~a~cb + ~b~ca + ad~b + ad~e
+    // grid index bits: { a, b, c, d, e, [2:0] }
+    // output index bits: { z, y, x }
+    //   |            truth table           |           min form
+    // z | 000000000000000000001111111xxxxx |            ab + ac
+    // y | 000000000000111111110000111xxxxx |           a~c + bc
+    // x | 000000001111000011110011001xxxxx | ~a~cb + ~b~ca + ad~b + ad~e
     // bit op mask:
     // [ b  d  a  a] [a  a] [ a  c]
     // [~c  a ~b  d] [b  c] [~c  b]
@@ -851,30 +858,29 @@ bool GetAdjacentBlockOffset(uint gridIndex, out uint3 srcGridIndex, out uint3 ds
 
     const uint4 tmask = uint4(0b001111100100000000011111, 0b100000000000100100000000, 0b000000010000010000000000, 0b010000000001000000000000);
     const uint4 fmask = uint4(0b000000000000000010011111, 0b000000000010000001000000, 0b000000001000001000100000, 0);
-    const uint4 mask4 = gridIndex.xxxx & uint4(128, 64, 32, 16) ? tmask : fmask;
+    const uint4 mask4 = groupIndex.xxxx & uint4(128, 64, 32, 16) ? tmask : fmask;
     const uint2 mask2 = mask4.xy | mask4.zw;
     const uint3 mask = (mask2.x | mask2.y).xxx >> uint3(16, 8, 0);
     const uint ands = mask.x & mask.y & mask.z;
-    const bool3 xyz = ands.xxx & uint3(0b1100, 0b11, gridIndex.x & 8 ? 0b11100000 : 0b11110000);
+    const bool3 xyz = ands.xxx & uint3(groupIndex & 8 ? 0b11100000 : 0b11110000, 0b11, 0b1100);
 
-    const uint subBlockIndex = dot(xyz ? uint3(4, 2, 1) : uint3(0, 0, 0), uint3(1, 1, 1));
-    const uint4 adjacentBlockIndex = AdjacentBlockIndexLevel1_GSM[subBlockIndex];
-    if (adjacentBlockIndex.x)
+    const uint subBlockIndex = dot(xyz ? uint3(1, 2, 4) : uint3(0, 0, 0), uint3(1, 1, 1));
+    const uint4 adjacentBlockIndex = AdjacentBlockOffsets_GSM[subBlockIndex];
+    if (adjacentBlockIndex.x != BLOCK_MAP_NULL)
     {
         const uint3 subBlockOffset = xyz ? uint(4).xxx : uint(0).xxx;
         const uint3 subBlockSize = xyz ? uint(2).xxx : uint(4).xxx;
-        const uint3 subBlockGridIndex = GetFluidBlockGridIndexSpatialLevel0(gridIndex, subBlockSize.xy);
+        const uint subBlockGridCount = 64 >> dot(xyz, uint(1).xxx);
+        const uint3 subBlockGridIndex = GetGridIndexSpatial(groupIndex & (subBlockGridCount - 1), subBlockSize.xy);
         srcGridIndex = subBlockOffset +subBlockGridIndex;
 
-        if (adjacentBlockIndex.x == 1)
+        if (adjacentBlockIndex.x == BLOCK_MAP_LEVEL0)
             dstGridIndex = adjacentBlockIndex.yzw + subBlockGridIndex;
-        else // if (adjacentBlockIndex.x == 2)
+        else // if (adjacentBlockIndex.x == BLOCK_MAP_LEVEL1)
             dstGridIndex = adjacentBlockIndex.yzw;
-
-        return true;
     }
 
-    return false;
+    return adjacentBlockIndex.x;
 }
 
 groupshared uint3 GridPositionLevel1_GSM;
@@ -1000,110 +1006,116 @@ void ParticleToGrid0(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
             }
         }
 
+        LoadAdjacentBlockIndex(gi, GetFluidBlockIndexSpatialLevel0(gid.x) * FLUID_BLOCK_SIZE_LEVEL0, GridPositionLevel1_GSM);
+
         GroupMemoryBarrierWithGroupSync();
 
-        // write to current block
-        const uint3 dstGridOffset = GetFluidBlockIndexSpatialLevel0(gid.x) * FLUID_BLOCK_SIZE_LEVEL0;
-        #if PARTICLE_TO_GRID_KERNEL_SIZE < FLUID_BLOCK_GRID_COUNT_LEVEL0
-            for (i = gi; i < FLUID_BLOCK_GRID_COUNT_LEVEL0; i += PARTICLE_TO_GRID_KERNEL_SIZE)
+        #if PARTICLE_TO_GRID_KERNEL_SIZE < FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED
+            for (i = gi; i < FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED; i += PARTICLE_TO_GRID_KERNEL_SIZE)
         #else
-            if ((i = gi) < FLUID_BLOCK_GRID_COUNT_LEVEL0)
+            if ((i = gi) < FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED)
         #endif
         {
-            const uint3 srcGridIndex = GetFluidBlockGridIndexSpatialLevel0(i);
-            const uint loadGridIndex = GetFluidBlockGridIndexLinearLevel0(srcGridIndex, FLUID_BLOCK_PADDING);
+            uint3 srcGridIndex;
+            uint3 dstGridIndex;
 
-            const uint3 dstGridIndex = dstGridOffset +srcGridIndex;
-
-            const int4 gridValue = FluidGrid_GSM[loadGridIndex];
-
-            int _;
-            InterlockedAdd(FluidGridLevel0[dstGridIndex + FLUID_GRID_CHANNEL0_OFFSET], gridValue.x, _);
-            InterlockedAdd(FluidGridLevel0[dstGridIndex + FLUID_GRID_CHANNEL1_OFFSET], gridValue.y, _);
-            InterlockedAdd(FluidGridLevel0[dstGridIndex + FLUID_GRID_CHANNEL2_OFFSET], gridValue.z, _);
-            InterlockedAdd(FluidGridLevel0[dstGridIndex + FLUID_GRID_CHANNEL3_OFFSET], gridValue.w, _);
-        }
-
-        if (gi < 8)
-        {
-            const uint3 adjacentGridIndex = uint3(gi & 1, (gi >> 1) & 1, gi >> 2);
-            const uint3 adjacentGridPositionLevel1 = adjacentGridIndex + GridPositionLevel1_GSM;
-            const uint3 adjacentGridPositionLevel2 = adjacentGridPositionLevel1 / FLUID_BLOCK_SIZE_LEVEL1;
-            AdjacentBlockIndexLevel1_GSM[gi] = FluidGridLevel2[adjacentGridPositionLevel2];
-        }
-
-        GroupMemoryBarrierWithGroupSync();
-
-        // write to adjacent blocks
-        UNITY_UNROLL
-        for (i = 1; i < 8; i++)
-        {
-            // query adjacent block
-            const uint3 adjacentGridIndex = uint3(i & 1, (i >> 1) & 1, i >> 2);
-            const uint3 adjacentGridPositionLevel1 = adjacentGridIndex + GridPositionLevel1_GSM;
-            const uint3 adjacentGridOffsetLevel1 = adjacentGridPositionLevel1 % FLUID_BLOCK_SIZE_LEVEL1;
-
-            const uint adjacentBlockIndexLevel1Encoded = AdjacentBlockIndexLevel1_GSM[i];
-
-            // level 2 doesn't have "ghost cells"(term used in original spgrid paper)
-            // thus, if no level 1 block is allocated, grid values are just discarded
-            if (IsValidEncodedFluidBlockIndex(adjacentBlockIndexLevel1Encoded))
+            const uint mapType = GetAdjacentBlockMap(i, srcGridIndex, dstGridIndex);
+            if (mapType != BLOCK_MAP_NULL)
             {
-                const uint3 subblockMin = adjacentGridIndex * FLUID_BLOCK_SIZE_LEVEL0;
-                const uint3 subblockMax = min(
-                    subblockMin + FLUID_BLOCK_SIZE_LEVEL0, FLUID_BLOCK_SIZE_LEVEL0_PADDED);
-                const uint3 subblockSize = subblockMax - subblockMin;
+                const uint loadGridIndex = GetFluidBlockGridIndexLinearLevel0(srcGridIndex, FLUID_BLOCK_PADDING);
+                const int4 gridValue = FluidGrid_GSM[loadGridIndex];
+                const int sdf = SDFGrid_GSM[loadGridIndex];
 
-                const uint3 srcGridIndex = GetGridIndexSpatial(gi, subblockSize.xy);
-                if (all(srcGridIndex < subblockSize))
+                int _;
+                if (mapType == BLOCK_MAP_LEVEL0)
                 {
-                    const uint loadGridIndex = GetFluidBlockGridIndexLinearLevel0(subblockMin + srcGridIndex, FLUID_BLOCK_PADDING);
-
-                    const int4 gridValue = FluidGrid_GSM[loadGridIndex];
-                    const int sdf = SDFGrid_GSM[loadGridIndex];
-
-                    const uint3 adjacentBlockIndexLevel1 = GetFluidBlockIndexSpatialLevel1(DecodeFluidBlockIndex(adjacentBlockIndexLevel1Encoded));
-                    const uint3 adjacentGridIndexLevel1 = adjacentBlockIndexLevel1 * FLUID_BLOCK_SIZE_LEVEL1 + adjacentGridOffsetLevel1;
-                    const uint3 adjacentBlockIndexLevel0Encoded = FluidGridLevel1[adjacentGridIndexLevel1];
-
-                    if (IsValidEncodedFluidBlockIndex(adjacentBlockIndexLevel0Encoded))
-                    {
-                        const uint3 adjacentBlockIndexLevel0 = GetFluidBlockIndexSpatialLevel0(DecodeFluidBlockIndex(adjacentBlockIndexLevel0Encoded));
-                        const uint3 dstGridIndex = adjacentBlockIndexLevel0 * FLUID_BLOCK_SIZE_LEVEL0 + srcGridIndex;
-
-                        int _;
-                        InterlockedAdd(FluidGridLevel0[dstGridIndex + FLUID_GRID_CHANNEL0_OFFSET], gridValue.x, _);
-                        InterlockedAdd(FluidGridLevel0[dstGridIndex + FLUID_GRID_CHANNEL1_OFFSET], gridValue.y, _);
-                        InterlockedAdd(FluidGridLevel0[dstGridIndex + FLUID_GRID_CHANNEL2_OFFSET], gridValue.z, _);
-                        InterlockedAdd(FluidGridLevel0[dstGridIndex + FLUID_GRID_CHANNEL3_OFFSET], gridValue.w, _);
-                        InterlockedMin(FluidGridLevel0[dstGridIndex + FLUID_GRID_CHANNEL4_OFFSET], sdf, _);
-                    }
-                    else
-                    {
-                        // if the level 0 is not allocated, add quantity to the coarser grid
-                        #if !DISABLE_WAVE_SCATTER
-                            const int4 gridValueSum = WaveActiveSum(gridValue);
-                            if (!gi)
-                            {
-                                int _;
-                                InterlockedAdd(FluidGridLevel1[adjacentGridIndexLevel1 + FLUID_GRID_CHANNEL0_OFFSET], gridValueSum.x, _);
-                                InterlockedAdd(FluidGridLevel1[adjacentGridIndexLevel1 + FLUID_GRID_CHANNEL1_OFFSET], gridValueSum.y, _);
-                                InterlockedAdd(FluidGridLevel1[adjacentGridIndexLevel1 + FLUID_GRID_CHANNEL2_OFFSET], gridValueSum.z, _);
-                                InterlockedAdd(FluidGridLevel1[adjacentGridIndexLevel1 + FLUID_GRID_CHANNEL3_OFFSET], gridValueSum.w, _);
-                                InterlockedMin(FluidGridLevel1[adjacentGridIndexLevel1 + FLUID_GRID_CHANNEL4_OFFSET], sdf, _);
-                            }
-                        #else
-                            int _;
-                            InterlockedAdd(FluidGridLevel1[adjacentGridIndexLevel1 + FLUID_GRID_CHANNEL0_OFFSET], gridValue.x, _);
-                            InterlockedAdd(FluidGridLevel1[adjacentGridIndexLevel1 + FLUID_GRID_CHANNEL1_OFFSET], gridValue.y, _);
-                            InterlockedAdd(FluidGridLevel1[adjacentGridIndexLevel1 + FLUID_GRID_CHANNEL2_OFFSET], gridValue.z, _);
-                            InterlockedAdd(FluidGridLevel1[adjacentGridIndexLevel1 + FLUID_GRID_CHANNEL3_OFFSET], gridValue.w, _);
-                            InterlockedMin(FluidGridLevel1[adjacentGridIndexLevel1 + FLUID_GRID_CHANNEL4_OFFSET], sdf, _);
-                        #endif
-                    }
+                    InterlockedAdd(FluidGridLevel0[dstGridIndex + FLUID_GRID_CHANNEL0_OFFSET], gridValue.x, _);
+                    InterlockedAdd(FluidGridLevel0[dstGridIndex + FLUID_GRID_CHANNEL1_OFFSET], gridValue.y, _);
+                    InterlockedAdd(FluidGridLevel0[dstGridIndex + FLUID_GRID_CHANNEL2_OFFSET], gridValue.z, _);
+                    InterlockedAdd(FluidGridLevel0[dstGridIndex + FLUID_GRID_CHANNEL3_OFFSET], gridValue.w, _);
+                    InterlockedMin(FluidGridLevel0[dstGridIndex + FLUID_GRID_CHANNEL4_OFFSET], sdf, _);
+                }
+                else
+                {
+                    InterlockedAdd(FluidGridLevel1[dstGridIndex + FLUID_GRID_CHANNEL0_OFFSET], gridValue.x, _);
+                    InterlockedAdd(FluidGridLevel1[dstGridIndex + FLUID_GRID_CHANNEL1_OFFSET], gridValue.y, _);
+                    InterlockedAdd(FluidGridLevel1[dstGridIndex + FLUID_GRID_CHANNEL2_OFFSET], gridValue.z, _);
+                    InterlockedAdd(FluidGridLevel1[dstGridIndex + FLUID_GRID_CHANNEL3_OFFSET], gridValue.w, _);
+                    InterlockedMin(FluidGridLevel1[dstGridIndex + FLUID_GRID_CHANNEL4_OFFSET], sdf, _);
                 }
             }
         }
+
+        // // write to adjacent blocks
+        // UNITY_UNROLL
+        // for (i = 1; i < 8; i++)
+        // {
+        //     // query adjacent block
+        //     const uint3 adjacentGridIndex = uint3(i & 1, (i >> 1) & 1, i >> 2);
+        //     const uint3 adjacentGridPositionLevel1 = adjacentGridIndex + GridPositionLevel1_GSM;
+        //     const uint3 adjacentGridOffsetLevel1 = adjacentGridPositionLevel1 % FLUID_BLOCK_SIZE_LEVEL1;
+
+        //     const uint adjacentBlockIndexLevel1Encoded = AdjacentBlockIndexLevel1_GSM[i];
+
+        //     // level 2 doesn't have "ghost cells"(term used in original spgrid paper)
+        //     // thus, if no level 1 block is allocated, grid values are just discarded
+        //     if (IsValidEncodedFluidBlockIndex(adjacentBlockIndexLevel1Encoded))
+        //     {
+        //         const uint3 subblockMin = adjacentGridIndex * FLUID_BLOCK_SIZE_LEVEL0;
+        //         const uint3 subblockMax = min(
+        //             subblockMin + FLUID_BLOCK_SIZE_LEVEL0, FLUID_BLOCK_SIZE_LEVEL0_PADDED);
+        //         const uint3 subblockSize = subblockMax - subblockMin;
+
+        //         const uint3 srcGridIndex = GetGridIndexSpatial(gi, subblockSize.xy);
+        //         if (all(srcGridIndex < subblockSize))
+        //         {
+        //             const uint loadGridIndex = GetFluidBlockGridIndexLinearLevel0(subblockMin + srcGridIndex, FLUID_BLOCK_PADDING);
+
+        //             const int4 gridValue = FluidGrid_GSM[loadGridIndex];
+        //             const int sdf = SDFGrid_GSM[loadGridIndex];
+
+        //             const uint3 adjacentBlockIndexLevel1 = GetFluidBlockIndexSpatialLevel1(DecodeFluidBlockIndex(adjacentBlockIndexLevel1Encoded));
+        //             const uint3 adjacentGridIndexLevel1 = adjacentBlockIndexLevel1 * FLUID_BLOCK_SIZE_LEVEL1 + adjacentGridOffsetLevel1;
+        //             const uint3 adjacentBlockIndexLevel0Encoded = FluidGridLevel1[adjacentGridIndexLevel1];
+
+        //             if (IsValidEncodedFluidBlockIndex(adjacentBlockIndexLevel0Encoded))
+        //             {
+        //                 const uint3 adjacentBlockIndexLevel0 = GetFluidBlockIndexSpatialLevel0(DecodeFluidBlockIndex(adjacentBlockIndexLevel0Encoded));
+        //                 const uint3 dstGridIndex = adjacentBlockIndexLevel0 * FLUID_BLOCK_SIZE_LEVEL0 + srcGridIndex;
+
+        //                 int _;
+        //                 InterlockedAdd(FluidGridLevel0[dstGridIndex + FLUID_GRID_CHANNEL0_OFFSET], gridValue.x, _);
+        //                 InterlockedAdd(FluidGridLevel0[dstGridIndex + FLUID_GRID_CHANNEL1_OFFSET], gridValue.y, _);
+        //                 InterlockedAdd(FluidGridLevel0[dstGridIndex + FLUID_GRID_CHANNEL2_OFFSET], gridValue.z, _);
+        //                 InterlockedAdd(FluidGridLevel0[dstGridIndex + FLUID_GRID_CHANNEL3_OFFSET], gridValue.w, _);
+        //                 InterlockedMin(FluidGridLevel0[dstGridIndex + FLUID_GRID_CHANNEL4_OFFSET], sdf, _);
+        //             }
+        //             else
+        //             {
+        //                 // if the level 0 is not allocated, add quantity to the coarser grid
+        //                 #if !DISABLE_WAVE_SCATTER
+        //                     const int4 gridValueSum = WaveActiveSum(gridValue);
+        //                     if (!gi)
+        //                     {
+        //                         int _;
+        //                         InterlockedAdd(FluidGridLevel1[adjacentGridIndexLevel1 + FLUID_GRID_CHANNEL0_OFFSET], gridValueSum.x, _);
+        //                         InterlockedAdd(FluidGridLevel1[adjacentGridIndexLevel1 + FLUID_GRID_CHANNEL1_OFFSET], gridValueSum.y, _);
+        //                         InterlockedAdd(FluidGridLevel1[adjacentGridIndexLevel1 + FLUID_GRID_CHANNEL2_OFFSET], gridValueSum.z, _);
+        //                         InterlockedAdd(FluidGridLevel1[adjacentGridIndexLevel1 + FLUID_GRID_CHANNEL3_OFFSET], gridValueSum.w, _);
+        //                         InterlockedMin(FluidGridLevel1[adjacentGridIndexLevel1 + FLUID_GRID_CHANNEL4_OFFSET], sdf, _);
+        //                     }
+        //                 #else
+        //                     int _;
+        //                     InterlockedAdd(FluidGridLevel1[adjacentGridIndexLevel1 + FLUID_GRID_CHANNEL0_OFFSET], gridValue.x, _);
+        //                     InterlockedAdd(FluidGridLevel1[adjacentGridIndexLevel1 + FLUID_GRID_CHANNEL1_OFFSET], gridValue.y, _);
+        //                     InterlockedAdd(FluidGridLevel1[adjacentGridIndexLevel1 + FLUID_GRID_CHANNEL2_OFFSET], gridValue.z, _);
+        //                     InterlockedAdd(FluidGridLevel1[adjacentGridIndexLevel1 + FLUID_GRID_CHANNEL3_OFFSET], gridValue.w, _);
+        //                     InterlockedMin(FluidGridLevel1[adjacentGridIndexLevel1 + FLUID_GRID_CHANNEL4_OFFSET], sdf, _);
+        //                 #endif
+        //             }
+        //         }
+        //     }
+        // }
 
         GroupMemoryBarrierWithGroupSync();
     }
@@ -1420,12 +1432,8 @@ SamplerState SamplerLinearClamp;
 
 void SolveGrid(float mass, float3 momentum, out float3 velocity)
 {
-    velocity = mass > 0.0 ? momentum / mass : 0.0;
+    velocity = mass > 0.0 ? momentum / mass : float3(0.0, 0.0, 0.0);
     velocity += TIME_STEP * GLOBAL_GRAVITY;
-
-    // todo
-    // apply boundary condition here
-
 }
 
 [numthreads(SOLVE_GRID_LEVEL0_KERNEL_SIZE, SOLVE_GRID_LEVEL0_KERNEL_SIZE, SOLVE_GRID_LEVEL0_KERNEL_SIZE)]
