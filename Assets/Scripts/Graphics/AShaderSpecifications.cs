@@ -49,8 +49,7 @@ namespace Antares.Graphics
 
         public const float SDFSupremum = 4f;
 
-        [field: LabelText(nameof(ShaderSpecsInstance))]
-        public static AShaderSpecifications ShaderSpecsInstance { get; private set; }
+        public static AShaderSpecifications Instance { get; private set; }
 
         [field: SerializeField, LabelText(nameof(TextureUtilCS))]
         public TextureUtilCompute TextureUtilCS { get; private set; }
@@ -89,7 +88,7 @@ namespace Antares.Graphics
             InitializeSpec(FluidSolver);
             InitializeSpec(DebugFluidParticle);
 
-            ShaderSpecsInstance = this;
+            Instance = this;
 
 #if UNITY_EDITOR
             CheckInitialization();

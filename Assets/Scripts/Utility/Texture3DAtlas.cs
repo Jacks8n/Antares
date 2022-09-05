@@ -130,8 +130,8 @@ namespace Antares.Utility
 
             GraphicsFormat format = textures[0].graphicsFormat;
             RenderTexture atlasRT = CreateRWVolumeRT(format, packSize);
-            ComputeShader blitCS = ShaderSpecsInstance.TextureUtilCS.Shader;
-            int kernel = ShaderSpecsInstance.TextureUtilCS.BlitKernel;
+            ComputeShader blitCS = Instance.TextureUtilCS.Shader;
+            int kernel = Instance.TextureUtilCS.BlitKernel;
 
             cmd.SetComputeTextureParam(blitCS, kernel, Bindings.Destination, atlasRT);
             for (int i = 0; i < textures.Count; i++)
