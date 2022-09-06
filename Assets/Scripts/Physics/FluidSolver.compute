@@ -808,11 +808,11 @@ void WaveGetMaxInterval(bool flag, out uint interval, out uint maxInterval)
 #define BLOCK_MAP_LEVEL1 2
 
 groupshared uint4 AdjacentBlockOffsets_GSM[8];
-groupshared uint ReinterpretedGridsLevel1_GSM[8];
+groupshared uint AdjacentGridsLevel1_GSM[8];
 
 // all the threads whose indices are less than 8 must invoke this function.
 // group sync is REQUIRED after invocation.
-void LoadAdjacentBlockIndex(uint groupIndex, uint3 gridOffsetLevel0, uint3 gridPositionLevel1, bool reinterpretLevel1)
+void LoadAdjacentBlockIndex(uint groupIndex, uint3 gridOffsetLevel0, uint3 gridPositionLevel1)
 {
     if (!groupIndex)
         AdjacentBlockOffsets_GSM[0] = uint4(BLOCK_MAP_LEVEL0, gridOffsetLevel0);
@@ -836,19 +836,12 @@ void LoadAdjacentBlockIndex(uint groupIndex, uint3 gridOffsetLevel0, uint3 gridP
             else
             {
                 AdjacentBlockOffsets_GSM[groupIndex] = uint4(BLOCK_MAP_LEVEL1, adjacentGridIndexLevel1);
-
-                if (reinterpretLevel1)
-                    ReinterpretedGridsLevel1_GSM[groupIndex] = adjacentBlockIndexLevel0Encoded;
+                AdjacentGridsLevel1_GSM[groupIndex] = adjacentBlockIndexLevel0Encoded;
             }
         }
         else
             AdjacentBlockOffsets_GSM[groupIndex] = uint4(BLOCK_MAP_NULL, 0, 0, 0);
     }
-}
-
-void LoadAdjacentBlockIndex(uint groupIndex, uint3 gridOffsetLevel0, uint3 gridPositionLevel1)
-{
-    LoadAdjacentBlockIndex(groupIndex, gridOffsetLevel0, gridPositionLevel1, false);
 }
 
 int GetAdjacentBlockMap(uint groupIndex, out uint3 localGridIndex, out uint3 globalGridIndex, out uint subBlockIndex, out uint subBlockGridCount)
@@ -1110,8 +1103,7 @@ void ParticleToGrid1(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
         GroupMemoryBarrierWithGroupSync();
 
         // indices of adjacent blocks to load
-        const bool reinterpretLevel1 = all(FLUID_GRID_CHANNEL0_OFFSET == uint3(0, 0, 0));
-        LoadAdjacentBlockIndex(gi, gridOffsetLevel0, GridPositionLevel1_GSM, reinterpretLevel1);
+        LoadAdjacentBlockIndex(gi, gridOffsetLevel0, GridPositionLevel1_GSM);
 
         GroupMemoryBarrierWithGroupSync();
 
@@ -1134,10 +1126,8 @@ void ParticleToGrid1(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
                 int massEncoded;
                 if (mapType == BLOCK_MAP_LEVEL0)
                     massEncoded = FluidGridLevel0[srcGridIndex + FLUID_GRID_CHANNEL0_OFFSET];
-                else if (reinterpretLevel1)
-                    massEncoded = ReinterpretedGridsLevel1_GSM[subBlockIndex] / subBlockGridCount;
                 else
-                    massEncoded = FluidGridLevel0[srcGridIndex + FLUID_GRID_CHANNEL0_OFFSET];
+                    massEncoded = AdjacentGridsLevel1_GSM[subBlockIndex] / subBlockGridCount;
 
                 MassGrid_GSM[storeGridIndex] = DecodeFluidGridMass(massEncoded);
             }
@@ -1223,17 +1213,17 @@ void ParticleToGrid1(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
                     {
                         const float weight = weights[j].x * weights[k].y * weights[l].z;
                         const float3 gridToParticle = (gridToParticleOffset -float3(j, k, l)) * FLUID_GRID_SPACING;
-                        float3 momentum = weight * mul(c, gridToParticle);
+                        float3 impulse = weight * mul(c, gridToParticle);
 
                         #if !DISABLE_WAVE_SCATTER
                             uint stride = 1;
                             while (stride < intervalMax)
                             {
                                 const uint dstLane = laneIndex + stride;
-                                const float3 tempMomentum = WaveReadLaneAt(momentum, dstLane);
+                                const float3 tempImpulse = WaveReadLaneAt(impulse, dstLane);
 
                                 if (stride < interval)
-                                    momentum += tempMomentum;
+                                    impulse += tempImpulse;
 
                                 stride *= 2;
                             }
@@ -1243,12 +1233,12 @@ void ParticleToGrid1(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
                         #endif
 
                         const uint dstGridIndexEncoded = gridIndexOffsetEncoded + GetFluidBlockGridIndexLinearLevel0(uint3(j, k, l), FLUID_BLOCK_PADDING);
-                        const int3 momentumEncoded = EncodeFluidGridMomentum(momentum);
+                        const int3 impulseEncoded = EncodeFluidGridMomentum(impulse);
 
                         int _;
-                        InterlockedAdd(ImpulseGridEncoded_GSM[dstGridIndexEncoded].x, momentumEncoded.x, _);
-                        InterlockedAdd(ImpulseGridEncoded_GSM[dstGridIndexEncoded].y, momentumEncoded.y, _);
-                        InterlockedAdd(ImpulseGridEncoded_GSM[dstGridIndexEncoded].z, momentumEncoded.z, _);
+                        InterlockedAdd(ImpulseGridEncoded_GSM[dstGridIndexEncoded].x, impulseEncoded.x, _);
+                        InterlockedAdd(ImpulseGridEncoded_GSM[dstGridIndexEncoded].y, impulseEncoded.y, _);
+                        InterlockedAdd(ImpulseGridEncoded_GSM[dstGridIndexEncoded].z, impulseEncoded.z, _);
                     }
                 }
             }
@@ -1256,6 +1246,7 @@ void ParticleToGrid1(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 
         GroupMemoryBarrierWithGroupSync();
 
+        // exert impulse on global grids
         #if PARTICLE_TO_GRID_KERNEL_SIZE < FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED
             for (i = gi; i < FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED; i += PARTICLE_TO_GRID_KERNEL_SIZE)
         #else
@@ -1677,8 +1668,8 @@ void AddParticles(const uint3 tid : SV_DispatchThreadID, const uint3 gid : SV_Gr
     const uint prevParticleCount = GetFluidParticleCount();
     if (i == EmitterCount_GSM + ADD_PARTICLES_KERNEL_SIZE - 1)
     {
-        const uint particleHi = prevParticleCount + EmitterParticleOffset_GSM + MAX_EMITTER_PARTICLE_COUNT_PER_GROUP;
-        TotalEmitterParticleCount_GSM = min(dispatch.ParticleCountInclusiveSum, FLUID_MAX_PARTICLE_COUNT - particleHi);
+        const uint particleLo = prevParticleCount + EmitterParticleOffset_GSM;
+        TotalEmitterParticleCount_GSM = min(dispatch.ParticleCountInclusiveSum, max(particleLo, FLUID_MAX_PARTICLE_COUNT) - particleLo);
     }
 
     GroupMemoryBarrierWithGroupSync();
