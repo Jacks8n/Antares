@@ -206,6 +206,7 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
 
     // find level 1 blocks to allocate
     ParticlePositionIndexed position;
+    int3 gridPositionLevel0;
     uint3 gridPositionLevel1;
     uint3 gridPositionLevel2;
     uint3 gridOffsetLevel1;
@@ -218,7 +219,7 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
         valid = IsGridInBound(gridSpacePosition);
         if (valid)
         {
-            const int3 gridPositionLevel0 = GetKernelMinGridIndex(gridSpacePosition);
+            gridPositionLevel0 = GetKernelMinGridIndex(gridSpacePosition);
             GetFluidGridPositions(gridPositionLevel0, gridPositionLevel1, gridPositionLevel2, gridOffsetLevel1);
 
             uint acquired = !FLUID_GRID_VALUE_EMPTY;
@@ -358,7 +359,8 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
             blockIndexLevel0Linear = DecodeFluidBlockIndex(blockIndexLevel0Linear);
 
             uint _;
-            const uint offset = GetFluidBlockParticleCountOffset(blockIndexLevel0Linear);
+            const uint3 mod3 = gridPositionLevel0 % 3;
+            const uint offset = GetFluidBlockSubParticleCountPrefixSumOffset(blockIndexLevel0Linear, mod3);
             InterlockedAdd(FluidBlockParticleOffsets[offset], 1, _);
         }
     }
@@ -471,7 +473,10 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
     uint i, j;
     for (i = gi; i < PartitionSize_GSM; i += kernelSize)
     {
-        const uint particleCount = GetFluidBlockParticleCount(BlockIndexOffset_GSM + i);
+        const uint histogramIndex = BlockIndexOffset_GSM + i;
+        const uint blockIndex = histogramIndex / 27;
+        const uint offset = histogramIndex % 27;
+        const uint particleCount = GetFluidBlockSubParticleCount(blockIndex, offset);
         ParticleCounts_GSM[i] = particleCount;
     }
 
@@ -572,9 +577,14 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
 
     for (i = gi; i < PartitionSize_GSM; i += kernelSize)
     {
-        const uint blockIndex = BlockIndexOffset_GSM + i;
-        FluidBlockParticleOffsets[GetFluidBlockParticleCountOffset(blockIndex)] = 0;
-        SetFluidBlockParticleCountPrefixSum(blockIndex, GlobalExclusiveSum_GSM + ParticleCounts_GSM[i]);
+        const uint histogramIndex = BlockIndexOffset_GSM + i;
+        const uint blockIndex = histogramIndex / 27;
+        const uint offset = histogramIndex % 27;
+        const uint exclusiveSum = GlobalExclusiveSum_GSM + ParticleCounts_GSM[i];
+        SetFluidBlockSubParticleCountPrefixSum(blockIndex, offset, exclusiveSum);
+
+        if (!offset)
+            SetFluidBlockParticleCountExclusiveSum(blockIndex, exclusiveSum);
     }
 }
 
@@ -614,11 +624,11 @@ void SortParticles(uint3 tid : SV_DispatchThreadID)
         return;
 
     blockIndexLevel0Linear = DecodeFluidBlockIndex(blockIndexLevel0Linear);
-    const uint particleCountOffset = GetFluidBlockParticleCountOffset(blockIndexLevel0Linear);
+    const uint3 mod3 = gridPositionLevel0 % 3;
+    const uint particleCountOffset = GetFluidBlockSubParticleCountPrefixSumOffset(blockIndexLevel0Linear, mod3);
 
     uint dstIndex;
     InterlockedAdd(FluidBlockParticleOffsets[particleCountOffset], 1, dstIndex);
-    dstIndex += GetFluidBlockParticleCountPrefixSum(blockIndexLevel0Linear);
 
     SetFluidParticlePosition(dstIndex, position, !pingpongFlag);
 }
@@ -642,8 +652,8 @@ void ClearFluidGridLevel0(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID,
         FluidGridLevel0[gridOffset +FLUID_GRID_CHANNEL3_OFFSET] = 0;
         FluidGridLevel0[gridOffset +FLUID_GRID_CHANNEL4_OFFSET] = 0;
 
-        if (!gi)
-            FluidBlockParticleOffsets[GetFluidBlockParticleCountOffset(gid.x)] = 0;
+        if (gi < 27)
+            SetFluidBlockSubParticleCountPrefixSum(gid.x, gi, 0);
     }
 }
 
@@ -693,7 +703,7 @@ void ResetCounters()
 /// begin indirect args
 
 // layout: {
-//   generate particle histogram group count, indirect args{2},
+//   generate particle histogram/generate particle offsets group count, indirect args{2},
 //   sort particles group count, indirect args{2},
 //   clear partition sums group count, indirect args{2}
 //   indirect arg, particle count, indirect args{2}
@@ -734,7 +744,7 @@ void GenerateIndirectArgs0()
 void GenerateIndirectArgs1()
 {
     const uint blockCountLevel0 = GetFluidBlockCount(0);
-    IndirectArgs[0] = GetGroupCount(blockCountLevel0, SCAN_MAX_PARTITION_SIZE);
+    IndirectArgs[0] = GetGroupCount(blockCountLevel0 * 27, SCAN_MAX_PARTITION_SIZE);
     IndirectArgs[13] = GetGroupCount(blockCountLevel0, BLOCK_DISPATCH_PARTITION);
 
     const uint blockCountLevel1 = GetFluidBlockCount(1);

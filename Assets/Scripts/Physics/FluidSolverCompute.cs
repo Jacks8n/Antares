@@ -1,9 +1,9 @@
 ﻿using System;
 using System.Runtime.InteropServices;
-using Sirenix.OdinInspector;
-using UnityEngine;
 using Antares.Physics;
 using Antares.SDF;
+using Sirenix.OdinInspector;
+using UnityEngine;
 
 namespace Antares.Physics
 {
@@ -118,7 +118,7 @@ namespace Antares.Graphics
             public const int BlockDispatchPartition = 2;
 
             public const int PrefixSumPartitionSize = 1024;
-            public const int PrefixSumPartitionCount = (BlockCountLevel0 + PrefixSumPartitionSize - 1) / PrefixSumPartitionSize;
+            public const int PrefixSumPartitionCount = (BlockCountLevel0 * 27 + PrefixSumPartitionSize - 1) / PrefixSumPartitionSize;
 
             public const int MaxEmitterParticleCountPerGroup = 1024;
 
