@@ -251,7 +251,6 @@ ParticleProperty GetFluidParticleProperty(uint index)
 #define FLUID_BLOCK_COUNT_LEVEL1 (FLUID_BLOCK_COUNT_X_LEVEL1 * FLUID_BLOCK_COUNT_Y_LEVEL1 * FLUID_BLOCK_COUNT_Z_LEVEL1)
 #define FLUID_GRID_EXTENT_LEVEL1 (FLUID_BLOCK_SIZE_LEVEL1 * uint3(FLUID_BLOCK_COUNT_X_LEVEL1, FLUID_BLOCK_COUNT_Y_LEVEL1, FLUID_BLOCK_COUNT_Z_LEVEL1))
 
-// though it's named 'block', it represents each cell
 #define FLUID_GRID_COUNT_X_LEVEL2 256
 #define FLUID_GRID_COUNT_Y_LEVEL2 256
 #define FLUID_GRID_COUNT_Z_LEVEL2 256
@@ -473,11 +472,15 @@ DEF_LINEARIZE_FLUID_BLOCK_GRID_INDEX_FUNC(1)
 //   level 0 block count, level 1 block count, unused{2},
 //   {
 //     exclusive prefix sum of total particle count,
-//     exclusive prefix sum of particle count of sub grids{27},
-//     block position.xyz, unused
+//     exclusive prefix sum of particle count of sub grids{level 0 block grid count},
+//     block position.xyz
 //   }*
 // }
-// initial value: { max level 0 block count, max level 1 block count, x{2}, { x, 0{27}, x{3}, x }* }
+// initial value: 
+// { 
+//   max level 0 block count, max level 1 block count, x{2},
+//   { x, 0{level 0 block grid count}, x{3} }*
+// }
 extern A_RWBUFFER(uint) FluidBlockParticleOffsets;
 
 uint GetFluidBlockCountOffset(uint level)
@@ -487,7 +490,7 @@ uint GetFluidBlockCountOffset(uint level)
 
 uint GetFluidBlockInfoOffset(uint blockIndex)
 {
-    return GetFluidBlockCountOffset(1) + 3 + blockIndex * 32;
+    return GetFluidBlockCountOffset(1) + 3 + blockIndex * (4 + FLUID_BLOCK_GRID_COUNT_LEVEL0);
 }
 
 uint GetFluidBlockParticleCountExclusiveSumOffset(uint blockIndex)
@@ -495,32 +498,31 @@ uint GetFluidBlockParticleCountExclusiveSumOffset(uint blockIndex)
     return GetFluidBlockInfoOffset(blockIndex);
 }
 
-uint GetFluidBlockSubParticleCountOffset(uint blockIndex, uint offset)
+uint GetFluidBlockGridParticleCountOffset(uint blockIndex, uint gridIndex)
 {
-    return GetFluidBlockInfoOffset(blockIndex) + 1 + offset;
+    return GetFluidBlockInfoOffset(blockIndex) + 1 + gridIndex;
 }
 
-// note: ensure that `offset` is within [0, 3)^3
-uint GetFluidBlockSubParticleCountOffset(uint blockIndex, uint3 offset)
+uint GetFluidBlockGridParticleCountOffset(uint blockIndex, uint3 gridIndex)
 {
-    const uint linearOffset = GetGridIndexLinear(offset, uint2(3, 3));
-    return GetFluidBlockSubParticleCountOffset(blockIndex, linearOffset);
+    const uint offset = GetFluidBlockGridIndexLinearLevel0(gridIndex);
+    return GetFluidBlockGridParticleCountOffset(blockIndex, offset);
 }
 
-uint GetFluidBlockSubParticleCountPrefixSumOffset(uint blockIndex, uint offset)
+uint GetFluidBlockGridParticleCountPrefixSumOffset(uint blockIndex, uint gridIndex)
 {
     // simply reinterpret the word
-    return GetFluidBlockSubParticleCountOffset(blockIndex, offset);
+    return GetFluidBlockGridParticleCountOffset(blockIndex, gridIndex);
 }
 
-uint GetFluidBlockSubParticleCountPrefixSumOffset(uint blockIndex, uint3 offset)
+uint GetFluidBlockGridParticleCountPrefixSumOffset(uint blockIndex, uint3 gridIndex)
 {
-    return GetFluidBlockSubParticleCountOffset(blockIndex, offset);
+    return GetFluidBlockGridParticleCountOffset(blockIndex, gridIndex);
 }
 
 uint GetFluidBlockPositionOffset(uint blockIndex)
 {
-    return GetFluidBlockInfoOffset(blockIndex) + 28;
+    return GetFluidBlockInfoOffset(blockIndex) + 1 + FLUID_BLOCK_GRID_COUNT_LEVEL0;
 }
 
 uint GetFluidBlockCount(uint level)
@@ -535,28 +537,28 @@ uint GetFluidBlockParticleCountExclusiveSum(uint blockIndex)
     return FluidBlockParticleOffsets[offset];
 }
 
-uint GetFluidBlockSubParticleCount(uint blockIndex, uint offset)
+uint GetFluidBlockGridParticleCount(uint blockIndex, uint gridIndex)
 {
-    const uint bufferOffset = GetFluidBlockSubParticleCountOffset(blockIndex, offset);
-    return FluidBlockParticleOffsets[bufferOffset];
+    const uint offset = GetFluidBlockGridParticleCountOffset(blockIndex, gridIndex);
+    return FluidBlockParticleOffsets[offset];
 }
 
-uint GetFluidBlockSubParticleCount(uint blockIndex, uint3 offset)
+uint GetFluidBlockGridParticleCount(uint blockIndex, uint3 gridIndex)
 {
-    const uint bufferOffset = GetFluidBlockSubParticleCountOffset(blockIndex, offset);
-    return FluidBlockParticleOffsets[bufferOffset];
+    const uint offset = GetFluidBlockGridParticleCountOffset(blockIndex, gridIndex);
+    return FluidBlockParticleOffsets[offset];
 }
 
-uint GetFluidBlockSubParticleCountPrefixSum(uint blockIndex, uint offset)
+uint GetFluidBlockGridParticleCountPrefixSum(uint blockIndex, uint gridIndex)
 {
-    const uint bufferOffset = GetFluidBlockSubParticleCountPrefixSumOffset(blockIndex, offset);
-    return FluidBlockParticleOffsets[bufferOffset];
+    const uint offset = GetFluidBlockGridParticleCountPrefixSumOffset(blockIndex, gridIndex);
+    return FluidBlockParticleOffsets[offset];
 }
 
-uint GetFluidBlockSubParticleCountPrefixSum(uint blockIndex, uint3 offset)
+uint GetFluidBlockGridParticleCountPrefixSum(uint blockIndex, uint3 gridIndex)
 {
-    const uint bufferOffset = GetFluidBlockSubParticleCountPrefixSumOffset(blockIndex, offset);
-    return FluidBlockParticleOffsets[bufferOffset];
+    const uint offset = GetFluidBlockGridParticleCountPrefixSumOffset(blockIndex, gridIndex);
+    return FluidBlockParticleOffsets[offset];
 }
 
 uint3 GetFluidBlockPosition(uint blockIndexLevel0)
@@ -573,7 +575,7 @@ uint3 GetFluidBlockPosition(uint blockIndexLevel0)
 uint GetFluidBlockParticleCount(uint blockIndexLevel0)
 {
     const uint exclusiveSum = GetFluidBlockParticleCountExclusiveSum(blockIndexLevel0);
-    const uint inclusiveSum = GetFluidBlockSubParticleCountPrefixSum(blockIndexLevel0, 26);
+    const uint inclusiveSum = GetFluidBlockGridParticleCountPrefixSum(blockIndexLevel0, FLUID_BLOCK_GRID_COUNT_LEVEL0 - 1);
     return inclusiveSum - exclusiveSum;
 }
 
@@ -597,16 +599,16 @@ void GetFluidBlockInfo(uint blockIndexLevel0, out uint3 gridPositionLevel1, out 
         FluidBlockParticleOffsets[offset] = count;
     }
 
-    void SetFluidBlockSubParticleCountPrefixSum(uint blockIndex, uint offset, uint prefixSum)
+    void SetFluidBlockGridParticleCountPrefixSum(uint blockIndex, uint gridIndex, uint prefixSum)
     {
-        const uint bufferOffset = GetFluidBlockSubParticleCountPrefixSumOffset(blockIndex, offset);
-        FluidBlockParticleOffsets[bufferOffset] = prefixSum;
+        const uint offset = GetFluidBlockGridParticleCountPrefixSumOffset(blockIndex, gridIndex);
+        FluidBlockParticleOffsets[offset] = prefixSum;
     }
 
-    void SetFluidBlockSubParticleCountPrefixSum(uint blockIndex, uint3 offset, uint prefixSum)
+    void SetFluidBlockGridParticleCountPrefixSum(uint blockIndex, uint3 gridIndex, uint prefixSum)
     {
-        const uint bufferOffset = GetFluidBlockSubParticleCountPrefixSumOffset(blockIndex, offset);
-        FluidBlockParticleOffsets[bufferOffset] = prefixSum;
+        const uint offset = GetFluidBlockGridParticleCountPrefixSumOffset(blockIndex, gridIndex);
+        FluidBlockParticleOffsets[offset] = prefixSum;
     }
 
     void SetFluidBlockParticleCountExclusiveSum(uint blockIndex, uint exclusiveSum)

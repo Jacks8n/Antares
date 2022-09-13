@@ -148,7 +148,7 @@ namespace Antares.Physics
             _fluidGridLevel1 = CreateRWVolumeRT(GraphicsFormat.R32_UInt, GridSizeLevel1);
             _fluidGridLevel2 = CreateRWVolumeRT(GraphicsFormat.R32_UInt, GridSizeLevel2);
 
-            _fluidBlockParticleOffsetsBuffer = new ComputeBuffer(4 + BlockCountLevel0 * 32, 4, ComputeBufferType.Structured, ComputeBufferMode.Dynamic);
+            _fluidBlockParticleOffsetsBuffer = new ComputeBuffer(4 + BlockCountLevel0 * (4 + GridPerBlockLevel0), 4, ComputeBufferType.Structured, ComputeBufferMode.Dynamic);
 
             _partitionSumsBuffer = new ComputeBuffer(1 + 2 * PrefixSumPartitionCount, 4, ComputeBufferType.Structured, ComputeBufferMode.Immutable);
 

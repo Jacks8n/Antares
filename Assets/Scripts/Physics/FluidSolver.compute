@@ -161,9 +161,10 @@ float3 GetGridSpacePosition(float3 worldSpacePosition)
     return (worldSpacePosition - FluidGridTranslation) * FLUID_GRID_SPACING_INV;
 }
 
-int3 GetKernelMinGridIndex(float3 gridSpacePosition)
+// assumes that the position is in bound
+uint3 GetKernelMinGridIndex(float3 gridSpacePosition)
 {
-    return int3(ceil(gridSpacePosition - 1.5));
+    return uint3(ceil(gridSpacePosition - 1.5));
 }
 
 bool IsGridInBound(float3 gridSpacePosition)
@@ -206,7 +207,7 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
 
     // find level 1 blocks to allocate
     ParticlePositionIndexed position;
-    int3 gridPositionLevel0;
+    uint3 gridPositionLevel0;
     uint3 gridPositionLevel1;
     uint3 gridPositionLevel2;
     uint3 gridOffsetLevel1;
@@ -358,9 +359,10 @@ void GenerateParticleHistogram(uint3 tid : SV_DispatchThreadID, uint gi : SV_Gro
         {
             blockIndexLevel0Linear = DecodeFluidBlockIndex(blockIndexLevel0Linear);
 
+            const uint3 gridOffsetLevel0 = gridPositionLevel0 % FLUID_BLOCK_SIZE_LEVEL0;
+            const uint offset = GetFluidBlockGridParticleCountPrefixSumOffset(blockIndexLevel0Linear, gridOffsetLevel0);
+
             uint _;
-            const uint3 mod3 = gridPositionLevel0 % 3;
-            const uint offset = GetFluidBlockSubParticleCountPrefixSumOffset(blockIndexLevel0Linear, mod3);
             InterlockedAdd(FluidBlockParticleOffsets[offset], 1, _);
         }
     }
@@ -454,8 +456,8 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
         BlockIndexOffset_GSM = PartitionIndex_GSM * SCAN_MAX_PARTITION_SIZE;
         GlobalExclusiveSum_GSM = 0;
 
-        const uint blockCount = GetFluidBlockCount(0);
-        PartitionSize_GSM = min(blockCount - BlockIndexOffset_GSM, SCAN_MAX_PARTITION_SIZE);
+        const uint histogramCount = GetFluidBlockCount(0) * FLUID_BLOCK_GRID_COUNT_LEVEL0;
+        PartitionSize_GSM = min(histogramCount - BlockIndexOffset_GSM, SCAN_MAX_PARTITION_SIZE);
     }
 
     GroupMemoryBarrierWithGroupSync();
@@ -474,9 +476,9 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
     for (i = gi; i < PartitionSize_GSM; i += kernelSize)
     {
         const uint histogramIndex = BlockIndexOffset_GSM + i;
-        const uint blockIndex = histogramIndex / 27;
-        const uint offset = histogramIndex % 27;
-        const uint particleCount = GetFluidBlockSubParticleCount(blockIndex, offset);
+        const uint blockIndex = histogramIndex / FLUID_BLOCK_GRID_COUNT_LEVEL0;
+        const uint offset = histogramIndex % FLUID_BLOCK_GRID_COUNT_LEVEL0;
+        const uint particleCount = GetFluidBlockGridParticleCount(blockIndex, offset);
         ParticleCounts_GSM[i] = particleCount;
     }
 
@@ -578,10 +580,10 @@ void GenerateParticleOffsets(uint3 tid : SV_DispatchThreadID, uint gi : SV_Group
     for (i = gi; i < PartitionSize_GSM; i += kernelSize)
     {
         const uint histogramIndex = BlockIndexOffset_GSM + i;
-        const uint blockIndex = histogramIndex / 27;
-        const uint offset = histogramIndex % 27;
+        const uint blockIndex = histogramIndex / FLUID_BLOCK_GRID_COUNT_LEVEL0;
+        const uint offset = histogramIndex % FLUID_BLOCK_GRID_COUNT_LEVEL0;
         const uint exclusiveSum = GlobalExclusiveSum_GSM + ParticleCounts_GSM[i];
-        SetFluidBlockSubParticleCountPrefixSum(blockIndex, offset, exclusiveSum);
+        SetFluidBlockGridParticleCountPrefixSum(blockIndex, offset, exclusiveSum);
 
         if (!offset)
             SetFluidBlockParticleCountExclusiveSum(blockIndex, exclusiveSum);
@@ -605,7 +607,7 @@ void SortParticles(uint3 tid : SV_DispatchThreadID)
     if (!IsGridInBound(gridSpacePosition))
         return;
 
-    const int3 gridPositionLevel0 = GetKernelMinGridIndex(gridSpacePosition);
+    const uint3 gridPositionLevel0 = GetKernelMinGridIndex(gridSpacePosition);
 
     uint3 gridPositionLevel2;
     uint3 gridOffsetLevel1;
@@ -624,8 +626,8 @@ void SortParticles(uint3 tid : SV_DispatchThreadID)
         return;
 
     blockIndexLevel0Linear = DecodeFluidBlockIndex(blockIndexLevel0Linear);
-    const uint3 mod3 = gridPositionLevel0 % 3;
-    const uint particleCountOffset = GetFluidBlockSubParticleCountPrefixSumOffset(blockIndexLevel0Linear, mod3);
+    const uint3 gridOffsetLevel0 = gridPositionLevel0 % FLUID_BLOCK_SIZE_LEVEL0;
+    const uint particleCountOffset = GetFluidBlockGridParticleCountPrefixSumOffset(blockIndexLevel0Linear, gridOffsetLevel0);
 
     uint dstIndex;
     InterlockedAdd(FluidBlockParticleOffsets[particleCountOffset], 1, dstIndex);
@@ -652,8 +654,8 @@ void ClearFluidGridLevel0(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID,
         FluidGridLevel0[gridOffset +FLUID_GRID_CHANNEL3_OFFSET] = 0;
         FluidGridLevel0[gridOffset +FLUID_GRID_CHANNEL4_OFFSET] = 0;
 
-        if (gi < 27)
-            SetFluidBlockSubParticleCountPrefixSum(gid.x, gi, 0);
+        if (gi < FLUID_BLOCK_GRID_COUNT_LEVEL0)
+            SetFluidBlockGridParticleCountPrefixSum(gid.x, gi, 0);
     }
 }
 
@@ -744,7 +746,7 @@ void GenerateIndirectArgs0()
 void GenerateIndirectArgs1()
 {
     const uint blockCountLevel0 = GetFluidBlockCount(0);
-    IndirectArgs[0] = GetGroupCount(blockCountLevel0 * 27, SCAN_MAX_PARTITION_SIZE);
+    IndirectArgs[0] = GetGroupCount(blockCountLevel0 * FLUID_BLOCK_GRID_COUNT_LEVEL0, SCAN_MAX_PARTITION_SIZE);
     IndirectArgs[13] = GetGroupCount(blockCountLevel0, BLOCK_DISPATCH_PARTITION);
 
     const uint blockCountLevel1 = GetFluidBlockCount(1);
@@ -783,7 +785,7 @@ void CalculateParticleGridTransfer(
     float3 gridSpacePosition, uint3 gridPositionLevel1, out uint3 gridIndex,
     out float3 gridToParticle, out float3 weight0, out float3 weight1, out float3 weight2)
 {
-    gridIndex = uint3(GetKernelMinGridIndex(gridSpacePosition)) % FLUID_BLOCK_SIZE_LEVEL0;
+    gridIndex = GetKernelMinGridIndex(gridSpacePosition) % FLUID_BLOCK_SIZE_LEVEL0;
 
     const uint3 gridPositionLevel0 = gridPositionLevel1 * FLUID_BLOCK_SIZE_LEVEL0 + gridIndex;
     gridToParticle = gridSpacePosition - gridPositionLevel0;
