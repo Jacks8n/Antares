@@ -368,16 +368,22 @@ bool IsValidEncodedFluidBlockIndex(uint index)
     return (index & mask) == (1u << 31);
 }
 
-int3 GetFluidGridPositionNearest(float3 gridSpacePosition)
-{
-    return int3(round(gridSpacePosition));
-}
-
-void GetFluidGridPositions(uint3 gridPositionLevel0, out uint3 gridPositionLevel1, out uint3 gridPositionLevel2, out uint3 gridOffsetLevel1)
+void GetFluidGridPositions(
+    uint3 gridPositionLevel0, out uint3 gridPositionLevel1, out uint3 gridPositionLevel2,
+    out uint3 gridOffsetLevel0, out uint3 gridOffsetLevel1)
 {
     gridPositionLevel1 = gridPositionLevel0 / FLUID_BLOCK_SIZE_LEVEL0;
     gridPositionLevel2 = gridPositionLevel1 / FLUID_BLOCK_SIZE_LEVEL1;
+    gridOffsetLevel0 = gridPositionLevel0 % FLUID_BLOCK_SIZE_LEVEL0;
     gridOffsetLevel1 = gridPositionLevel1 % FLUID_BLOCK_SIZE_LEVEL1;
+}
+
+void GetFluidGridPositions(
+    uint3 gridPositionLevel0, out uint3 gridPositionLevel1, out uint3 gridPositionLevel2,
+    out uint3 gridOffsetLevel1)
+{
+    uint3 _;
+    GetFluidGridPositions(gridPositionLevel0, gridPositionLevel1, gridPositionLevel2, _, gridOffsetLevel1);
 }
 
 void GetFluidGridPositions(uint3 gridPositionLevel0, out uint3 gridPositionLevel2, out uint3 gridOffsetLevel1)
@@ -483,10 +489,52 @@ DEF_LINEARIZE_FLUID_BLOCK_GRID_INDEX_FUNC(1)
 
 #undef DEF_LINEARIZE_FLUID_BLOCK_GRID_INDEX_FUNC
 
+void TryGetFluidGridIndex(uint3 gridPositionLevel0, uint skipCheckLevel, out uint gridLevel, out uint3 gridIndex)
+{
+    uint3 gridPositionLevel1;
+    uint3 gridPositionLevel2;
+    uint3 gridOffsetLevel0;
+    uint3 gridOffsetLevel1;
+    GetFluidGridPositions(
+        gridPositionLevel0, gridPositionLevel1, gridPositionLevel2,
+        gridOffsetLevel0, gridOffsetLevel1);
+
+    const uint encodedBlockIndexLinearLevel1 = FluidGridLevel2[gridPositionLevel2];
+    if (!skipCheckLevel && !IsValidEncodedFluidBlockIndex(encodedBlockIndexLinearLevel1))
+    {
+        gridLevel = 2;
+        gridIndex = gridPositionLevel2;
+        return;
+    }
+
+    const uint blockIndexLinearLevel1 = DecodeFluidBlockIndex(encodedBlockIndexLinearLevel1);
+    const uint3 blockIndexSpatialLevel1 = GetFluidBlockIndexSpatialLevel1(blockIndexLinearLevel1);
+    const uint3 gridIndexLevel1 = blockIndexSpatialLevel1 * FLUID_BLOCK_SIZE_LEVEL1 + gridOffsetLevel1;
+
+    const uint encodedBlockIndexLinearLevel0 = FluidGridLevel1[gridIndexLevel1];
+    if (skipCheckLevel < 2 && !IsValidEncodedFluidBlockIndex(encodedBlockIndexLinearLevel0))
+    {
+        gridLevel = 1;
+        gridIndex = gridIndexLevel1;
+        return;
+    }
+
+    const uint blockIndexLinearLevel0 = DecodeFluidBlockIndex(encodedBlockIndexLinearLevel0);
+    const uint3 blockIndexSpatialLevel0 = GetFluidBlockIndexSpatialLevel0(blockIndexLinearLevel0);
+    const uint3 gridIndexLevel0 = blockIndexSpatialLevel0 * FLUID_BLOCK_SIZE_LEVEL0 + gridOffsetLevel0;
+
+    gridLevel = 0;
+    gridIndex = gridIndexLevel0;
+}
+
+void TryGetFluidGridIndex(uint3 gridPositionLevel0, out uint gridLevel, out uint3 gridIndex)
+{
+    TryGetFluidGridIndex(gridPositionLevel0, 0, gridLevel, gridIndex);
+}
+
 // layout:
 // {
 //   level 0 block count, level 1 block count, unused{2},
-//   p2g partition counter{27}, unused,
 //   {
 //     exclusive prefix sum of total particle count,
 //     exclusive prefix sum of particle count of sub grids{level 0 block grid count},
@@ -506,14 +554,9 @@ uint GetFluidBlockCountOffset(uint level)
     return level ? 1 : 0;
 }
 
-uint GetFluidBlockP2GPartitionCounterOffset(uint p2gOffset)
-{
-    return GetFluidBlockCountOffset(1) + 3 + p2gOffset;
-}
-
 uint GetFluidBlockInfoOffset(uint blockIndex)
 {
-    return GetFluidBlockP2GPartitionCounterOffset(26) + 2 + blockIndex * (4 + FLUID_BLOCK_GRID_COUNT_LEVEL0);
+    return GetFluidBlockCountOffset(1) + 3 + blockIndex * (4 + FLUID_BLOCK_GRID_COUNT_LEVEL0);
 }
 
 uint GetFluidBlockParticleCountExclusiveSumOffset(uint blockIndex)
@@ -623,12 +666,6 @@ void GetFluidBlockInfo(uint blockIndexLevel0, out uint3 gridPositionLevel1, out 
     void SetFluidBlockCount(uint level, uint count)
     {
         const uint offset = GetFluidBlockCountOffset(level);
-        FluidBlockParticleOffsets[offset] = count;
-    }
-
-    void SetFluidBlockP2GPartitionCounter(uint p2gOffset, uint count)
-    {
-        const uint offset = GetFluidBlockP2GPartitionCounterOffset(p2gOffset);
         FluidBlockParticleOffsets[offset] = count;
     }
 

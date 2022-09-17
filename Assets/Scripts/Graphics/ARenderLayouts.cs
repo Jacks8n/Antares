@@ -87,6 +87,8 @@ namespace Antares.Graphics
 
             public static int PartitionSums { get; } = Shader.PropertyToID(nameof(PartitionSums));
 
+            public static int ParticleToGridOffset { get; } = Shader.PropertyToID(nameof(ParticleToGridOffset));
+
             public static int FluidEmitterDispatches { get; } = Shader.PropertyToID(nameof(FluidEmitterDispatches));
 
             public static int FluidEmitterPartitions { get; } = Shader.PropertyToID(nameof(FluidEmitterPartitions));
