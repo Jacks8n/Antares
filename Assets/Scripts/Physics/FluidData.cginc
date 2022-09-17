@@ -629,16 +629,16 @@ uint GetFluidBlockGridParticleCountPrefixSum(uint blockIndex, uint3 gridIndex)
     return FluidBlockParticleOffsets[offset];
 }
 
-uint GetFluidBlockPositionLevel1Linear(uint blockIndexLevel0)
+uint GetFluidBlockPositionLinearLevel1(uint blockIndexLevel0)
 {
     const uint offset = GetFluidBlockPositionLevel1Offset(blockIndexLevel0);
     return FluidBlockParticleOffsets[offset];
 }
 
-uint3 GetFluidBlockPositionLevel1Spatial(uint blockIndexLevel0)
+uint3 GetFluidBlockPositionSpatialLevel1(uint blockIndexLevel0)
 {
-    const uint blockPositionLevel1Linear = GetFluidBlockPositionLevel1Linear(blockIndexLevel0);
-    return GetFluidVirtualGridIndexLevel1(blockPositionLevel1Linear);
+    const uint blockPositionLevel1Linear = GetFluidBlockPositionLinearLevel1(blockIndexLevel0);
+    return GetFluidVirtualGridIndexSpatialLevel1(blockPositionLevel1Linear);
 }
 
 // note: only valid after particle offsets are computed
@@ -651,7 +651,7 @@ uint GetFluidBlockParticleCount(uint blockIndexLevel0)
 
 void GetFluidBlockInfo(uint blockIndexLevel0, out uint3 gridPositionLevel1, out uint particleCount)
 {
-    gridPositionLevel1 = GetFluidBlockPositionLevel1Spatial(blockIndexLevel0);
+    gridPositionLevel1 = GetFluidBlockPositionSpatialLevel1(blockIndexLevel0);
     particleCount = GetFluidBlockParticleCount(blockIndexLevel0);
 }
 
@@ -695,7 +695,7 @@ void GetFluidBlockInfo(uint blockIndexLevel0, out uint3 gridPositionLevel1, out 
 
     void SetFluidBlockPositionLevel1(uint blockIndexLevel0, uint3 blockPositionLevel1)
     {
-        const uint blockPositionLevel1Linear = GetFluidVirtualGridIndexLevel1(blockPositionLevel1);
+        const uint blockPositionLevel1Linear = GetFluidVirtualGridIndexLinearLevel1(blockPositionLevel1);
         SetFluidBlockPositionLevel1(blockIndexLevel0, blockPositionLevel1Linear);
     }
 

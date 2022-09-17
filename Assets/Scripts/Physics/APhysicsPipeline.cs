@@ -178,7 +178,8 @@ namespace Antares.Physics
                 0, 1, 1,
                 1, 0, 0, 0,
                 (BlockCountLevel0 + BlockDispatchPartition - 1) / BlockDispatchPartition, 1, 1,
-                (BlockCountLevel1 + BlockDispatchPartition - 1) / BlockDispatchPartition, 1, 1
+                (BlockCountLevel1 + BlockDispatchPartition - 1) / BlockDispatchPartition, 1, 1,
+                0, 1, 1
             });
 
             cmd.SetGlobalBuffer(Bindings.FluidParticlePositions, _fluidParticlePositionsBuffer);

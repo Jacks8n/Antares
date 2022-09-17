@@ -688,18 +688,13 @@ void ClearPartitionSums(uint3 tid : SV_DispatchThreadID)
     }
 }
 
-[numthreads(27, 1, 1)]
+[numthreads(1, 1, 1)]
 void ResetCounters(uint gi : SV_GroupIndex)
 {
-    SetFluidBlockP2GPartitionCounter(gi, 0);
+    SetPartitionCount(0);
 
-    if (!gi)
-    {
-        SetPartitionCount(0);
-
-        SetFluidBlockCount(0, 0);
-        SetFluidBlockCount(1, 0);
-    }
+    SetFluidBlockCount(0, 0);
+    SetFluidBlockCount(1, 0);
 }
 
 /// end clear fluid data
@@ -893,7 +888,7 @@ void ParticleToGrid0(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
     uint particleIndexOffset;
     uint3 p2gGridPositionLevel0;
 
-    #if PARTICLE_TO_GRID_KERNEL_SIZE % 8
+    #if PARTICLE_TO_GRID_KERNEL_SIZE & 7
         "kernel size is expected to be multiple of 8"
     #endif
 
@@ -906,7 +901,7 @@ void ParticleToGrid0(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
     const uint blockIndexLevel0 = BlockIndexOffset_GSM + gi / 8;
     if (blockIndexLevel0 < blockCountLevel0)
     {
-        const uint3 blockPositionLevel0 = GetFluidBlockPositionLevel1Spatial(blockIndexLevel0) * FLUID_BLOCK_SIZE_LEVEL0;
+        const uint3 blockPositionLevel0 = GetFluidBlockPositionSpatialLevel1(blockIndexLevel0) * FLUID_BLOCK_SIZE_LEVEL0;
 
         // calculate grid index to load
         const uint3 gridPositionOffset = uint3(gi & 1, (gi >> 1) & 1, (gi >> 2) & 1);
@@ -961,7 +956,7 @@ void ParticleToGrid0(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
             const uint waveHi = min(indirectIndexHi - indirectIndexOffset -1, PARTICLE_TO_GRID_KERNEL_SIZE) / laneCount;
             if (waveLo != waveHi)
             {
-                const uint sharedBufferIndex;
+                uint sharedBufferIndex;
                 InterlockedAdd(SharedBufferCount_GSM, 1, sharedBufferIndex);
 
                 SharedBufferIndices_GSM[indirectIndex] = sharedBufferIndex;
@@ -1092,7 +1087,7 @@ void ParticleToGrid0(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
                         }
                         else
                         {
-                            const uint dstGridIndex = GetGridIndexLinear(gridOffset, uint(3).xx) * sharedBufferIndex;
+                            const uint dstGridIndex = sharedBufferIndex * 27 + GetGridIndexLinear(gridOffset, uint(3).xx);
 
                             // currently 4-element atomic add is not spported
                             uint _;
@@ -1113,7 +1108,7 @@ void ParticleToGrid0(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
         if (waveIndex < SharedBufferCount_GSM && laneIndex < 27)
         {
             const uint3 dstGridIndexOffset = GetGridIndexSpatial(laneIndex, uint(3).xx);
-            const uint3 dstGridPosition = SharedBufferPositions_GSM[waveIndex] + gridIndexOffset;
+            const uint3 dstGridPosition = SharedBufferPositions_GSM[waveIndex] + dstGridIndexOffset;
 
             uint gridLevel;
             uint3 dstGridIndex;
@@ -1415,7 +1410,7 @@ void SolveGridLevel0(uint3 gid : SV_GroupID, uint3 gtid : SV_GroupThreadID)
         SolveGrid(mass, momentum, velocity);
 
         #if !DISABLE_SDF_COLLISION
-            const uint3 gridPosition = GetFluidBlockPositionLevel1(gid.x) * FLUID_BLOCK_SIZE_LEVEL0 + gtid;
+            const uint3 gridPosition = GetFluidBlockPositionSpatialLevel1(gid.x) * FLUID_BLOCK_SIZE_LEVEL0 + gtid;
             const float3 positionSDFSpace = gridPosition * FLUID_GRID_SPACING + FluidGridTranslation - SDFSceneTranslation;
             const float3 sdfSampleLocation = positionSDFSpace * SCENE_VOLUME_TEXEL;
             if (all(sdfSampleLocation > 0.0 && sdfSampleLocation < 1.0))
@@ -1654,7 +1649,8 @@ void GridToParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 //                  x, 1, 1,
 //                  1, x, 0, 0,
 //                  max level 0 block partition count, 1, 1,
-//                  max level 1 block partition count, 1, 1 }
+//                  max level 1 block partition count, 1, 1,
+//                  x, 1, 1 }
 extern RWBuffer<uint> IndirectArgs;
 
 uint GetGroupCount(uint nelem, uint kernelSize)
