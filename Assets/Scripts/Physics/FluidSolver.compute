@@ -966,6 +966,15 @@ void ParticleToGrid0(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 
         GroupMemoryBarrierWithGroupSync();
 
+        // init shared buffer
+        // shared buffer must be less than waves, and wave msut have more than 27 threads
+        // thus kernel size must be larger than max shared buffer size
+        if (gi < SharedBufferCount_GSM * 27)
+        {
+            FluidGrid_GSM[gi] = uint(0).xxxx;
+            SDFGrid_GSM[gi] = 0;
+        }
+
         // broadcast indirect indices
         const uint indirectParticleCount = min(P2GParticleCount_GSM - indirectIndexOffset, PARTICLE_TO_GRID_KERNEL_SIZE);
         for (i = 1; i < indirectParticleCount; i *= 2)
@@ -988,6 +997,7 @@ void ParticleToGrid0(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
             GroupMemoryBarrierWithGroupSync();
         }
 
+        // read particle
         const uint particleIndex = ParticleIndices_GSM[gi];
         const ParticlePositionIndexed position = GetFluidParticlePosition(particleIndex, pingpongFlag);
         const ParticleProperty property = GetFluidParticleProperty(position.Index);
@@ -1008,7 +1018,8 @@ void ParticleToGrid0(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 
         // used to handle inter-wave conflicts later
         uint interval, intervalMax;
-        const bool isLo = particleIndex != WaveReadLaneAt(particleIndex, max(1, laneIndex) - 1) + 1 || !laneIndex;
+        const uint gridPositionLevel0Linear = GetFluidVirtualGridIndexLinearLevel0(gridPositionLevel0);
+        const bool isLo = gridPositionLevel0Linear != WaveReadLaneAt(gridPositionLevel0Linear, max(1, laneIndex) - 1) || !laneIndex;
         WaveGetMaxInterval(isLo, interval, intervalMax);
 
         const uint sharedBufferIndex = SharedBufferIndices_GSM[gi];
@@ -1035,6 +1046,7 @@ void ParticleToGrid0(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
                     massMomentum.yzw = massMomentum.x * (velocity + affineVelocity);
                     float sdf = length(x) - FLUID_PARTICLE_RADIUS;
 
+                    // inter-wave sum
                     uint stride = 1;
                     while (stride < intervalMax)
                     {
@@ -1059,6 +1071,7 @@ void ParticleToGrid0(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 
                         if (bypassGSM)
                         {
+                            // directly write to uav
                             const uint3 dstGridPosition = gridPositionLevel0 + gridOffset;
 
                             uint gridLevel;
@@ -1087,6 +1100,7 @@ void ParticleToGrid0(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
                         }
                         else
                         {
+                            // write to gsm
                             const uint dstGridIndex = sharedBufferIndex * 27 + GetGridIndexLinear(gridOffset, uint(3).xx);
 
                             // currently 4-element atomic add is not spported
@@ -1104,7 +1118,7 @@ void ParticleToGrid0(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 
         GroupMemoryBarrierWithGroupSync();
 
-        // shared buffers must be less than waves
+        // write gsm to uav
         if (waveIndex < SharedBufferCount_GSM && laneIndex < 27)
         {
             const uint3 dstGridIndexOffset = GetGridIndexSpatial(laneIndex, uint(3).xx);
@@ -1144,6 +1158,8 @@ void ParticleToGrid0(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
         }
 
         indirectIndexOffset += PARTICLE_TO_GRID_KERNEL_SIZE;
+
+        GroupMemoryBarrierWithGroupSync();
     }
 }
 

@@ -499,27 +499,27 @@ void TryGetFluidGridIndex(uint3 gridPositionLevel0, uint skipCheckLevel, out uin
         gridPositionLevel0, gridPositionLevel1, gridPositionLevel2,
         gridOffsetLevel0, gridOffsetLevel1);
 
-    const uint encodedBlockIndexLinearLevel1 = FluidGridLevel2[gridPositionLevel2];
-    if (!skipCheckLevel && !IsValidEncodedFluidBlockIndex(encodedBlockIndexLinearLevel1))
+    const uint blockIndexLinearLevel1Encoded = FluidGridLevel2[gridPositionLevel2];
+    if (!skipCheckLevel && !IsValidEncodedFluidBlockIndex(blockIndexLinearLevel1Encoded))
     {
         gridLevel = 2;
         gridIndex = gridPositionLevel2;
         return;
     }
 
-    const uint blockIndexLinearLevel1 = DecodeFluidBlockIndex(encodedBlockIndexLinearLevel1);
+    const uint blockIndexLinearLevel1 = DecodeFluidBlockIndex(blockIndexLinearLevel1Encoded);
     const uint3 blockIndexSpatialLevel1 = GetFluidBlockIndexSpatialLevel1(blockIndexLinearLevel1);
     const uint3 gridIndexLevel1 = blockIndexSpatialLevel1 * FLUID_BLOCK_SIZE_LEVEL1 + gridOffsetLevel1;
 
-    const uint encodedBlockIndexLinearLevel0 = FluidGridLevel1[gridIndexLevel1];
-    if (skipCheckLevel < 2 && !IsValidEncodedFluidBlockIndex(encodedBlockIndexLinearLevel0))
+    const uint blockIndexLinearLevel0Encoded = FluidGridLevel1[gridIndexLevel1];
+    if (skipCheckLevel < 2 && !IsValidEncodedFluidBlockIndex(blockIndexLinearLevel0Encoded))
     {
         gridLevel = 1;
         gridIndex = gridIndexLevel1;
         return;
     }
 
-    const uint blockIndexLinearLevel0 = DecodeFluidBlockIndex(encodedBlockIndexLinearLevel0);
+    const uint blockIndexLinearLevel0 = DecodeFluidBlockIndex(blockIndexLinearLevel0Encoded);
     const uint3 blockIndexSpatialLevel0 = GetFluidBlockIndexSpatialLevel0(blockIndexLinearLevel0);
     const uint3 gridIndexLevel0 = blockIndexSpatialLevel0 * FLUID_BLOCK_SIZE_LEVEL0 + gridOffsetLevel0;
 
