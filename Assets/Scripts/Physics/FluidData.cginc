@@ -575,8 +575,8 @@ uint GetFluidBlockGridParticleCountOffset(uint blockIndex, uint3 gridIndex)
     return GetFluidBlockGridParticleCountOffset(blockIndex, offset);
 }
 
-// offset of prefix sum is returned when the grid index is within [0, level 0 block grid count]
-// offset of exclusive sum of total particle count is returned when the grid index is -1
+// offset of prefix sum is returned when the grid index is within [0, level 0 block grid count)
+// offset of exclusive sum of block particle count is returned when the grid index is -1
 uint GetFluidBlockGridParticleCountPrefixSumOffset(uint blockIndex, uint gridIndex)
 {
     // simply reinterpret the word

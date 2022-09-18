@@ -306,7 +306,7 @@ namespace Antares.Physics
                 {
                     for (int k = 0; k < 3; k++)
                     {
-                        cmd.SetComputeIntParams(shader, Bindings.ParticleToGridOffset, i, j, k);
+                        cmd.SetComputeIntParams(shader, Bindings.ParticleToGridOffset, k, j, i);
                         cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel0, _fluidGridLevel0);
                         cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel1, _fluidGridLevel1);
                         cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel2, _fluidGridLevel2);
