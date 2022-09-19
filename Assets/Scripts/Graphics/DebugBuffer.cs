@@ -11,7 +11,13 @@ namespace Antares.Graphics
     {
         public const int MaxDebugLogCount = 128;
 
-        private enum LogType { Int, UInt, Float, Bool }
+        private enum LogType
+        {
+            Int, UInt, Float, Bool,
+            Int2, UInt2, Float2, Bool2,
+            Int3, UInt3, Float3, Bool3,
+            Int4, UInt4, Float4, Bool4
+        }
 
         [StructLayout(LayoutKind.Explicit, Pack = 1)]
         private struct DebugLog
@@ -22,14 +28,23 @@ namespace Antares.Graphics
             [FieldOffset(0)]
             public int LogCount;
 
-            [FieldOffset(4)]
-            public int IntValue;
+            [FieldOffset(0)]
+            public int IntValue0;
+
+            [FieldOffset(0)]
+            public uint UIntValue0;
+
+            [FieldOffset(0)]
+            public float FloatValue0;
 
             [FieldOffset(4)]
-            public uint UIntValue;
+            public int IntValue1;
 
             [FieldOffset(4)]
-            public float FloatValue;
+            public uint UIntValue1;
+
+            [FieldOffset(4)]
+            public float FloatValue1;
         }
 
         private readonly ComputeBuffer _debugBuffer;
@@ -88,33 +103,58 @@ namespace Antares.Graphics
             cmd.SetBufferData(_debugBuffer, new DebugLog[] { new DebugLog() { LogCount = 0 } });
         }
 
-        public void Read()
+        public DebugBuffer Read()
         {
             _debugBuffer.GetData(_logData);
+            return this;
         }
 
-        public bool ForEach(Action<double> action)
+        public bool ForEach(Action<object> action)
         {
             int count = _logData[0].LogCount;
             if (count > MaxDebugLogCount)
                 count = MaxDebugLogCount;
 
-            for (int i = 0; i < count; i++)
+            for (int i = 1; i < count + 1; i++)
             {
                 // skip the first element which is used as a counter
-                DebugLog log = _logData[i + 1];
+                DebugLog log = _logData[i];
 
                 switch (log.Type)
                 {
                     case LogType.Int:
-                        action(log.IntValue);
+                        action(log.IntValue1);
                         break;
                     case LogType.UInt:
                     case LogType.Bool:
-                        action(log.UIntValue);
+                        action(log.UIntValue1);
                         break;
                     case LogType.Float:
-                        action(log.FloatValue);
+                        action(log.FloatValue1);
+                        break;
+                    case LogType.Int2:
+                    case LogType.UInt2:
+                    case LogType.Bool2:
+                        action(new Vector2Int(log.IntValue1, _logData[++i].IntValue0));
+                        break;
+                    case LogType.Float2:
+                        action(new Vector2(log.FloatValue1, _logData[++i].FloatValue0));
+                        break;
+                    case LogType.Int3:
+                    case LogType.UInt3:
+                    case LogType.Bool3:
+                        action(new Vector3Int(log.IntValue1, _logData[++i].IntValue0, _logData[i].IntValue1));
+                        break;
+                    case LogType.Float3:
+                        action(new Vector3(log.FloatValue1, _logData[++i].FloatValue0, _logData[i].FloatValue1));
+                        break;
+                    case LogType.Int4:
+                    case LogType.UInt4:
+                    case LogType.Bool4:
+                        action(new Vector4(log.IntValue1, _logData[++i].IntValue0, _logData[i].IntValue1, _logData[++i].IntValue0));
+                        break;
+                    case LogType.Float4:
+                        action(new Vector4(log.FloatValue1, _logData[++i].FloatValue0, _logData[i].FloatValue1, _logData[++i].FloatValue0));
                         break;
                 }
             }
