@@ -935,6 +935,8 @@ void ParticleToGrid0(uint3 tid : SV_DispatchThreadID, uint gi : SV_GroupIndex)
         }
     }
 
+    GroupMemoryBarrierWithGroupSync();
+
     const bool pingpongFlag = GetFluidParticlePositionPingPongFlag();
 
     uint i, j, k, l;
@@ -951,7 +953,7 @@ void ParticleToGrid0(uint3 tid : SV_DispatchThreadID, uint gi : SV_GroupIndex)
 
         GroupMemoryBarrierWithGroupSync();
 
-        // find offsets of particles tp read
+        // find offsets of particles to read
         if (indirectIndexHi > indirectIndexOffset && indirectIndexLo < indirectIndexOffset +PARTICLE_TO_GRID_KERNEL_SIZE)
         {
             const uint indirectIndex = max(indirectIndexLo, indirectIndexOffset) - indirectIndexOffset;
@@ -984,22 +986,19 @@ void ParticleToGrid0(uint3 tid : SV_DispatchThreadID, uint gi : SV_GroupIndex)
         const uint indirectParticleCount = min(P2GParticleCount_GSM - indirectIndexOffset, PARTICLE_TO_GRID_KERNEL_SIZE);
         for (i = 1; i < indirectParticleCount; i *= 2)
         {
-            uint current;
             uint next = 0;
-            uint nextIndex;
-            if (gi < indirectParticleCount - i)
+            uint current = ~0u;
+            const uint nextIndex = gi + i;
+            if (nextIndex < indirectParticleCount)
             {
                 current = ParticleIndices_GSM[gi];
                 if (current != ~0u)
-                {
-                    nextIndex = gi + i;
                     next = ParticleIndices_GSM[nextIndex];
-                }
             }
 
             GroupMemoryBarrierWithGroupSync();
 
-            if (next == ~0u)
+            if (current != ~0u && next == ~0u)
             {
                 ParticleIndices_GSM[nextIndex] = current + i;
                 SharedBufferIndices_GSM[nextIndex] = SharedBufferIndices_GSM[gi];
@@ -1125,7 +1124,6 @@ void ParticleToGrid0(uint3 tid : SV_DispatchThreadID, uint gi : SV_GroupIndex)
                                 InterlockedAdd(FluidGrid_GSM[dstGridIndex].z, momentumEncoded.y, _);
                                 InterlockedAdd(FluidGrid_GSM[dstGridIndex].w, momentumEncoded.z, _);
                                 InterlockedMin(SDFGrid_GSM[dstGridIndex], sdfEncoded, _);
-
                             }
                         }
                     }
@@ -1835,6 +1833,8 @@ void AddParticles(const uint3 tid : SV_DispatchThreadID, const uint3 gid : SV_Gr
     if (!gi)
     {
         EmitterIndices_GSM[0] = 0;
+
+        // calculate dispatch range
         EmitterOffset_GSM = FluidEmitterPartitions[gid.x];
         EmitterCount_GSM = FluidEmitterPartitions[gid.x + 1] - EmitterOffset_GSM;
         EmitterParticleOffset_GSM = gid.x * MAX_EMITTER_PARTICLE_COUNT_PER_GROUP;
@@ -1842,11 +1842,17 @@ void AddParticles(const uint3 tid : SV_DispatchThreadID, const uint3 gid : SV_Gr
 
     GroupMemoryBarrierWithGroupSync();
 
-    // load emitters to gsm
+    // emitters might be divided into multiple dispatches for better load balancing
+    // partition is calculated by cpu while considering the size of group and partition
+    // e.g., some numbers are used to index gsm directly
+
+    // load emitter and their dispatches to gsm
     FluidEmitterDispatch dispatch;
     for (i = gi; i < EmitterCount_GSM; i += ADD_PARTICLES_KERNEL_SIZE)
     {
         dispatch = FluidEmitterDispatches[i + EmitterOffset_GSM];
+
+        // these data will be broadcast all over the group
         EmitterTypes_GSM[i] = dispatch.Type;
         EmitterParameterOffsets_GSM[i] = dispatch.ParameterOffset;
         EmitterIndices_GSM[dispatch.ParticleCountInclusiveSum] = i + 1;
@@ -1864,10 +1870,11 @@ void AddParticles(const uint3 tid : SV_DispatchThreadID, const uint3 gid : SV_Gr
     // broadcast emitters
     for (i = 1; i < TotalEmitterParticleCount_GSM; i *= 2)
     {
+        // note that there are group syncs in the loop. it should be ensured that all threads will invoke them.
         for (j = gi; j - gi < TotalEmitterParticleCount_GSM - i; j += ADD_PARTICLES_KERNEL_SIZE)
         {
-            uint current;
             uint next = 0;
+            uint current = ~0u;
             const uint nextIndex = j + i;
             if (nextIndex < TotalEmitterParticleCount_GSM)
             {

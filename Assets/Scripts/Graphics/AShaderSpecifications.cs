@@ -76,7 +76,8 @@ namespace Antares.Graphics
         private void OnEnable()
         {
 #if UNITY_EDITOR
-            Debug.Log($"Constant buffer alignment: {SystemInfo.constantBufferOffsetAlignment}");
+            Debug.Log($"Constant Buffer Alignment: {SystemInfo.constantBufferOffsetAlignment}");
+            Debug.Log($"Wave Lane Count: {SystemInfo.computeSubGroupSize}");
 
             _initializedShaderCount = 0;
 #endif
