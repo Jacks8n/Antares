@@ -881,9 +881,8 @@ void ParticleToGrid0(uint3 tid : SV_DispatchThreadID, uint gi : SV_GroupIndex)
     const uint waveCount = (PARTICLE_TO_GRID_KERNEL_SIZE + waveCount - 1) / laneCount;
     const uint waveIndex = gi / laneCount;
 
-    uint indirectIndexLo = 0;
-    uint indirectIndexHi = 0;
-    uint particleIndexOffset;
+    uint indirectIndices[9];
+    uint particleIndexOffsets[8];
     uint3 p2gGridPositionLevel0;
 
     #if FLUID_BLOCK_SIZE_LEVEL0 > 6
@@ -894,42 +893,57 @@ void ParticleToGrid0(uint3 tid : SV_DispatchThreadID, uint gi : SV_GroupIndex)
 
     // read blocks' grid count
     const uint blockCountLevel0 = GetFluidBlockCount(0);
-    const uint blockIndexLevel0 = tid.x / 8;
-    if (blockIndexLevel0 < blockCountLevel0)
+    if (tid.x < blockCountLevel0)
     {
+        indirectIndices[0] = 0;
+
         // calculate grid index to load
-        const uint3 blockPositionLevel0 = GetFluidBlockPositionSpatialLevel1(blockIndexLevel0) * FLUID_BLOCK_SIZE_LEVEL0;
+        const uint3 blockPositionLevel0 = GetFluidBlockPositionSpatialLevel1(tid.x) * FLUID_BLOCK_SIZE_LEVEL0;
         p2gGridPositionLevel0 = (blockPositionLevel0 + 2 - ParticleToGridOffset) / 3 * 3 + ParticleToGridOffset;
 
-        const uint3 gridPositionOffset = uint3(gi & 1, (gi >> 1) & 1, (gi >> 2) & 1) * 3;
-        const uint3 p2gGridOffsetLevel0 = p2gGridPositionLevel0 % FLUID_BLOCK_SIZE_LEVEL0 + gridPositionOffset;
-        p2gGridPositionLevel0 += gridPositionOffset;
+        const uint3 p2gGridOffsetLevel0 = p2gGridPositionLevel0 % FLUID_BLOCK_SIZE_LEVEL0;
+
+        // intra-thread prefix sum
+        UNITY_UNROLL
+        for (i = 0; i < 8; i++)
+        {
+            const uint3 gridIndex = p2gGridOffsetLevel0 + uint3(i & 1, (i >> 1) & 1, (i >> 2) & 1) * 3;
+
+            const bool valid = all(gridIndex < FLUID_BLOCK_SIZE_LEVEL0);
+            if (valid)
+            {
+                const uint gridIndexLinear = GetFluidBlockGridIndexLinearLevel0(gridIndex);
+                const uint particleLo = GetFluidBlockGridParticleCountPrefixSum(tid.x, gridIndexLinear - 1);
+                const uint particleHi = GetFluidBlockGridParticleCountPrefixSum(tid.x, gridIndexLinear);
+                const uint particleCount = particleHi - particleLo;
+
+                particleIndexOffsets[i] = particleLo;
+                indirectIndices[i + 1] = indirectIndices[i] + particleCount;
+            }
+            else
+                indirectIndices[i + 1] = indirectIndices[i];
+        }
+
+        #if (PARTICLE_TO_GRID_KERNEL_SIZE & 31) | (PARTICLE_TO_GRID_KERNEL_SIZE & 63)
+            "group size is expected to be multiple of wave size"
+        #endif
+
+        // intra-wave prefix sum
+        const uint blockParticleCount = indirectIndices[8];
+        const uint waveIndirectOffset = WavePrefixSum(blockParticleCount);
+        const uint maxLaneIndex = WaveActiveMax(laneIndex);
 
         // intra-group prefix sum
-        const bool valid = all(p2gGridOffsetLevel0 < FLUID_BLOCK_SIZE_LEVEL0);
-        if (valid)
+        uint groupIndirectOffset;
+        if (laneIndex == maxLaneIndex)
+            InterlockedAdd(P2GParticleCount_GSM, waveIndirectOffset +blockParticleCount, groupIndirectOffset);
+        groupIndirectOffset = WaveReadLaneAt(groupIndirectOffset, maxLaneIndex);
+        groupIndirectOffset += waveIndirectOffset;
+
+        UNITY_UNROLL
+        for (i = 0; i < 9; i++)
         {
-            const uint gridIndexLinear = GetFluidBlockGridIndexLinearLevel0(p2gGridOffsetLevel0);
-            const uint particleLo = GetFluidBlockGridParticleCountPrefixSum(blockIndexLevel0, gridIndexLinear - 1);
-            const uint particleHi = GetFluidBlockGridParticleCountPrefixSum(blockIndexLevel0, gridIndexLinear);
-            const uint particleCount = particleHi - particleLo;
-            if (particleCount)
-            {
-                const uint maxLaneIndex = WaveActiveMax(laneIndex);
-
-                particleIndexOffset = particleLo;
-
-                const uint waveParticleExclusiveSum = WavePrefixSum(particleCount);
-                const uint waveParticleInclusiveSum = waveParticleExclusiveSum + particleCount;
-
-                uint groupParticleOffset;
-                if (laneIndex == maxLaneIndex)
-                    InterlockedAdd(P2GParticleCount_GSM, waveParticleInclusiveSum, groupParticleOffset);
-                groupParticleOffset = WaveReadLaneAt(groupParticleOffset, maxLaneIndex);
-
-                indirectIndexLo = groupParticleOffset +waveParticleExclusiveSum;
-                indirectIndexHi = groupParticleOffset +waveParticleInclusiveSum;
-            }
+            indirectIndices[i] += groupIndirectOffset;
         }
     }
 
@@ -950,20 +964,32 @@ void ParticleToGrid0(uint3 tid : SV_DispatchThreadID, uint gi : SV_GroupIndex)
         GroupMemoryBarrierWithGroupSync();
 
         // find offsets of particles to read
-        if (indirectIndexHi > indirectIndexOffset && indirectIndexLo < indirectIndexOffset +PARTICLE_TO_GRID_KERNEL_SIZE)
+        if (tid.x < blockCountLevel0)
         {
-            const uint indirectIndex = max(indirectIndexLo, indirectIndexOffset) - indirectIndexOffset;
-            ParticleIndices_GSM[indirectIndex] = particleIndexOffset;
-
-            const uint waveLo = indirectIndex / laneCount;
-            const uint waveHi = (min(indirectIndexHi - indirectIndexOffset, PARTICLE_TO_GRID_KERNEL_SIZE) - 1) / laneCount;
-            if (waveLo != waveHi)
+            UNITY_UNROLL
+            for (i = 0; i < 8; i++)
             {
-                uint sharedBufferIndex;
-                InterlockedAdd(SharedBufferCount_GSM, 1, sharedBufferIndex);
+                const uint indirectIndexLo = indirectIndices[i];
+                const uint indirectIndexHi = indirectIndices[i + 1];
 
-                SharedBufferIndices_GSM[indirectIndex] = sharedBufferIndex;
-                SharedBufferPositions_GSM[sharedBufferIndex] = p2gGridPositionLevel0;
+                const bool hasParticle = indirectIndexLo != indirectIndexHi;
+                const bool overlapped = indirectIndexHi > indirectIndexOffset && indirectIndexLo < indirectIndexOffset +PARTICLE_TO_GRID_KERNEL_SIZE;
+                if (hasParticle && overlapped)
+                {
+                    const uint indirectIndex = max(indirectIndexLo, indirectIndexOffset) - indirectIndexOffset;
+                    ParticleIndices_GSM[indirectIndex] = particleIndexOffsets[i];
+
+                    const uint waveLo = indirectIndex / laneCount;
+                    const uint waveHi = (min(indirectIndexHi - indirectIndexOffset, PARTICLE_TO_GRID_KERNEL_SIZE) - 1) / laneCount;
+                    if (waveLo != waveHi)
+                    {
+                        uint sharedBufferIndex;
+                        InterlockedAdd(SharedBufferCount_GSM, 1, sharedBufferIndex);
+
+                        SharedBufferIndices_GSM[indirectIndex] = sharedBufferIndex;
+                        SharedBufferPositions_GSM[sharedBufferIndex] = p2gGridPositionLevel0 + uint3(i & 1, (i >> 1) & 1, i >> 2) * 3;
+                    }
+                }
             }
         }
 
@@ -1707,7 +1733,7 @@ void GenerateIndirectArgs1()
     const uint blockCountLevel0 = GetFluidBlockCount(0);
     IndirectArgs[0] = GetGroupCount(blockCountLevel0 * FLUID_BLOCK_GRID_COUNT_LEVEL0, SCAN_MAX_PARTITION_SIZE);
     IndirectArgs[13] = GetGroupCount(blockCountLevel0, BLOCK_DISPATCH_PARTITION);
-    IndirectArgs[19] = GetGroupCount(blockCountLevel0, PARTICLE_TO_GRID_KERNEL_SIZE / 8);
+    IndirectArgs[19] = GetGroupCount(blockCountLevel0, PARTICLE_TO_GRID_KERNEL_SIZE);
 
     const uint blockCountLevel1 = GetFluidBlockCount(1);
     IndirectArgs[16] = GetGroupCount(blockCountLevel1, BLOCK_DISPATCH_PARTITION);
