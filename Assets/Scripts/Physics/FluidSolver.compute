@@ -812,30 +812,22 @@ uint GetAdjacentBlockMap(uint groupIndex, out uint3 localGridIndex, out uint3 gl
     // [b d c] [c ~c] [~c  b c ~c]
     // [1 1 1] [1 ~d] [~d ~c d  d]
 
-    // const uint4 tmask = uint4(0b111010010000000000111100000, 0b000100001100000100000000000, 0b000000000001100010000000000, 0b000000000010000000000000011);
-    // const uint4 fmask = uint4(0b000000100000000000111100000, 0b000001000000000000000000000, 0b000000000000011001000000100, 0b000000000000000000000011000);
-    // const uint4 abcd = groupIndex.xxxx & uint4(128, 64, 32, 16);
-    // const uint4 mask4 = abcd ? tmask : fmask;
-    // const uint2 mask2 = mask4.xy | mask4.zw;
-    // const uint3 mask = (mask2.x | mask2.y).xxx >> uint3(18, 9, 0);
-    // const uint ands = mask.x & mask.y & mask.z;
-    // const bool3 xyz = ands.xxx & uint3(abcd.x ? 0b1111 : 0b111, 0b100110000, 0b111000000);
-    // subBlockIndex = dot(xyz ? uint3(1, 2, 4) : uint3(0, 0, 0), uint3(1, 1, 1));
+    const uint4 tmask = uint4(0b111010010000000000111100000, 0b000100001100000100000000000, 0b000000000001100010000000000, 0b000000000010000000000000011);
+    const uint4 fmask = uint4(0b000000100000000000111100000, 0b000001000000000000000000000, 0b000000000000011001000000100, 0b000000000000000000000011000);
+    const uint4 abcd = groupIndex.xxxx & uint4(128, 64, 32, 16);
+    const uint4 mask4 = abcd ? tmask : fmask;
+    const uint2 mask2 = mask4.xy | mask4.zw;
+    const uint3 mask = (mask2.x | mask2.y).xxx >> uint3(18, 9, 0);
+    const uint ands = mask.x & mask.y & mask.z;
+    const bool3 xyz = ands.xxx & uint3(abcd.x ? 0b1111 : 0b111, 0b100110000, 0b111000000);
+    subBlockIndex = dot(xyz ? uint3(1, 2, 4) : uint3(0, 0, 0), uint3(1, 1, 1));
 
-    // const uint3 subBlockOffset = xyz ? uint(4).xxx : uint(0).xxx;
-    // const uint3 subBlockSize = xyz ? uint(2).xxx : uint(4).xxx;
-    // subBlockGridCount = 64 >> dot(xyz, uint(1).xxx);
+    const uint3 subBlockOffset = xyz ? uint(4).xxx : uint(0).xxx;
+    const uint3 subBlockSize = xyz ? uint(2).xxx : uint(4).xxx;
+    subBlockGridCount = 64 >> dot(xyz, uint(1).xxx);
 
-    // const uint3 subBlockGridIndex = GetGridIndexSpatial(groupIndex & (subBlockGridCount - 1), subBlockSize.xy);
-    // localGridIndex = subBlockOffset +subBlockGridIndex;
-
-    localGridIndex = GetFluidBlockGridIndexSpatialLevel0(groupIndex, FLUID_BLOCK_PADDING);
-
-    const bool3 xyz = localGridIndex >= uint(FLUID_BLOCK_SIZE_LEVEL0).xxx;
-    subBlockIndex = dot(xyz, uint3(1, 2, 4));
-
-    const uint3 subBlockSize = xyz ? uint(FLUID_BLOCK_PADDING).xxx : uint(FLUID_BLOCK_SIZE_LEVEL0).xxx;
-    subBlockGridCount = subBlockSize.x * subBlockSize.y * subBlockSize.z;
+    const uint3 subBlockGridIndex = GetGridIndexSpatial(groupIndex & (subBlockGridCount - 1), subBlockSize.xy);
+    localGridIndex = subBlockOffset +subBlockGridIndex;
 
     const uint4 adjacentBlockOffset = AdjacentBlockOffsets_GSM[subBlockIndex];
     if (adjacentBlockOffset.x != BLOCK_MAP_NULL)
@@ -855,176 +847,45 @@ uint GetAdjacentBlockMap(uint groupIndex, out uint3 localGridIndex, out uint3 gl
     return GetAdjacentBlockMap(groupIndex, localGridIndex, globalGridIndex, _.x, _.y);
 }
 
-#define PARTICLE_TO_GRID_MIN_WAVE_SIZE 32
-#define PARTICLE_TO_GRID_MAX_WAVE_COUNT ((PARTICLE_TO_GRID_KERNEL_SIZE + PARTICLE_TO_GRID_MIN_WAVE_SIZE - 1) / PARTICLE_TO_GRID_MIN_WAVE_SIZE)
-#define PARTICLE_TO_GRID_MAX_SHARED_BUFFER_COUNT (PARTICLE_TO_GRID_MAX_WAVE_COUNT - 1)
-
-groupshared uint IndirectIndices_GSM[(PARTICLE_TO_GRID_KERNEL_SIZE + 1) * PARTICLE_TO_GRID_MIN_WAVE_SIZE / (PARTICLE_TO_GRID_MIN_WAVE_SIZE - 1)];
-
-// size: 2 * 4 * 128 = 1024 bytes
-groupshared uint ParticleIndices_GSM[PARTICLE_TO_GRID_KERNEL_SIZE];
-groupshared uint SharedBufferIndices_GSM[PARTICLE_TO_GRID_KERNEL_SIZE];
-
-groupshared uint SharedBufferCount_GSM;
-// size: 12 * 3 = 36 bytes
-groupshared uint3 SharedBufferPositions_GSM[PARTICLE_TO_GRID_MAX_SHARED_BUFFER_COUNT];
-// size: 16 * 108 = 1728 bytes
-groupshared int4 FluidGrid_GSM[PARTICLE_TO_GRID_MAX_SHARED_BUFFER_COUNT * 27];
-// size: 4 * 108 = 432 bytes
-groupshared int SDFGrid_GSM[PARTICLE_TO_GRID_MAX_SHARED_BUFFER_COUNT * 27];
-
-extern uint3 ParticleToGridOffset;
+groupshared uint3 GridPositionLevel1_GSM;
+groupshared uint ParticleCount_GSM;
+groupshared uint ParticleOffset_GSM;
+// size: 16 * 216 = 3456 bytes
+groupshared int4 FluidGrid_GSM[FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED];
+// size: 4 * 216 = 864 bytes
+groupshared int SDFGrid_GSM[FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED];
 
 [numthreads(PARTICLE_TO_GRID_KERNEL_SIZE, 1, 1)]
-void ParticleToGrid0(uint3 tid : SV_DispatchThreadID, uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
+void ParticleToGrid0(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 {
-    if (!gi)
-        IndirectIndices_GSM[0] = 0;
-
-    const uint laneCount = WaveGetLaneCount();
     const uint laneIndex = WaveGetLaneIndex();
-    const uint waveIndex = gi / laneCount;
-
-    uint particleIndexOffset;
-    uint3 p2gGridPositionLevel0;
-
-    #if FLUID_BLOCK_SIZE_LEVEL0 > 3
-        "level 0 block size is expected to be not greater than 3"
-    #endif
-
-    uint i, j, k, l;
-
-    // read blocks' grid count
-    const uint blockCountLevel0 = GetFluidBlockCount(0);
-    const uint groupBlockCount = min(PARTICLE_TO_GRID_KERNEL_SIZE, blockCountLevel0 - (tid.x - gi));
-    if (gi < groupBlockCount)
-    {
-        // calculate grid index to load
-        const uint3 blockPositionLevel0 = GetFluidBlockPositionSpatialLevel1(tid.x) * FLUID_BLOCK_SIZE_LEVEL0;
-        p2gGridPositionLevel0 = (blockPositionLevel0 + 2 - ParticleToGridOffset) / 3 * 3 + ParticleToGridOffset;
-
-        const uint3 p2gGridOffsetLevel0 = p2gGridPositionLevel0 % FLUID_BLOCK_SIZE_LEVEL0;
-        const uint gridIndexLinear = GetFluidBlockGridIndexLinearLevel0(p2gGridOffsetLevel0);
-        const uint particleLo = GetFluidBlockGridParticleCountPrefixSum(tid.x, gridIndexLinear - 1);
-        const uint particleHi = GetFluidBlockGridParticleCountPrefixSum(tid.x, gridIndexLinear);
-        particleIndexOffset = particleLo;
-
-        const uint particleCount = particleHi - particleLo;
-        IndirectIndices_GSM[gi + 1] = WavePrefixSum(particleCount) + particleCount;
-    }
-
-    GroupMemoryBarrierWithGroupSync();
-
-    #if PARTICLE_TO_GRID_KERNEL_SIZE < PARTICLE_TO_GRID_MIN_WAVE_SIZE * PARTICLE_TO_GRID_MIN_WAVE_SIZE
-        if (gi < (groupBlockCount - 1) / laneCount)
-        {
-            const uint prevWaveInclusiveSum = IndirectIndices_GSM[(gi + 1) * laneCount];
-            IndirectIndices_GSM[PARTICLE_TO_GRID_KERNEL_SIZE + 1 + gi] = WavePrefixSum(prevWaveInclusiveSum) + prevWaveInclusiveSum;
-        }
-
-        GroupMemoryBarrierWithGroupSync();
-
-        if (gi + laneCount < groupBlockCount)
-            IndirectIndices_GSM[gi + laneCount + 1] += IndirectIndices_GSM[PARTICLE_TO_GRID_KERNEL_SIZE + 1 + waveIndex];
-
-        GroupMemoryBarrierWithGroupSync();
-    #else
-        "not implemented :/"
-    #endif
-
-    const uint p2gParticleCount = IndirectIndices_GSM[groupBlockCount];
 
     const bool pingpongFlag = GetFluidParticlePositionPingPongFlag();
 
-    // per particle scatter
-    uint indirectIndexOffset = 0;
-    while (indirectIndexOffset < p2gParticleCount)
+    FOR_BLOCK_DISPATCH_LEVEL0(gid)
     {
+        uint i, j, k, l;
+
+        // initialize grid gsm
+        for (i = gi; i < FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED; i += PARTICLE_TO_GRID_KERNEL_SIZE)
+        {
+            FluidGrid_GSM[i] = int4(0, 0, 0, 0);
+
+            // max sdf
+            SDFGrid_GSM[i] = FLUID_GRID_ENCODED_VALUE_MAX;
+        }
+
         if (!gi)
-            SharedBufferCount_GSM = 0;
-
-        ParticleIndices_GSM[gi] = ~0u;
-        SharedBufferIndices_GSM[gi] = ~0u;
-
-        GroupMemoryBarrierWithGroupSync();
-
-        // find offsets of particles to read
-        // no group divergence until here
-        if (gi < groupBlockCount)
         {
-            const uint indirectIndexLo = IndirectIndices_GSM[gi];
-            const uint indirectIndexHi = IndirectIndices_GSM[gi + 1];
-
-            const bool hasParticle = indirectIndexLo != indirectIndexHi;
-            const bool overlapped = indirectIndexHi > indirectIndexOffset && indirectIndexLo < indirectIndexOffset +PARTICLE_TO_GRID_KERNEL_SIZE;
-            if (hasParticle && overlapped)
-            {
-                const uint indirectIndex = max(indirectIndexLo, indirectIndexOffset) - indirectIndexOffset;
-                const uint prevDispatchCount = max(indirectIndexOffset, indirectIndexLo) - indirectIndexLo;
-                ParticleIndices_GSM[indirectIndex] = particleIndexOffset +prevDispatchCount;
-
-                const uint waveLo = indirectIndex / laneCount;
-                const uint waveHi = (min(indirectIndexHi - indirectIndexOffset, PARTICLE_TO_GRID_KERNEL_SIZE) - 1) / laneCount;
-                if (waveLo != waveHi)
-                {
-                    uint sharedBufferIndex;
-                    InterlockedAdd(SharedBufferCount_GSM, 1, sharedBufferIndex);
-
-                    SharedBufferIndices_GSM[indirectIndex] = sharedBufferIndex + 0;
-                    SharedBufferPositions_GSM[sharedBufferIndex] = p2gGridPositionLevel0;
-                }
-            }
+            GetFluidBlockInfo(gid.x, GridPositionLevel1_GSM, ParticleCount_GSM, ParticleOffset_GSM);
         }
 
         GroupMemoryBarrierWithGroupSync();
 
-        // init shared buffer
-        // shared buffer must be less than waves, and wave msut have more than 27 threads
-        // thus kernel size must be larger than max shared buffer size
-        if (gi < SharedBufferCount_GSM * 27)
+        // per particle scatter
+        for (i = gi; i < ParticleCount_GSM; i += PARTICLE_TO_GRID_KERNEL_SIZE)
         {
-            FluidGrid_GSM[gi] = int(0).xxxx;
-            SDFGrid_GSM[gi] = FLUID_GRID_ENCODED_VALUE_MAX;
-        }
-
-        // group will be synced in the loop beneath immediately if any shared buffer is used
-        // thus no additional sync is required here
-
-        // broadcast indirect indices
-        const uint indirectParticleCount = min(p2gParticleCount - indirectIndexOffset, PARTICLE_TO_GRID_KERNEL_SIZE);
-        for (i = 1; i < indirectParticleCount; i *= 2)
-        {
-            uint next = 0;
-            uint current = ~0u;
-            uint sharedBufferIndex;
-            const uint nextIndex = gi + i;
-            if (nextIndex < indirectParticleCount)
-            {
-                current = ParticleIndices_GSM[gi];
-                if (current != ~0u)
-                {
-                    next = ParticleIndices_GSM[nextIndex];
-                    sharedBufferIndex = SharedBufferIndices_GSM[gi];
-                }
-            }
-
-            GroupMemoryBarrierWithGroupSync();
-
-            if (current != ~0u && next == ~0u)
-            {
-                ParticleIndices_GSM[nextIndex] = current + i;
-                SharedBufferIndices_GSM[nextIndex] = sharedBufferIndex;
-            }
-
-            GroupMemoryBarrierWithGroupSync();
-        }
-
-        // note that threads that don't process a particle also reach here, for sake of group operations
-        const bool valid = indirectIndexOffset +gi < p2gParticleCount;
-        if (valid)
-        {
-            // read particle
-            const uint particleIndex = ParticleIndices_GSM[gi];
+            const uint particleIndex = ParticleOffset_GSM + i;
             const ParticlePositionIndexed position = GetFluidParticlePosition(particleIndex, pingpongFlag);
             const ParticleProperty property = GetFluidParticleProperty(position.Index);
 
@@ -1035,21 +896,19 @@ void ParticleToGrid0(uint3 tid : SV_DispatchThreadID, uint3 gid : SV_GroupID, ui
 
             // calculate indices and weights
             uint3 gridPositionLevel0;
-            uint3 gridOffsetLevel0;
+            uint3 blockGridOffsetLevel0;
             float3 gridToParticle;
             float3 weights[3];
             CalculateParticleGridTransfer(
-                gridSpacePosition, gridPositionLevel0, gridOffsetLevel0, gridToParticle,
+                gridSpacePosition, gridPositionLevel0, blockGridOffsetLevel0, gridToParticle,
                 weights[0], weights[1], weights[2]);
+
+            const uint blockGridOffsetLevel0Linear = GetFluidBlockGridIndexLinearLevel0(blockGridOffsetLevel0, FLUID_BLOCK_PADDING);
 
             // preparation to handle inter-wave conflicts
             uint interval, intervalMax;
-            const uint gridPositionLevel0Linear = GetFluidVirtualGridIndexLinearLevel0(gridPositionLevel0);
-            const bool isLo = gridPositionLevel0Linear != WaveReadLaneAt(gridPositionLevel0Linear, max(1, laneIndex) - 1) || !laneIndex;
+            const bool isLo = blockGridOffsetLevel0Linear != WaveReadLaneAt(blockGridOffsetLevel0, max(1, laneIndex) - 1) || !laneIndex;
             WaveGetMaxInterval(isLo, interval, intervalMax);
-
-            const uint sharedBufferIndex = SharedBufferIndices_GSM[gi];
-            const bool bypassGSM = sharedBufferIndex == ~0u;
 
             // simplified mls-mpm p2g
             UNITY_UNROLL
@@ -1063,8 +922,8 @@ void ParticleToGrid0(uint3 tid : SV_DispatchThreadID, uint3 gid : SV_GroupID, ui
                     {
                         const float weight = weights[j].x * weights[k].y * weights[l].z;
 
-                        const uint3 gridOffset = uint3(j, k, l);
-                        const float3 x = (gridOffset -gridToParticle) * FLUID_GRID_SPACING;
+                        const uint3 particleGridOffset = uint3(j, k, l);
+                        const float3 x = (particleGridOffset -gridToParticle) * FLUID_GRID_SPACING;
                         const float3 affineVelocity = mul(affine, x);
 
                         float4 massMomentum;
@@ -1095,104 +954,66 @@ void ParticleToGrid0(uint3 tid : SV_DispatchThreadID, uint3 gid : SV_GroupID, ui
                             const int3 momentumEncoded = EncodeFluidGridMomentum(massMomentum.yzw);
                             const int sdfEncoded = EncodeFluidGridSDF(sdf);
 
-                            if (bypassGSM)
-                            {
-                                // directly write to uav
-                                const uint3 dstGridPosition = gridPositionLevel0 + gridOffset;
+                            // write to gsm
+                            const uint dstGridIndex = blockGridOffsetLevel0Linear + GetFluidBlockGridIndexLinearLevel0(particleGridOffset, FLUID_BLOCK_PADDING);
 
-                                uint gridLevel;
-                                uint3 dstGridIndexLevel0 = 0;
-                                uint3 dstGridIndexLevel1 = 0;
-                                uint3 dstGridIndexLevel2 = 0;
-                                TryGetFluidGridIndex(dstGridPosition, gridLevel, dstGridIndexLevel2, dstGridIndexLevel1, dstGridIndexLevel0);
-
-                                if (!gridLevel)
-                                {
-                                    FluidGridLevel0[dstGridIndexLevel0 + FLUID_GRID_CHANNEL0_OFFSET(0)] += massEncoded;
-                                    FluidGridLevel0[dstGridIndexLevel0 + FLUID_GRID_CHANNEL1_OFFSET(0)] += momentumEncoded.x;
-                                    FluidGridLevel0[dstGridIndexLevel0 + FLUID_GRID_CHANNEL2_OFFSET(0)] += momentumEncoded.y;
-                                    FluidGridLevel0[dstGridIndexLevel0 + FLUID_GRID_CHANNEL3_OFFSET(0)] += momentumEncoded.z;
-
-                                    const uint3 dstSDFGridIndex = dstGridIndexLevel0 + FLUID_GRID_CHANNEL4_OFFSET(0);
-                                    FluidGridLevel0[dstSDFGridIndex] = min(sdfEncoded, FluidGridLevel0[dstSDFGridIndex]);
-                                }
-                                else if (gridLevel == 1)
-                                {
-                                    int _;
-                                    InterlockedAdd(FluidGridLevel1[dstGridIndexLevel1 + FLUID_GRID_CHANNEL0_OFFSET(1)], massEncoded, _);
-                                    InterlockedAdd(FluidGridLevel1[dstGridIndexLevel1 + FLUID_GRID_CHANNEL1_OFFSET(1)], momentumEncoded.x, _);
-                                    InterlockedAdd(FluidGridLevel1[dstGridIndexLevel1 + FLUID_GRID_CHANNEL2_OFFSET(1)], momentumEncoded.y, _);
-                                    InterlockedAdd(FluidGridLevel1[dstGridIndexLevel1 + FLUID_GRID_CHANNEL3_OFFSET(1)], momentumEncoded.z, _);
-                                    InterlockedMin(FluidGridLevel1[dstGridIndexLevel1 + FLUID_GRID_CHANNEL4_OFFSET(1)], sdfEncoded, _);
-                                }
-                            }
-                            else
-                            {
-                                // write to gsm
-                                const uint dstGridIndex = sharedBufferIndex * 27 + GetGridIndexLinear(gridOffset, uint(3).xx);
-
-                                int _;
-                                // currently 4-element atomic add is not spported
-                                InterlockedAdd(FluidGrid_GSM[dstGridIndex].x, massEncoded, _);
-                                InterlockedAdd(FluidGrid_GSM[dstGridIndex].y, momentumEncoded.x, _);
-                                InterlockedAdd(FluidGrid_GSM[dstGridIndex].z, momentumEncoded.y, _);
-                                InterlockedAdd(FluidGrid_GSM[dstGridIndex].w, momentumEncoded.z, _);
-                                InterlockedMin(SDFGrid_GSM[dstGridIndex], sdfEncoded, _);
-                            }
+                            int _;
+                            // currently 4-element atomic add is not spported
+                            InterlockedAdd(FluidGrid_GSM[dstGridIndex].x, massEncoded, _);
+                            InterlockedAdd(FluidGrid_GSM[dstGridIndex].y, momentumEncoded.x, _);
+                            InterlockedAdd(FluidGrid_GSM[dstGridIndex].z, momentumEncoded.y, _);
+                            InterlockedAdd(FluidGrid_GSM[dstGridIndex].w, momentumEncoded.z, _);
+                            InterlockedMin(SDFGrid_GSM[dstGridIndex], sdfEncoded, _);
                         }
                     }
                 }
             }
         }
 
+        const uint3 gridOffsetLevel0 = GetFluidBlockIndexSpatialLevel0(gid.x) * FLUID_BLOCK_SIZE_LEVEL0;
+        LoadAdjacentBlockIndex(gi, gridOffsetLevel0, GridPositionLevel1_GSM);
+
         GroupMemoryBarrierWithGroupSync();
 
-        // write gsm to uav
-        if (waveIndex < SharedBufferCount_GSM && laneIndex < 27)
+        #if PARTICLE_TO_GRID_KERNEL_SIZE < FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED
+            for (i = gi; i < FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED; i += PARTICLE_TO_GRID_KERNEL_SIZE)
+        #else
+            if ((i = gi) < FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED)
+        #endif
         {
-            const uint3 dstGridIndexOffset = GetGridIndexSpatial(laneIndex, uint(3).xx);
-            const uint3 dstGridPosition = SharedBufferPositions_GSM[waveIndex] + dstGridIndexOffset;
+            uint3 srcGridIndex;
+            uint3 dstGridIndex;
 
-            uint gridLevel;
-            uint3 dstGridIndexLevel0;
-            uint3 dstGridIndexLevel1;
-            uint3 dstGridIndexLevel2;
-            TryGetFluidGridIndex(dstGridPosition, gridLevel, dstGridIndexLevel2, dstGridIndexLevel1, dstGridIndexLevel0);
-
-            const uint loadGridIndex = waveIndex * 27 + laneIndex;
-            const int4 massMomentumEncoded = FluidGrid_GSM[loadGridIndex];
-            const int sdfEncoded = SDFGrid_GSM[loadGridIndex];
-
-            if (!gridLevel)
+            const uint mapType = GetAdjacentBlockMap(i, srcGridIndex, dstGridIndex);
+            if (mapType != BLOCK_MAP_NULL)
             {
-                FluidGridLevel0[dstGridIndexLevel0 + FLUID_GRID_CHANNEL0_OFFSET(0)] += massMomentumEncoded.x;
-                FluidGridLevel0[dstGridIndexLevel0 + FLUID_GRID_CHANNEL1_OFFSET(0)] += massMomentumEncoded.y;
-                FluidGridLevel0[dstGridIndexLevel0 + FLUID_GRID_CHANNEL2_OFFSET(0)] += massMomentumEncoded.z;
-                FluidGridLevel0[dstGridIndexLevel0 + FLUID_GRID_CHANNEL3_OFFSET(0)] += massMomentumEncoded.w;
+                const uint loadGridIndex = GetFluidBlockGridIndexLinearLevel0(srcGridIndex, FLUID_BLOCK_PADDING);
+                const int4 gridValue = FluidGrid_GSM[loadGridIndex];
+                const int sdf = SDFGrid_GSM[loadGridIndex];
 
-                const uint3 dstSDFGridIndex = dstGridIndexLevel0 + FLUID_GRID_CHANNEL4_OFFSET(0);
-                FluidGridLevel0[dstSDFGridIndex] = min(sdfEncoded, FluidGridLevel0[dstSDFGridIndex]);
-            }
-            else if (gridLevel == 1)
-            {
                 int _;
-                InterlockedAdd(FluidGridLevel1[dstGridIndexLevel1 + FLUID_GRID_CHANNEL0_OFFSET(1)], massMomentumEncoded.x, _);
-                InterlockedAdd(FluidGridLevel1[dstGridIndexLevel1 + FLUID_GRID_CHANNEL1_OFFSET(1)], massMomentumEncoded.y, _);
-                InterlockedAdd(FluidGridLevel1[dstGridIndexLevel1 + FLUID_GRID_CHANNEL2_OFFSET(1)], massMomentumEncoded.z, _);
-                InterlockedAdd(FluidGridLevel1[dstGridIndexLevel1 + FLUID_GRID_CHANNEL3_OFFSET(1)], massMomentumEncoded.w, _);
-                InterlockedMin(FluidGridLevel1[dstGridIndexLevel1 + FLUID_GRID_CHANNEL4_OFFSET(1)], sdfEncoded, _);
+                if (mapType == BLOCK_MAP_LEVEL0)
+                {
+                    InterlockedAdd(FluidGridLevel0[dstGridIndex + FLUID_GRID_CHANNEL0_OFFSET(0)], gridValue.x, _);
+                    InterlockedAdd(FluidGridLevel0[dstGridIndex + FLUID_GRID_CHANNEL1_OFFSET(0)], gridValue.y, _);
+                    InterlockedAdd(FluidGridLevel0[dstGridIndex + FLUID_GRID_CHANNEL2_OFFSET(0)], gridValue.z, _);
+                    InterlockedAdd(FluidGridLevel0[dstGridIndex + FLUID_GRID_CHANNEL3_OFFSET(0)], gridValue.w, _);
+                    InterlockedMin(FluidGridLevel0[dstGridIndex + FLUID_GRID_CHANNEL4_OFFSET(0)], sdf, _);
+                }
+                else
+                {
+                    InterlockedAdd(FluidGridLevel1[dstGridIndex + FLUID_GRID_CHANNEL0_OFFSET(1)], gridValue.x, _);
+                    InterlockedAdd(FluidGridLevel1[dstGridIndex + FLUID_GRID_CHANNEL1_OFFSET(1)], gridValue.y, _);
+                    InterlockedAdd(FluidGridLevel1[dstGridIndex + FLUID_GRID_CHANNEL2_OFFSET(1)], gridValue.z, _);
+                    InterlockedAdd(FluidGridLevel1[dstGridIndex + FLUID_GRID_CHANNEL3_OFFSET(1)], gridValue.w, _);
+                    InterlockedMin(FluidGridLevel1[dstGridIndex + FLUID_GRID_CHANNEL4_OFFSET(1)], sdf, _);
+                }
             }
         }
-
-        indirectIndexOffset += PARTICLE_TO_GRID_KERNEL_SIZE;
 
         GroupMemoryBarrierWithGroupSync();
     }
 }
-
-groupshared uint3 GridPositionLevel1_GSM;
-groupshared uint ParticleCount_GSM;
-groupshared uint ParticleOffset_GSM;
 
 // size: 12 * 216 = 2592 bytes
 groupshared int3 ImpulseGridEncoded_GSM[FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED];
@@ -1245,43 +1066,11 @@ void ParticleToGrid1(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 
         GroupMemoryBarrierWithGroupSync();
 
-        // // read mass from adjacent blocks
-        // #if PARTICLE_TO_GRID_KERNEL_SIZE + FLUID_BLOCK_GRID_COUNT_LEVEL0 < FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED
-        //     for (i = gi + FLUID_BLOCK_GRID_COUNT_LEVEL0; i < FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED; i += PARTICLE_TO_GRID_KERNEL_SIZE)
-        // #else
-        //     if ((i = gi + FLUID_BLOCK_GRID_COUNT_LEVEL0) < FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED)
-        // #endif
-        // {
-        //     uint3 srcGridIndex;
-        //     uint3 dstGridIndex;
-        //     uint subBlockIndex;
-        //     uint subBlockGridCount;
-        //     const uint mapType = GetAdjacentBlockMap(i, dstGridIndex, srcGridIndex, subBlockIndex, subBlockGridCount);
-        //     const uint storeGridIndex = GetFluidBlockGridIndexLinearLevel0(dstGridIndex, FLUID_BLOCK_PADDING);
-        //     if (mapType != BLOCK_MAP_NULL)
-        //     {
-        //         int massEncoded;
-        //         if (mapType == BLOCK_MAP_LEVEL0)
-        //             massEncoded = FluidGridLevel0[srcGridIndex + FLUID_GRID_CHANNEL0_OFFSET];
-        //         else
-        //             massEncoded = AdjacentGridsLevel1_GSM[subBlockIndex] / subBlockGridCount;
-
-        //         MassGrid_GSM[storeGridIndex] = DecodeFluidGridMass(massEncoded);
-        //     }
-        //     else
-        //     {
-        //         // otherwise extrapolate from current block
-        //         const uint3 indexClamped = min(dstGridIndex, FLUID_BLOCK_SIZE_LEVEL0);
-        //         const uint index = GetFluidBlockGridIndexLinearLevel0(indexClamped, FLUID_BLOCK_PADDING);
-        //         MassGrid_GSM[storeGridIndex] = MassGrid_GSM[index];
-        //     }
-        // }
-
         // read mass from adjacent blocks
-        #if PARTICLE_TO_GRID_KERNEL_SIZE < FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED
-            for (i = gi; i < FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED; i += PARTICLE_TO_GRID_KERNEL_SIZE)
+        #if PARTICLE_TO_GRID_KERNEL_SIZE + FLUID_BLOCK_GRID_COUNT_LEVEL0 < FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED
+            for (i = gi + FLUID_BLOCK_GRID_COUNT_LEVEL0; i < FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED; i += PARTICLE_TO_GRID_KERNEL_SIZE)
         #else
-            if ((i = gi) < FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED)
+            if ((i = gi + FLUID_BLOCK_GRID_COUNT_LEVEL0) < FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED)
         #endif
         {
             uint3 srcGridIndex;
@@ -1290,25 +1079,22 @@ void ParticleToGrid1(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
             uint subBlockGridCount;
             const uint mapType = GetAdjacentBlockMap(i, dstGridIndex, srcGridIndex, subBlockIndex, subBlockGridCount);
             const uint storeGridIndex = GetFluidBlockGridIndexLinearLevel0(dstGridIndex, FLUID_BLOCK_PADDING);
-            if (any(dstGridIndex >= FLUID_BLOCK_SIZE_LEVEL0))
+            if (mapType != BLOCK_MAP_NULL)
             {
-                if (mapType != BLOCK_MAP_NULL)
-                {
-                    int massEncoded;
-                    if (mapType == BLOCK_MAP_LEVEL0)
-                        massEncoded = FluidGridLevel0[srcGridIndex + FLUID_GRID_CHANNEL0_OFFSET(0)];
-                    else
-                        massEncoded = AdjacentGridsLevel1_GSM[subBlockIndex] / subBlockGridCount;
-
-                    MassGrid_GSM[storeGridIndex] = DecodeFluidGridMass(massEncoded);
-                }
+                int massEncoded;
+                if (mapType == BLOCK_MAP_LEVEL0)
+                    massEncoded = FluidGridLevel0[srcGridIndex + FLUID_GRID_CHANNEL0_OFFSET(0)];
                 else
-                {
-                    // otherwise extrapolate from current block
-                    const uint3 indexClamped = min(dstGridIndex, FLUID_BLOCK_SIZE_LEVEL0);
-                    const uint index = GetFluidBlockGridIndexLinearLevel0(indexClamped, FLUID_BLOCK_PADDING);
-                    MassGrid_GSM[storeGridIndex] = MassGrid_GSM[index];
-                }
+                    massEncoded = AdjacentGridsLevel1_GSM[subBlockIndex] / subBlockGridCount;
+
+                MassGrid_GSM[storeGridIndex] = DecodeFluidGridMass(massEncoded);
+            }
+            else
+            {
+                // otherwise extrapolate from current block
+                const uint3 indexClamped = min(dstGridIndex, FLUID_BLOCK_SIZE_LEVEL0);
+                const uint index = GetFluidBlockGridIndexLinearLevel0(indexClamped, FLUID_BLOCK_PADDING);
+                MassGrid_GSM[storeGridIndex] = MassGrid_GSM[index];
             }
         }
 
@@ -1555,6 +1341,8 @@ groupshared float3 VelocityGrid_GSM[FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED];
 [numthreads(GRID_TO_PARTICLE_KERNEL_SIZE, 1, 1)]
 void GridToParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 {
+    const uint laneIndex = WaveGetLaneIndex();
+
     const bool pingpongFlag = GetFluidParticlePositionPingPongFlag();
 
     FOR_BLOCK_DISPATCH_LEVEL0(gid)
@@ -1591,52 +1379,11 @@ void GridToParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 
         GroupMemoryBarrierWithGroupSync();
 
-        // // read velocity from adjacent blocks
-        // #if GRID_TO_PARTICLE_KERNEL_SIZE + FLUID_BLOCK_GRID_COUNT_LEVEL0 < FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED
-        //     for (i = gi + FLUID_BLOCK_GRID_COUNT_LEVEL0; i < FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED; i += GRID_TO_PARTICLE_KERNEL_SIZE)
-        // #else
-        //     if ((i = gi + FLUID_BLOCK_GRID_COUNT_LEVEL0) < FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED)
-        // #endif
-        // {
-        //     uint3 srcGridIndex;
-        //     uint3 dstGridIndex;
-
-        //     const uint mapType = GetAdjacentBlockMap(i, dstGridIndex, srcGridIndex);
-        //     const uint storeGridIndex = GetFluidBlockGridIndexLinearLevel0(dstGridIndex, FLUID_BLOCK_PADDING);
-        //     if (mapType != BLOCK_MAP_NULL)
-        //     {
-        //         int3 velocityEncoded;
-        //         if (mapType == BLOCK_MAP_LEVEL0)
-        //         {
-        //             velocityEncoded = int3(
-        //                 FluidGridLevel0[srcGridIndex + FLUID_GRID_CHANNEL1_OFFSET],
-        //                 FluidGridLevel0[srcGridIndex + FLUID_GRID_CHANNEL2_OFFSET],
-        //                 FluidGridLevel0[srcGridIndex + FLUID_GRID_CHANNEL3_OFFSET]);
-        //         }
-        //         else
-        //         {
-        //             velocityEncoded = int3(
-        //                 FluidGridLevel1[srcGridIndex + FLUID_GRID_CHANNEL1_OFFSET],
-        //                 FluidGridLevel1[srcGridIndex + FLUID_GRID_CHANNEL2_OFFSET],
-        //                 FluidGridLevel1[srcGridIndex + FLUID_GRID_CHANNEL3_OFFSET]);
-        //         }
-
-        //         VelocityGrid_GSM[storeGridIndex] = DecodeFluidGridMomentum(velocityEncoded);
-        //     }
-        //     else
-        //     {
-        //         // otherwise extrapolate from current block
-        //         const uint3 indexClamped = min(dstGridIndex, FLUID_BLOCK_SIZE_LEVEL0);
-        //         const uint index = GetFluidBlockGridIndexLinearLevel0(indexClamped, FLUID_BLOCK_PADDING);
-        //         VelocityGrid_GSM[storeGridIndex] = VelocityGrid_GSM[index];
-        //     }
-        // }
-
         // read velocity from adjacent blocks
-        #if GRID_TO_PARTICLE_KERNEL_SIZE < FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED
-            for (i = gi; i < FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED; i += GRID_TO_PARTICLE_KERNEL_SIZE)
+        #if GRID_TO_PARTICLE_KERNEL_SIZE + FLUID_BLOCK_GRID_COUNT_LEVEL0 < FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED
+            for (i = gi + FLUID_BLOCK_GRID_COUNT_LEVEL0; i < FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED; i += GRID_TO_PARTICLE_KERNEL_SIZE)
         #else
-            if ((i = gi) < FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED)
+            if ((i = gi + FLUID_BLOCK_GRID_COUNT_LEVEL0) < FLUID_BLOCK_GRID_COUNT_LEVEL0_PADDED)
         #endif
         {
             uint3 srcGridIndex;
@@ -1644,35 +1391,32 @@ void GridToParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 
             const uint mapType = GetAdjacentBlockMap(i, dstGridIndex, srcGridIndex);
             const uint storeGridIndex = GetFluidBlockGridIndexLinearLevel0(dstGridIndex, FLUID_BLOCK_PADDING);
-            if (any(dstGridIndex >= FLUID_BLOCK_SIZE_LEVEL0))
+            if (mapType != BLOCK_MAP_NULL)
             {
-                if (mapType != BLOCK_MAP_NULL)
+                int3 velocityEncoded;
+                if (mapType == BLOCK_MAP_LEVEL0)
                 {
-                    int3 velocityEncoded;
-                    if (mapType == BLOCK_MAP_LEVEL0)
-                    {
-                        velocityEncoded = int3(
-                            FluidGridLevel0[srcGridIndex + FLUID_GRID_CHANNEL1_OFFSET(0)],
-                            FluidGridLevel0[srcGridIndex + FLUID_GRID_CHANNEL2_OFFSET(0)],
-                            FluidGridLevel0[srcGridIndex + FLUID_GRID_CHANNEL3_OFFSET(0)]);
-                    }
-                    else
-                    {
-                        velocityEncoded = int3(
-                            FluidGridLevel1[srcGridIndex + FLUID_GRID_CHANNEL1_OFFSET(1)],
-                            FluidGridLevel1[srcGridIndex + FLUID_GRID_CHANNEL2_OFFSET(1)],
-                            FluidGridLevel1[srcGridIndex + FLUID_GRID_CHANNEL3_OFFSET(1)]);
-                    }
-
-                    VelocityGrid_GSM[storeGridIndex] = DecodeFluidGridMomentum(velocityEncoded);
+                    velocityEncoded = int3(
+                        FluidGridLevel0[srcGridIndex + FLUID_GRID_CHANNEL1_OFFSET(0)],
+                        FluidGridLevel0[srcGridIndex + FLUID_GRID_CHANNEL2_OFFSET(0)],
+                        FluidGridLevel0[srcGridIndex + FLUID_GRID_CHANNEL3_OFFSET(0)]);
                 }
                 else
                 {
-                    // otherwise extrapolate from current block
-                    const uint3 indexClamped = min(dstGridIndex, FLUID_BLOCK_SIZE_LEVEL0);
-                    const uint index = GetFluidBlockGridIndexLinearLevel0(indexClamped, FLUID_BLOCK_PADDING);
-                    VelocityGrid_GSM[storeGridIndex] = VelocityGrid_GSM[index];
+                    velocityEncoded = int3(
+                        FluidGridLevel1[srcGridIndex + FLUID_GRID_CHANNEL1_OFFSET(1)],
+                        FluidGridLevel1[srcGridIndex + FLUID_GRID_CHANNEL2_OFFSET(1)],
+                        FluidGridLevel1[srcGridIndex + FLUID_GRID_CHANNEL3_OFFSET(1)]);
                 }
+
+                VelocityGrid_GSM[storeGridIndex] = DecodeFluidGridMomentum(velocityEncoded);
+            }
+            else
+            {
+                // otherwise extrapolate from current block
+                const uint3 indexClamped = min(dstGridIndex, FLUID_BLOCK_SIZE_LEVEL0);
+                const uint index = GetFluidBlockGridIndexLinearLevel0(indexClamped, FLUID_BLOCK_PADDING);
+                VelocityGrid_GSM[storeGridIndex] = VelocityGrid_GSM[index];
             }
         }
 
@@ -1766,16 +1510,14 @@ void GridToParticle(uint3 gid : SV_GroupID, uint gi : SV_GroupIndex)
 //   clear partition sums group count, indirect args{2}
 //   indirect arg, particle count, indirect args{2}
 //   level 0 block dispatch group count, indirect args{2},
-//   level 1 block dispatch group count, indirect args{2},
-//   first p2g dispatch group count, indirect args{2},
+//   level 1 block dispatch group count, indirect args{2}
 // }
 // initial value: { x, 1, 1,
 //                  x, 1, 1,
 //                  x, 1, 1,
 //                  1, x, 0, 0,
 //                  max level 0 block partition count, 1, 1,
-//                  max level 1 block partition count, 1, 1,
-//                  x, 1, 1 }
+//                  max level 1 block partition count, 1, 1 }
 extern RWBuffer<uint> IndirectArgs;
 
 uint GetGroupCount(uint nelem, uint kernelSize)
@@ -1806,7 +1548,6 @@ void GenerateIndirectArgs1()
     const uint blockCountLevel0 = GetFluidBlockCount(0);
     IndirectArgs[0] = GetGroupCount(blockCountLevel0 * FLUID_BLOCK_GRID_COUNT_LEVEL0, SCAN_MAX_PARTITION_SIZE);
     IndirectArgs[13] = GetGroupCount(blockCountLevel0, BLOCK_DISPATCH_PARTITION);
-    IndirectArgs[19] = GetGroupCount(blockCountLevel0, PARTICLE_TO_GRID_KERNEL_SIZE);
 
     const uint blockCountLevel1 = GetFluidBlockCount(1);
     IndirectArgs[16] = GetGroupCount(blockCountLevel1, BLOCK_DISPATCH_PARTITION);
