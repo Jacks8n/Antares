@@ -9,7 +9,7 @@ namespace Antares.Graphics
 {
     public class DebugBuffer : IDisposable
     {
-        public const int MaxDebugLogCount = 128;
+        public const int MaxDebugLogCount = 512;
 
         private enum LogType
         {
@@ -26,7 +26,7 @@ namespace Antares.Graphics
             public LogType Type;
 
             [FieldOffset(0)]
-            public int LogCount;
+            public int WordCount;
 
             [FieldOffset(0)]
             public int IntValue0;
@@ -95,12 +95,12 @@ namespace Antares.Graphics
 
         public void Reset()
         {
-            _debugBuffer.SetData(new DebugLog[] { new DebugLog() { LogCount = 0 } });
+            _debugBuffer.SetData(new DebugLog[] { new DebugLog() { WordCount = 0 } });
         }
 
         public void Reset(CommandBuffer cmd)
         {
-            cmd.SetBufferData(_debugBuffer, new DebugLog[] { new DebugLog() { LogCount = 0 } });
+            cmd.SetBufferData(_debugBuffer, new DebugLog[] { new DebugLog() { WordCount = 0 } });
         }
 
         public DebugBuffer Read()
@@ -109,13 +109,14 @@ namespace Antares.Graphics
             return this;
         }
 
-        public bool ForEach(Action<object> action)
+        public int ForEach(Action<object> action)
         {
-            int count = _logData[0].LogCount;
-            if (count > MaxDebugLogCount)
-                count = MaxDebugLogCount;
+            int wordCount = _logData[0].WordCount;
+            if (wordCount > MaxDebugLogCount)
+                wordCount = MaxDebugLogCount;
 
-            for (int i = 1; i < count + 1; i++)
+            int logCount = 0;
+            for (int i = 1; i < wordCount + 1; i++)
             {
                 // skip the first element which is used as a counter
                 DebugLog log = _logData[i];
@@ -156,13 +157,17 @@ namespace Antares.Graphics
                     case LogType.Float4:
                         action(new Vector4(log.FloatValue1, _logData[++i].FloatValue0, _logData[i].FloatValue1, _logData[++i].FloatValue0));
                         break;
+                    default:
+                        continue;
                 }
+
+                logCount++;
             }
 
-            return count > 0;
+            return logCount;
         }
 
-        public bool PrintAll()
+        public int PrintAll()
         {
             return ForEach(value => Debug.Log(value));
         }

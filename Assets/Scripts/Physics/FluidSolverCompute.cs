@@ -100,14 +100,22 @@ namespace Antares.Graphics
 
             public const int MaxParticleCount = 1 << 20;
 
-            public const int BlockSizeLevel0 = 4;
+            public const int BlockSizeLevel0 = 3;
             public const int BlockSizeLevel1 = 4;
 
             public const int GridPerBlockLevel0 = BlockSizeLevel0 * BlockSizeLevel0 * BlockSizeLevel0;
             public const int GridPerBlockLevel1 = BlockSizeLevel1 * BlockSizeLevel1 * BlockSizeLevel1;
 
-            public const int BlockCountLevel0 = 64 * 32 * 32;
-            public const int BlockCountLevel1 = 64 * 32 * 32;
+            public const int BlockCountXLevel0 = 64;
+            public const int BlockCountYLevel0 = 64;
+            public const int BlockCountZLevel0 = 32;
+
+            public const int BlockCountXLevel1 = 64;
+            public const int BlockCountYLevel1 = 32;
+            public const int BlockCountZLevel1 = 32;
+
+            public const int BlockCountLevel0 = BlockCountXLevel0 * BlockCountYLevel0 * BlockCountZLevel0;
+            public const int BlockCountLevel1 = BlockCountXLevel1 * BlockCountYLevel1 * BlockCountZLevel1;
 
             public const int GridCountLevel0 = BlockCountLevel0 * GridPerBlockLevel0;
             public const int GridCountLevel1 = BlockCountLevel1 * GridPerBlockLevel1;
@@ -128,8 +136,8 @@ namespace Antares.Graphics
 
             public const int MaxFluidEmitterPropertyCount = MaxFluidEmitterDispatchCount * 4;
 
-            public static Vector3Int GridSizeLevel0 { get => new Vector3Int(64 * GridChannelCount, 32, 32) * BlockSizeLevel0; }
-            public static Vector3Int GridSizeLevel1 { get => new Vector3Int(64 * GridChannelCount, 32, 32) * BlockSizeLevel1; }
+            public static Vector3Int GridSizeLevel0 { get => new Vector3Int(BlockCountXLevel0 * GridChannelCount, BlockCountZLevel0, BlockCountYLevel0) * BlockSizeLevel0; }
+            public static Vector3Int GridSizeLevel1 { get => new Vector3Int(BlockCountXLevel1 * GridChannelCount, BlockCountZLevel1, BlockCountYLevel1) * BlockSizeLevel1; }
             public static Vector3Int GridSizeLevel2 { get => new Vector3Int(256, 256, 256); }
 
             [field: SerializeField, LabelText(nameof(Shader))]

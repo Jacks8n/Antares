@@ -1,6 +1,6 @@
 ﻿#pragma once
 
-#define MAX_DEBUG_LOG_COUNT 128
+#define MAX_DEBUG_LOG_COUNT 512
 
 #define LOG_TYPE_INT 0
 #define LOG_TYPE_UINT 1

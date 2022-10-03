@@ -148,7 +148,7 @@ namespace Antares.Physics
             _fluidGridLevel1 = CreateRWVolumeRT(GraphicsFormat.R32_UInt, GridSizeLevel1);
             _fluidGridLevel2 = CreateRWVolumeRT(GraphicsFormat.R32_UInt, GridSizeLevel2);
 
-            _fluidBlockParticleOffsetsBuffer = new ComputeBuffer(4 + BlockCountLevel0 * (4 + GridPerBlockLevel0), 4, ComputeBufferType.Structured, ComputeBufferMode.Dynamic);
+            _fluidBlockParticleOffsetsBuffer = new ComputeBuffer(4 + BlockCountLevel0 * (5 + GridPerBlockLevel0), 4, ComputeBufferType.Structured, ComputeBufferMode.Dynamic);
 
             _partitionSumsBuffer = new ComputeBuffer(1 + 2 * PrefixSumPartitionCount, 4, ComputeBufferType.Structured, ComputeBufferMode.Immutable);
 
@@ -319,6 +319,7 @@ namespace Antares.Physics
             }
 
             kernel = fluidSolver.ParticleToGrid1Kernel;
+
             cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel0, _fluidGridLevel0);
             cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel1, _fluidGridLevel1);
             cmd.SetComputeTextureParam(shader, kernel, Bindings.FluidGridLevel2, _fluidGridLevel2);
@@ -349,7 +350,7 @@ namespace Antares.Physics
             cmd.DispatchCompute(shader, kernel, _indirectArgsBuffer, 52);
         }
 
-        public void AddParticles(CommandBuffer cmd, EmitterBufferBuilder emitterBufferBuilder)
+        public void AddParticles(CommandBuffer cmd, EmitterBufferBuilder emitterBufferBuilder, int seed)
         {
             Debug.Assert(emitterBufferBuilder.Submitted);
 
@@ -362,7 +363,7 @@ namespace Antares.Physics
 
             FluidSolverCompute fluidEmitter = _shaderSpecs.FluidSolver;
             ComputeShader shader = fluidEmitter.Shader;
-            AddParticlesParameters parameters = new AddParticlesParameters(mass: 1f, randomSeed: UnityEngine.Random.Range(0, int.MaxValue));
+            AddParticlesParameters parameters = new AddParticlesParameters(mass: 1f, randomSeed: seed);
             ConstantBuffer.Push(cmd, parameters, shader, Bindings.AddParticlesParameters);
 
             int kernel = fluidEmitter.AddParticlesKernel;
@@ -373,6 +374,11 @@ namespace Antares.Physics
             cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticleProperties, _fluidParticlePropertiesBuffer);
             cmd.SetComputeBufferParam(shader, kernel, Bindings.FluidParticlePropertyPool, _fluidParticlePropertyPoolBuffer);
             cmd.DispatchCompute(shader, kernel, emitterBufferBuilder.PartitionCount, 1, 1);
+        }
+
+        public void AddParticles(CommandBuffer cmd, EmitterBufferBuilder emitterBufferBuilder)
+        {
+            AddParticles(cmd, emitterBufferBuilder, UnityEngine.Random.Range(0, int.MaxValue));
         }
 
         public void RenderDebugParticles(CommandBuffer cmd, Camera camera, float particleSize = .25f)
